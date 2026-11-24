@@ -29,7 +29,7 @@
     '「リオ！」',
     '　振り返ると、ガルドが息を切らして立っていた。',
     '「一人で行くなと言っただろう。……まったく、お前は昔から変わらん」',
-    '　ガルドは大剣を構え、霧の奥をにらんだ。「下がっていろ、リオ。ここは儂が食い止める」',
+    '　ガルドは|大剣《ツヴァイハンダー》を構え、霧の奥をにらんだ。「下がっていろ、リオ。ここは儂が食い止める」',
     '　霧の中から、赤い瞳がいくつも浮かび上がる。',
     '　それが、リオが師匠の背中を見た最後だった。',
   ].join('\n');
@@ -41,6 +41,7 @@
     '　風が吹いた。背後で、聞き慣れた声がした。',
     '「泣くな、小僧」と、ガルドは笑った。',
     '　リオは息をのんだ。',
+    '　すべては、あの|星降りの夜《スターフォール》から始まっていたのだ。',
   ].join('\n');
 
   function create() {
@@ -104,6 +105,7 @@
     p.ideas = [
       { id: UI.uid('i'), body: '星晶石は持ち主の感情に反応して光る\nリオの剣の柄にも小さな星晶石がはまっている（師匠の形見）', kind: '設定', tags: ['星晶石', '伏線'], color: '#3d7ea6', pinned: true, createdAt: now, updatedAt: now },
       { id: UI.uid('i'), body: 'セレナは実は王家の血を引いている？', kind: '伏線', tags: ['セレナ'], color: '#5f4b8b', pinned: false, createdAt: now - 3600e3, updatedAt: now - 3600e3 },
+      { id: UI.uid('i'), body: '世界を変えた大災厄。人々はこう呼ぶ', word: '星降りの夜', reading: 'スターフォール', kind: '読み方', tags: ['読み方'], color: '#d9a441', pinned: false, createdAt: now - 1800e3, updatedAt: now - 1800e3 },
       { id: UI.uid('i'), body: '「泣くのは、全部終わってからにしなさい」', kind: '台詞', tags: ['セレナ'], color: '', pinned: false, createdAt: now - 7200e3, updatedAt: now - 7200e3 },
       { id: UI.uid('i'), body: 'ラストシーン\n星降りの丘で、二人が流星を見上げる', kind: 'シーン', tags: ['終盤'], color: '#d9a441', pinned: false, createdAt: now - 86400e3, updatedAt: now - 86400e3 },
     ];

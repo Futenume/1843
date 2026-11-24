@@ -122,6 +122,8 @@
     '- reason は日本語で簡潔に（60字程度まで）。',
     '- 台詞の口語表現（い抜き言葉など）や、登場人物の個性としての言葉遣いは、明らかな誤りでない限り指摘しない。',
     '- 好みの問題にすぎない書き換えは控え、本当に直すべき箇所を優先する。多くても40件まで。',
+    '- ルビ記法（|漢字《かんじ》、漢字《かんじ》）や傍点記法（《《強調》》）は作者が意図した表記なので、記法そのものを誤りとして指摘しない。',
+    '- 「作者が登録した読み方」にある読み・ルビは、普段と違う読み方でも誤りとして指摘しない。',
     '- summary には原稿全体の講評（良い点と改善点）を2〜4文で書く。',
   ].join('\n');
 
@@ -133,6 +135,7 @@
     '- problem に何が食い違っているかを書き、setting にはその根拠となる設定資料の記述を短く引用する（原稿内の前後矛盾なら、食い違う相手の箇所）。',
     '- suggestion には quote をそのまま置き換えられる、設定に合わせた修正案を入れる。示せない場合は空文字。',
     '- 設定資料に書かれていないことを推測で矛盾扱いしない。確実なものだけを、多くても30件まで。',
+    '- 「作者が登録した読み方」にある読み・ルビは意図したものなので指摘しない。',
     '- summary には全体の所見を1〜3文で書く。食い違いがなければ items は空配列にする。',
   ].join('\n');
 
@@ -199,6 +202,12 @@
     return `## 設定資料\n<settings>\n${md}\n</settings>`;
   }
 
+  function readingsBlock(project) {
+    const list = NS.Readings ? NS.Readings.collect(project) : [];
+    if (!list.length) return '';
+    return '## 作者が登録した読み方（ルビ）\n' + list.map((r) => `- ${r.base}《${r.reading}》`).join('\n') + '\nこれらは意図した読み方なので、誤りとして指摘しないこと。\n\n';
+  }
+
   /** AI の引用を本文中の位置に結びつける */
   function locate(text, quote, offset, from) {
     if (!quote) return null;
@@ -225,7 +234,7 @@
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : full;
     const offset = sel ? sel.start : 0;
-    const user = (ctx.project.synopsis ? `## 作品のあらすじ\n${ctx.project.synopsis}\n\n` : '') + manuscriptBlock(ctx, text);
+    const user = (ctx.project.synopsis ? `## 作品のあらすじ\n${ctx.project.synopsis}\n\n` : '') + readingsBlock(ctx.project) + manuscriptBlock(ctx, text);
     const data = await runJSON(PROOF_SYSTEM, user, PROOF_SCHEMA, { signal, onText });
     let cursor = 0;
     const items = (data.items || []).map((it) => {
@@ -246,7 +255,7 @@
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : full;
     const offset = sel ? sel.start : 0;
-    const user = settingsBlock(ctx.project) + '\n\n' + manuscriptBlock(ctx, text);
+    const user = settingsBlock(ctx.project) + '\n\n' + readingsBlock(ctx.project) + manuscriptBlock(ctx, text);
     const data = await runJSON(CONS_SYSTEM, user, CONS_SCHEMA, { signal, onText });
     let cursor = 0;
     const items = (data.items || []).map((it) => {

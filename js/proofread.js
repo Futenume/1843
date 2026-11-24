@@ -47,6 +47,8 @@
       desc: '「出来る／できる」「子供／子ども」など、作品内で表記が揺れている語を検出します。' },
     { id: 'style-rule', name: '表記統一ルール', category: '表記', severity: 'warning', default: true, fix: true,
       desc: '設定資料の「表記統一ルール」に登録した置き換えをチェックします。' },
+    { id: 'ruby', name: 'ルビの確認', category: '表記', severity: 'info', default: true, fix: true,
+      desc: '空のルビ、普段と違う読み（当て字）、同じ語のルビの揺れを確認します。アイデア帳に「読み方」として登録した読み（例：足《アルファ》）は指摘しません。' },
     { id: 'numbers', name: '算用数字（縦書き向け）', category: '表記', severity: 'info', default: false, fix: true,
       desc: '縦書き原稿向けに、算用数字を漢数字にする提案をします。' },
   ];
@@ -459,6 +461,8 @@
       });
     }
 
+    if (enabled('ruby')) checkRuby(text, add, opts);
+
     if (enabled('numbers')) {
       eachMatch(/[0-9０-９]+/g, m, (mm) => {
         const prev = m[mm.index - 1] || '';
@@ -642,6 +646,58 @@
     });
   }
 
+  /** ルビ：空のルビ・登録と違う読み・揺れ・当て字（登録済みの読みは指摘しない） */
+  function checkRuby(text, add, opts) {
+    const R = NS.Readings;
+    if (!R) return;
+    const reg = opts.readings instanceof Map ? opts.readings : R.index(opts.readings || []);
+    const corpusR = new Map();
+    (Array.isArray(opts.corpus) && opts.corpus.length ? opts.corpus : [text]).forEach((t) => {
+      R.findRubies(t || '').forEach((r) => {
+        if (!r.reading.trim()) return;
+        const n = R.normReading(r.reading);
+        if (!corpusR.has(r.base)) corpusR.set(r.base, new Map());
+        const mm = corpusR.get(r.base);
+        const v = mm.get(n) || { count: 0, reading: r.reading };
+        v.count++;
+        mm.set(n, v);
+      });
+    });
+    R.findRubies(text).forEach((r) => {
+      if (!r.reading.trim()) {
+        add('ruby', r.start, r.end, `「${r.base}」のルビが空です`, null, { severity: 'error' });
+        return;
+      }
+      const n = R.normReading(r.reading);
+      const entry = reg.get(r.base);
+      if (entry) {
+        if (entry.readings.has(n)) return; // 登録済みの読み → 指摘しない
+        if (R.looksSpecial(r.base, r.reading) || entry.items.some((it) => R.looksSpecial(it.base, it.reading))) {
+          const want = entry.items[0].reading;
+          add('ruby', r.readingStart, r.readingEnd, `「${r.base}」は「${want}」と読む設定です（本文：「${r.reading}」）`, want, { severity: 'warning' });
+        }
+        return;
+      }
+      const variants = corpusR.get(r.base);
+      if (variants && variants.size > 1) {
+        let best = null;
+        variants.forEach((v, k) => { if (!best || v.count > best.count) best = { k, count: v.count, reading: v.reading }; });
+        if (best.k !== n) {
+          const list = Array.from(variants.values()).map((v) => `「${v.reading}」${v.count}回`).join('・');
+          add('ruby', r.readingStart, r.readingEnd,
+            `ルビの揺れ：「${r.base}」に${list}。意図した使い分けなら、アイデア帳に読み方を登録すると指摘しなくなります`,
+            best.reading, { action: { type: 'register-reading', base: r.base, reading: r.reading } });
+          return;
+        }
+      }
+      if (R.looksSpecial(r.base, r.reading)) {
+        add('ruby', r.start, r.end,
+          `特殊な読み：「${r.base}」を「${r.reading}」と読ませています。意図した読みなら、アイデア帳に「読み方」として登録すると、この指摘は出なくなります`,
+          null, { action: { type: 'register-reading', base: r.base, reading: r.reading } });
+      }
+    });
+  }
+
   function issueKey(it) {
     return it.ruleId + '|' + it.text;
   }
@@ -656,7 +712,7 @@
       seen.add(k);
       it.key = issueKey(it);
       if (ignore && ignore.has && ignore.has(it.key)) return;
-      if (masked && masked.slice(it.start, it.end).indexOf(FILLER) >= 0 && it.suggestion != null) {
+      if (it.ruleId !== 'ruby' && masked && masked.slice(it.start, it.end).indexOf(FILLER) >= 0 && it.suggestion != null) {
         it.suggestion = null;
         it.fixable = false;
       }

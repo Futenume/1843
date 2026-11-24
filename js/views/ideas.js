@@ -5,7 +5,7 @@
   'use strict';
   const UI = NS.UI;
   const { h, icon, btn, clear, toast } = UI;
-  const KINDS = ['アイデア', '台詞', 'シーン', '設定', '伏線', 'タイトル案', '資料'];
+  const KINDS = ['アイデア', '台詞', 'シーン', '設定', '伏線', 'タイトル案', '読み方', '資料'];
 
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
@@ -29,22 +29,40 @@
     const body = h('textarea', { class: 'input quick-input', rows: 3, placeholder: '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった' });
     const kindSel = h('select', { class: 'input', 'aria-label': '種類' }, KINDS.map((k) => h('option', { value: k }, k)));
     const tags = h('input', { class: 'input', type: 'text', placeholder: 'タグ（、区切り）', 'aria-label': 'タグ' });
+    // 種類「読み方」のときは、表記と読みを入れる欄を出す
+    const word = h('input', { class: 'input', type: 'text', placeholder: '表記（例：足）', 'aria-label': '表記' });
+    const reading = h('input', { class: 'input', type: 'text', placeholder: '読み（例：アルファ）', 'aria-label': '読み' });
+    const readingRow = h('div', { class: 'reading-inputs', hidden: true },
+      h('span', { class: 'small muted' }, '普段とは違う読み方を登録すると、そのルビは添削で指摘しなくなります。'),
+      h('div', { class: 'row' }, word, h('span', { class: 'muted' }, '《'), reading, h('span', { class: 'muted' }, '》')));
+    kindSel.addEventListener('change', () => {
+      const isReading = kindSel.value === '読み方';
+      readingRow.hidden = !isReading;
+      body.placeholder = isReading ? 'メモ（任意）：使う場面、由来など' : '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった';
+      if (isReading) word.focus();
+    });
     const add = () => {
       const v = body.value.trim();
-      if (!v) { body.focus(); return; }
-      P().ideas.unshift({
+      const isReading = kindSel.value === '読み方';
+      if (isReading && (!word.value.trim() || !reading.value.trim())) { (word.value.trim() ? reading : word).focus(); toast('表記と読みを入れてください'); return; }
+      if (!isReading && !v) { body.focus(); return; }
+      P().ideas.unshift(Object.assign({
         id: UI.uid('i'), body: v, kind: kindSel.value, tags: splitTags(tags.value), color: '', pinned: false,
         createdAt: Date.now(), updatedAt: Date.now(),
-      });
+      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {}));
       touch();
       body.value = '';
+      word.value = '';
+      reading.value = '';
       renderFilters();
       renderGrid();
       body.focus();
       toast('メモしました');
     };
     body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add(); } });
+    [word, reading].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } }));
     wrap.appendChild(h('section', { class: 'quick-add card' },
+      readingRow,
       body,
       h('div', { class: 'row wrap' }, kindSel, tags, btn('メモする', { icon: 'plus', primary: true, onClick: add }))));
 
@@ -83,7 +101,7 @@
     clear(IS.grid);
     const q = IS.q.trim();
     const list = p.ideas
-      .filter((i) => (!q || i.body.indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
+      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
       .sort((a, b) => (b.pinned - a.pinned) || (b.updatedAt - a.updatedAt));
     if (!list.length) {
       IS.grid.appendChild(h('div', { class: 'empty' }, p.ideas.length ? '条件に合うメモはありません' : 'まだメモがありません。思いついたことは何でも上の欄に書き留めておきましょう。'));
@@ -133,12 +151,16 @@
       it.pinned ? icon('pin', 14) : null,
       h('span', { class: 'muted small idea-date' }, UI.relTime(it.updatedAt)),
       more),
-    h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
+    it.word && it.reading
+      ? h('div', { class: 'idea-body' }, h('div', { class: 'reading-big', html: NS.Text.rubyToHtml('|' + it.word + '《' + it.reading + '》', { vertical: false }) }), it.body ? h('p', null, it.body) : null)
+      : h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
     it.tags.length ? h('div', { class: 'idea-tags' }, it.tags.map((t) => h('span', { class: 'tag' }, '#' + t))) : null);
   }
 
   function editIdea(it) {
     const body = h('textarea', { class: 'input', rows: 8, value: it.body });
+    const word = h('input', { class: 'input', type: 'text', value: it.word || '', placeholder: '表記' });
+    const reading = h('input', { class: 'input', type: 'text', value: it.reading || '', placeholder: '読み' });
     const kindSel = h('select', { class: 'input' }, KINDS.map((k) => h('option', { value: k, selected: it.kind === k }, k)));
     const tags = h('input', { class: 'input', type: 'text', value: it.tags.join('、') });
     let color = it.color || '';
@@ -148,11 +170,14 @@
     })));
     UI.modal({
       title: 'メモを編集', wide: true,
-      body: h('div', { class: 'stack' }, body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
+      body: h('div', { class: 'stack' },
+        it.kind === '読み方' || it.word ? h('div', { class: 'grid-2' }, UI.field('表記', word), UI.field('読み', reading)) : null,
+        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
       actions: [
         { label: 'キャンセル', ghost: true },
         { label: '保存', primary: true, onClick: () => {
-          it.body = body.value.trim() || it.body;
+          it.body = body.value.trim() || (it.word ? '' : it.body);
+          if (it.kind === '読み方' || it.word) { it.word = word.value.trim(); it.reading = reading.value.trim(); }
           it.kind = kindSel.value;
           it.tags = splitTags(tags.value);
           it.color = color;

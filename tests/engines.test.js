@@ -217,3 +217,47 @@ test('新しい地図は山や森の素材を自動で置き、陸と海の区�
   const again = MapEngine.decodeHeights(MapEngine.encodeHeights(H), m.gw * m.gh);
   for (let i = 0; i < H.length; i++) assert.equal(Math.sign(again[i]) || 1, Math.sign(H[i]) || 1);
 });
+
+// ───── 特殊な読み（ルビ） ─────
+require('../js/readings.js');
+const { Readings } = globalThis.Tsuzuri;
+
+test('アイデア帳・設定資料から読み方を集める', () => {
+  const project = {
+    ideas: [
+      { id: 'i1', kind: '読み方', word: '足', reading: 'アルファ', body: '' },
+      { id: 'i2', kind: 'アイデア', body: '魔眼《イビルアイ》は代償が重い' },
+      { id: 'i3', kind: '読み方', body: '刹那＝せつな\n終焉（エンド）' },
+    ],
+    entries: [{ id: 'e1', name: '星晶石', reading: 'せいしょうせき' }, { id: 'e2', name: '斎藤 蓮', reading: 'さいとう れん' }],
+  };
+  const list = Readings.collect(project);
+  const has = (b, r) => list.some((x) => x.base === b && x.reading === r);
+  assert.ok(has('足', 'アルファ'));
+  assert.ok(has('魔眼', 'イビルアイ'));
+  assert.ok(has('刹那', 'せつな'));
+  assert.ok(has('終焉', 'エンド'));
+  assert.ok(has('星晶石', 'せいしょうせき'));
+  assert.ok(has('蓮', 'れん'));
+});
+
+test('登録した特殊な読みのルビは添削しない', () => {
+  const text = '　彼は|足《アルファ》を構えた。魔眼《イビルアイ》が光る。';
+  const before = rules(text);
+  assert.ok(before.some((i) => i.ruleId === 'ruby' && i.text.includes('アルファ') && i.action && i.action.type === 'register-reading'), '未登録なら特殊な読みとして提案');
+  const readings = Readings.index([{ base: '足', reading: 'アルファ' }, { base: '魔眼', reading: 'いびるあい' }]);
+  const after = rules(text, { readings });
+  assert.ok(!after.some((i) => i.ruleId === 'ruby'), '登録済み（ひらがな・カタカナの違いも同一視）なら指摘しない');
+});
+
+test('登録と違う読み・空のルビ・ルビの揺れ', () => {
+  const readings = Readings.index([{ base: '足', reading: 'アルファ' }]);
+  const r1 = rules('|足《アルフア》が動く。', { readings });
+  const w = r1.find((i) => i.ruleId === 'ruby');
+  assert.ok(w && w.severity === 'warning' && w.suggestion === 'アルファ');
+  assert.equal(Proofread.applyFixes('|足《アルフア》が動く。', [w]), '|足《アルファ》が動く。');
+  assert.ok(rules('|空《》').some((i) => i.ruleId === 'ruby' && i.severity === 'error'));
+  const corpus = ['刹那《せつな》と刹那《せつな》', '刹那《いっしゅん》'];
+  const r2 = rules(corpus[1], { corpus });
+  assert.ok(r2.some((i) => i.ruleId === 'ruby' && i.suggestion === 'せつな'));
+});

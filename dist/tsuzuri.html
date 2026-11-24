@@ -579,6 +579,15 @@ ruby rt { font-size: 0.5em; }
 .idea-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag { font-size: 11.5px; color: var(--accent); }
 
+.reading-inputs { display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px; border-bottom: 1px dashed var(--line); }
+.reading-inputs .input { max-width: 220px; }
+.reading-big { font-family: var(--font-serif); font-size: 22px; line-height: 2; }
+.reading-big rt { font-size: 0.45em; color: var(--accent); }
+.reading-list { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.reading-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 0; background: none; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-family: var(--font-serif); font-size: 15px; line-height: 2; text-align: left; }
+.reading-row:hover { background: var(--surface-2); }
+.reading-row rt { font-size: 0.5em; color: var(--accent); }
+
 /* ───── プロット ───── */
 .plot { height: 100%; display: flex; flex-direction: column; padding: 14px 16px 0; gap: 10px; }
 .plot-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -1091,6 +1100,112 @@ ruby rt { font-size: 0.5em; }
 
 </script>
 <script>
+// js/readings.js
+/*
+ * 綴り — 特殊な読み方（ルビ）の登録簿
+ * アイデア帳（種類「読み方」や、本文に 足《アルファ》 のように書いたメモ）と、
+ * 設定資料の「読み」から、作者が意図した読み方を集める。添削・AI・辞書で使う。
+ */
+(function (NS) {
+  'use strict';
+  const KANJI = '一-鿿㐀-䶿々〆ヵヶ';
+  const RE_PIPE = /[|｜]([^|｜《》\n]{1,20})《([^《》\n]*)》/g;
+  const RE_KANJI = new RegExp('([' + KANJI + ']+)《([^《》\\n]*)》', 'g');
+
+  /** カタカナ→ひらがな、空白除去（読みの比較用） */
+  function normReading(s) {
+    return String(s || '').replace(/[\s　・]/g, '').replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  }
+
+  function hasKanji(s) { return new RegExp('[' + KANJI + ']').test(s); }
+
+  /** 文章中のルビ記法を位置付きで取り出す */
+  function findRubies(text) {
+    const out = [];
+    let m;
+    RE_PIPE.lastIndex = 0;
+    while ((m = RE_PIPE.exec(text)) !== null) {
+      const baseStart = m.index + 1;
+      const readingStart = baseStart + m[1].length + 1;
+      out.push({ start: m.index, end: m.index + m[0].length, base: m[1], reading: m[2], baseStart, readingStart, readingEnd: readingStart + m[2].length, pipe: true });
+    }
+    RE_KANJI.lastIndex = 0;
+    while ((m = RE_KANJI.exec(text)) !== null) {
+      const prevEnd = out.find((r) => r.pipe && m.index >= r.start && m.index < r.end);
+      if (prevEnd) continue;
+      const readingStart = m.index + m[1].length + 1;
+      out.push({ start: m.index, end: m.index + m[0].length, base: m[1], reading: m[2], baseStart: m.index, readingStart, readingEnd: readingStart + m[2].length, pipe: false });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }
+
+  /** メモの一行から「表記・読み」の組を読み取る（足＝アルファ、足 → アルファ、足（アルファ） など） */
+  function parseLine(line) {
+    const t = line.trim();
+    if (!t) return null;
+    let m = t.match(/^([^＝=→:：（(／/\s]+)\s*(?:＝|=|→|:|：|／|\/)\s*([^\s（(]+)/);
+    if (m) return { base: m[1].replace(/^[|｜]/, ''), reading: m[2] };
+    m = t.match(/^([^（(\s]+)\s*[（(]([^）)]+)[）)]/);
+    if (m) return { base: m[1].replace(/^[|｜]/, ''), reading: m[2] };
+    return null;
+  }
+
+  /** 作品から登録された読み方を集める */
+  function collect(project) {
+    const list = [];
+    const seen = new Set();
+    const add = (base, reading, source, id, note) => {
+      base = String(base || '').trim();
+      reading = String(reading || '').trim();
+      if (!base || !reading) return;
+      const k = base + '\u0000' + normReading(reading);
+      if (seen.has(k)) return;
+      seen.add(k);
+      list.push({ base, reading, source, id, note: note || '' });
+    };
+    ((project && project.ideas) || []).forEach((it) => {
+      if (it.word && it.reading) add(it.word, it.reading, 'idea', it.id, it.body);
+      findRubies(it.body || '').forEach((r) => add(r.base, r.reading, 'idea', it.id));
+      if (it.kind === '読み方') (it.body || '').split('\n').forEach((line) => { const p = parseLine(line); if (p) add(p.base, p.reading, 'idea', it.id); });
+    });
+    ((project && project.entries) || []).forEach((e) => {
+      if (!e.reading) return;
+      const name = String(e.name || '').replace(/[\s　]/g, '');
+      if (hasKanji(name)) add(name, e.reading.replace(/[\s　]/g, ''), 'lore', e.id);
+      // 姓・名に分けて読みも分けて書いてある場合（山田 太郎 / やまだ たろう）
+      const parts = String(e.name || '').trim().split(/[\s　]+/);
+      const rp = String(e.reading || '').trim().split(/[\s　]+/);
+      if (parts.length > 1 && parts.length === rp.length) parts.forEach((p, i) => { if (hasKanji(p)) add(p, rp[i], 'lore', e.id); });
+    });
+    return list;
+  }
+
+  /** 表記 → 読みの集合 */
+  function index(list) {
+    const map = new Map();
+    (list || []).forEach((r) => {
+      if (!map.has(r.base)) map.set(r.base, { readings: new Set(), items: [] });
+      const v = map.get(r.base);
+      v.readings.add(normReading(r.reading));
+      v.items.push(r);
+    });
+    return map;
+  }
+
+  /** 普段とは違う読み（当て字）らしいか */
+  function looksSpecial(base, reading) {
+    if (!hasKanji(base)) return false;
+    if (/[ァ-ヺ]/.test(reading)) return true; // カタカナの読み
+    if (/[A-Za-zＡ-Ｚａ-ｚ]/.test(reading)) return true;
+    const kanjiCount = (base.match(new RegExp('[' + KANJI + ']', 'g')) || []).length;
+    return normReading(reading).length > kanjiCount * 4 + 1;
+  }
+
+  NS.Readings = { collect, index, findRubies, normReading, looksSpecial, parseLine, hasKanji };
+})(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
+
+</script>
+<script>
 // js/proofread.js
 /*
  * 綴り — 添削エンジン（ルールベース）
@@ -1141,6 +1256,8 @@ ruby rt { font-size: 0.5em; }
       desc: '「出来る／できる」「子供／子ども」など、作品内で表記が揺れている語を検出します。' },
     { id: 'style-rule', name: '表記統一ルール', category: '表記', severity: 'warning', default: true, fix: true,
       desc: '設定資料の「表記統一ルール」に登録した置き換えをチェックします。' },
+    { id: 'ruby', name: 'ルビの確認', category: '表記', severity: 'info', default: true, fix: true,
+      desc: '空のルビ、普段と違う読み（当て字）、同じ語のルビの揺れを確認します。アイデア帳に「読み方」として登録した読み（例：足《アルファ》）は指摘しません。' },
     { id: 'numbers', name: '算用数字（縦書き向け）', category: '表記', severity: 'info', default: false, fix: true,
       desc: '縦書き原稿向けに、算用数字を漢数字にする提案をします。' },
   ];
@@ -1553,6 +1670,8 @@ ruby rt { font-size: 0.5em; }
       });
     }
 
+    if (enabled('ruby')) checkRuby(text, add, opts);
+
     if (enabled('numbers')) {
       eachMatch(/[0-9０-９]+/g, m, (mm) => {
         const prev = m[mm.index - 1] || '';
@@ -1736,6 +1855,58 @@ ruby rt { font-size: 0.5em; }
     });
   }
 
+  /** ルビ：空のルビ・登録と違う読み・揺れ・当て字（登録済みの読みは指摘しない） */
+  function checkRuby(text, add, opts) {
+    const R = NS.Readings;
+    if (!R) return;
+    const reg = opts.readings instanceof Map ? opts.readings : R.index(opts.readings || []);
+    const corpusR = new Map();
+    (Array.isArray(opts.corpus) && opts.corpus.length ? opts.corpus : [text]).forEach((t) => {
+      R.findRubies(t || '').forEach((r) => {
+        if (!r.reading.trim()) return;
+        const n = R.normReading(r.reading);
+        if (!corpusR.has(r.base)) corpusR.set(r.base, new Map());
+        const mm = corpusR.get(r.base);
+        const v = mm.get(n) || { count: 0, reading: r.reading };
+        v.count++;
+        mm.set(n, v);
+      });
+    });
+    R.findRubies(text).forEach((r) => {
+      if (!r.reading.trim()) {
+        add('ruby', r.start, r.end, `「${r.base}」のルビが空です`, null, { severity: 'error' });
+        return;
+      }
+      const n = R.normReading(r.reading);
+      const entry = reg.get(r.base);
+      if (entry) {
+        if (entry.readings.has(n)) return; // 登録済みの読み → 指摘しない
+        if (R.looksSpecial(r.base, r.reading) || entry.items.some((it) => R.looksSpecial(it.base, it.reading))) {
+          const want = entry.items[0].reading;
+          add('ruby', r.readingStart, r.readingEnd, `「${r.base}」は「${want}」と読む設定です（本文：「${r.reading}」）`, want, { severity: 'warning' });
+        }
+        return;
+      }
+      const variants = corpusR.get(r.base);
+      if (variants && variants.size > 1) {
+        let best = null;
+        variants.forEach((v, k) => { if (!best || v.count > best.count) best = { k, count: v.count, reading: v.reading }; });
+        if (best.k !== n) {
+          const list = Array.from(variants.values()).map((v) => `「${v.reading}」${v.count}回`).join('・');
+          add('ruby', r.readingStart, r.readingEnd,
+            `ルビの揺れ：「${r.base}」に${list}。意図した使い分けなら、アイデア帳に読み方を登録すると指摘しなくなります`,
+            best.reading, { action: { type: 'register-reading', base: r.base, reading: r.reading } });
+          return;
+        }
+      }
+      if (R.looksSpecial(r.base, r.reading)) {
+        add('ruby', r.start, r.end,
+          `特殊な読み：「${r.base}」を「${r.reading}」と読ませています。意図した読みなら、アイデア帳に「読み方」として登録すると、この指摘は出なくなります`,
+          null, { action: { type: 'register-reading', base: r.base, reading: r.reading } });
+      }
+    });
+  }
+
   function issueKey(it) {
     return it.ruleId + '|' + it.text;
   }
@@ -1750,7 +1921,7 @@ ruby rt { font-size: 0.5em; }
       seen.add(k);
       it.key = issueKey(it);
       if (ignore && ignore.has && ignore.has(it.key)) return;
-      if (masked && masked.slice(it.start, it.end).indexOf(FILLER) >= 0 && it.suggestion != null) {
+      if (it.ruleId !== 'ruby' && masked && masked.slice(it.start, it.end).indexOf(FILLER) >= 0 && it.suggestion != null) {
         it.suggestion = null;
         it.fixable = false;
       }
@@ -5437,6 +5608,21 @@ ruby rt { font-size: 0.5em; }
 
   const V = {};
   let S = null; // 画面の状態
+  // 話を切り替えても保つ表示設定
+  const PREF = Object.assign({ panelTab: 'proof', hideChapters: null, hidePanel: null }, UI.lsGet('tsuzuri.editorPref', {}));
+  const savePref = () => UI.lsSet('tsuzuri.editorPref', PREF);
+  // この画面を開いている間の、話ごとのスクロール位置とカーソル
+  const VIEWPOS = new Map();
+  // 話ごとの文字数のキャッシュ
+  const COUNT = new Map();
+  function countOf(c, body) {
+    const b = body == null ? c.body : body;
+    const hit = COUNT.get(c.id);
+    if (hit && hit.body === b) return hit.n;
+    const n = T.stats(b).charsNoSpace;
+    COUNT.set(c.id, { body: b, n });
+    return n;
+  }
 
   function App() { return NS.App; }
   function P() { return NS.App.project; }
@@ -5446,18 +5632,30 @@ ruby rt { font-size: 0.5em; }
     let ch = p.chapters.find((c) => c.id === params.id);
     if (!ch) ch = p.chapters.find((c) => c.id === p.lastChapterId) || p.chapters[0];
     p.lastChapterId = ch.id;
+    const narrow = window.innerWidth < 900;
     S = {
-      view, ch, issues: [], cons: null, active: -1, panelTab: S && S.panelTab ? S.panelTab : 'proof',
+      view, ch, issues: [], cons: null, active: -1, panelTab: PREF.panelTab || 'proof',
       filter: 'all', find: { open: false, q: '', r: '', matches: [], cur: -1 }, preview: false,
       lastText: ch.body, openedBody: ch.body, openedAt: Date.now(),
-      hideChapters: window.innerWidth < 900, hidePanel: window.innerWidth < 1200,
+      hideChapters: narrow ? true : (PREF.hideChapters != null ? PREF.hideChapters : false),
+      hidePanel: narrow ? true : (PREF.hidePanel != null ? PREF.hidePanel : window.innerWidth < 1200),
+      aiIssues: [],
     };
     build();
     runAnalysis();
+    const pos = VIEWPOS.get(ch.id);
+    if (pos) {
+      requestAnimationFrame(() => {
+        if (!S || S.ch.id !== ch.id) return;
+        S.scroll.scrollTop = pos.scroll;
+        try { S.textarea.setSelectionRange(pos.caret, pos.caret); } catch (e) { /* 無視 */ }
+      });
+    }
   };
 
   V.unmount = function () {
     if (!S) return;
+    VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, caret: S.textarea.selectionStart });
     autoSnapshot();
     if (S.analysisTimer) clearTimeout(S.analysisTimer);
     if (S.onKey) document.removeEventListener('keydown', S.onKey);
@@ -5531,7 +5729,7 @@ ruby rt { font-size: 0.5em; }
     [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
       S.panelTabs.appendChild(h('button', {
         type: 'button', role: 'tab', class: 'tab', dataset: { tab: id },
-        onclick: () => { S.panelTab = id; renderPanel(); },
+        onclick: () => { S.panelTab = id; PREF.panelTab = id; savePref(); renderPanel(); },
       }, label, h('span', { class: 'tab-badge', dataset: { badge: id } })));
     });
     S.panelBody = h('div', { class: 'panel-body' });
@@ -5572,12 +5770,16 @@ ruby rt { font-size: 0.5em; }
   function toggleChapters(forceHide) {
     S.hideChapters = forceHide === true ? true : !S.hideChapters;
     S.layout.classList.toggle('hide-chapters', S.hideChapters);
-    if (!S.hideChapters && window.innerWidth < 900) { S.hidePanel = true; S.layout.classList.add('hide-panel'); }
+    if (window.innerWidth < 900) {
+      if (!S.hideChapters) { S.hidePanel = true; S.layout.classList.add('hide-panel'); }
+    } else { PREF.hideChapters = S.hideChapters; savePref(); }
   }
   function togglePanel(forceHide) {
     S.hidePanel = forceHide === true ? true : !S.hidePanel;
     S.layout.classList.toggle('hide-panel', S.hidePanel);
-    if (!S.hidePanel && window.innerWidth < 900) { S.hideChapters = true; S.layout.classList.add('hide-chapters'); }
+    if (window.innerWidth < 900) {
+      if (!S.hidePanel) { S.hideChapters = true; S.layout.classList.add('hide-chapters'); }
+    } else { PREF.hidePanel = S.hidePanel; savePref(); }
   }
 
   // テキストエリアの高さを本文に合わせる（スクロールは外側の .editor-scroll が担当）
@@ -5593,7 +5795,7 @@ ruby rt { font-size: 0.5em; }
     clear(S.chapterList);
     let total = 0;
     p.chapters.forEach((c, i) => {
-      const n = c.id === S.ch.id ? T.stats(S.textarea ? S.textarea.value : c.body).charsNoSpace : T.stats(c.body).charsNoSpace;
+      const n = countOf(c, c.id === S.ch.id && S.textarea ? S.textarea.value : c.body);
       total += n;
       const more = btn('', { icon: 'more', ghost: true, small: true, title: 'その他の操作' });
       more.addEventListener('click', (e) => { e.stopPropagation(); chapterMenu(more, c, i); });
@@ -5705,6 +5907,7 @@ ruby rt { font-size: 0.5em; }
     const text = S.textarea.value;
     const diff = T.diffRange(S.lastText, text);
     S.issues = T.shiftRanges(S.issues, diff);
+    S.aiIssues = T.shiftRanges(S.aiIssues || [], diff);
     if (S.find.open) computeFind();
     S.lastText = text;
     S.ch.body = text;
@@ -5735,6 +5938,7 @@ ruby rt { font-size: 0.5em; }
       proof = NS.Proofread.proofread(text, {
         rules: st.rules, maxSentenceLength: st.maxSentenceLength, maxCommas: st.maxCommas, endingRepeat: st.endingRepeat,
         styleRules: p.rules.style, corpus, ignore,
+        readings: NS.Readings ? NS.Readings.index(NS.Readings.collect(p)) : null,
       });
     } catch (e) { console.error(e); }
     let cons = { issues: [], speakers: [], candidates: [] };
@@ -5756,12 +5960,16 @@ ruby rt { font-size: 0.5em; }
     if (refreshPanel !== false && (S.panelTab === 'proof' || S.panelTab === 'cons' || refreshPanel)) renderPanel();
   }
 
-  V.addAiIssues = function (items) {
-    if (!S) return;
+  V.addAiIssues = function (items, chapterId) {
+    if (!S || (chapterId && chapterId !== S.ch.id)) return;
     S.aiIssues = (S.aiIssues || []).concat(items);
     runAnalysis();
   };
-  V.clearAiIssues = function () { if (S) { S.aiIssues = []; runAnalysis(); } };
+  V.clearAiIssues = function (chapterId) {
+    if (!S || (chapterId && chapterId !== S.ch.id)) return;
+    S.aiIssues = [];
+    runAnalysis();
+  };
   V.getText = function () { return S ? S.textarea.value : ''; };
   V.getSelection = function () {
     if (!S) return null;
@@ -5895,7 +6103,8 @@ ruby rt { font-size: 0.5em; }
     S.issueBar.append(
       h('span', { class: 'sev-dot sev-' + it.severity }),
       h('span', { class: 'issue-bar-msg' }, h('strong', null, it.rule), '　', it.message),
-      it.suggestion != null && it.source !== 'ai-cons' ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
+      it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
+      actionButton(it),
       btn('無視', { small: true, ghost: true, onClick: () => ignoreIssue(it) }),
       btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) }));
   }
@@ -6200,10 +6409,32 @@ ruby rt { font-size: 0.5em; }
       more),
     h('div', { class: 'issue-excerpt' }, h('span', { class: 'ctx' }, before), h('mark', null, trunc(it.text, 40) || '　'), h('span', { class: 'ctx' }, after)),
     h('div', { class: 'issue-msg' }, it.message),
-    it.suggestion != null ? h('div', { class: 'issue-actions' },
-      btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 14)}」にする`, {
+    it.suggestion != null || it.action ? h('div', { class: 'issue-actions' },
+      it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 14)}」にする`, {
         small: true, onClick: (e) => { e.stopPropagation(); applyIssue(it); },
-      })) : null);
+      }) : null,
+      actionButton(it)) : null);
+  }
+
+  /** 指摘に付いた追加の操作（読み方の登録など） */
+  function actionButton(it) {
+    if (!it.action || it.action.type !== 'register-reading') return null;
+    return btn('読み方として登録', {
+      small: true, icon: 'bulb', onClick: (e) => { if (e) e.stopPropagation(); registerReading(it.action.base, it.action.reading); },
+    });
+  }
+
+  function registerReading(base, reading) {
+    const p = P();
+    p.ideas.unshift({
+      id: UI.uid('i'), kind: '読み方', word: base, reading, body: '', tags: ['読み方'], color: '', pinned: false,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    App().touch();
+    S.active = -1;
+    renderIssueBar();
+    runAnalysis(true);
+    toast(`アイデア帳に読み方「${base}《${reading}》」を登録しました。以後このルビは指摘しません`);
   }
 
   function issueList(items, empty) {
@@ -6300,14 +6531,15 @@ ruby rt { font-size: 0.5em; }
 
   function panelAI() {
     if (!NS.AIPanel) return h('p', null, 'AI機能を読み込めませんでした');
+    const chId = S.ch.id;
     return NS.AIPanel.render({
       getText: () => S.textarea.value,
       getSelection: V.getSelection,
       chapter: S.ch,
       project: P(),
       chapterNo: P().chapters.findIndex((c) => c.id === S.ch.id) + 1,
-      addIssues: V.addAiIssues,
-      clearIssues: V.clearAiIssues,
+      addIssues: (items) => V.addAiIssues(items, chId),
+      clearIssues: () => V.clearAiIssues(chId),
       focusRange,
       apply: (it) => applyIssue(it),
       aiIssues: () => (S.aiIssues || []),
@@ -6342,7 +6574,15 @@ ruby rt { font-size: 0.5em; }
     };
     search.addEventListener('input', render);
     render();
-    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results);
+    const readings = NS.Readings ? NS.Readings.collect(p) : [];
+    const readingBox = h('details', { class: 'sub-section' },
+      h('summary', null, `登録した読み方（ルビ） ${readings.length}`),
+      h('p', { class: 'small muted' }, 'アイデア帳に種類「読み方」で書いたもの、メモ中の 足《アルファ》 のような記法、設定資料の「読み」から集めています。ここにある読みのルビは添削で指摘しません。'),
+      readings.length ? h('div', { class: 'reading-list' }, readings.map((r) => h('button', {
+        type: 'button', class: 'reading-row', title: '本文に挿入', onclick: () => insertText('|' + r.base + '《' + r.reading + '》'),
+      }, h('span', { html: T.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) }), h('span', { class: 'muted small' }, r.source === 'lore' ? '設定資料' : 'アイデア帳')))) : null,
+      btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
+    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
   }
 
   function panelStats() {
@@ -6350,7 +6590,7 @@ ruby rt { font-size: 0.5em; }
     const st = T.stats(S.textarea.value);
     let total = 0;
     const rows = p.chapters.map((c, i) => {
-      const n = T.stats(c.id === S.ch.id ? S.textarea.value : c.body).charsNoSpace;
+      const n = countOf(c, c.id === S.ch.id ? S.textarea.value : c.body);
       total += n;
       return { i, c, n };
     });
@@ -6942,7 +7182,7 @@ ruby rt { font-size: 0.5em; }
   'use strict';
   const UI = NS.UI;
   const { h, icon, btn, clear, toast } = UI;
-  const KINDS = ['アイデア', '台詞', 'シーン', '設定', '伏線', 'タイトル案', '資料'];
+  const KINDS = ['アイデア', '台詞', 'シーン', '設定', '伏線', 'タイトル案', '読み方', '資料'];
 
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
@@ -6966,22 +7206,40 @@ ruby rt { font-size: 0.5em; }
     const body = h('textarea', { class: 'input quick-input', rows: 3, placeholder: '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった' });
     const kindSel = h('select', { class: 'input', 'aria-label': '種類' }, KINDS.map((k) => h('option', { value: k }, k)));
     const tags = h('input', { class: 'input', type: 'text', placeholder: 'タグ（、区切り）', 'aria-label': 'タグ' });
+    // 種類「読み方」のときは、表記と読みを入れる欄を出す
+    const word = h('input', { class: 'input', type: 'text', placeholder: '表記（例：足）', 'aria-label': '表記' });
+    const reading = h('input', { class: 'input', type: 'text', placeholder: '読み（例：アルファ）', 'aria-label': '読み' });
+    const readingRow = h('div', { class: 'reading-inputs', hidden: true },
+      h('span', { class: 'small muted' }, '普段とは違う読み方を登録すると、そのルビは添削で指摘しなくなります。'),
+      h('div', { class: 'row' }, word, h('span', { class: 'muted' }, '《'), reading, h('span', { class: 'muted' }, '》')));
+    kindSel.addEventListener('change', () => {
+      const isReading = kindSel.value === '読み方';
+      readingRow.hidden = !isReading;
+      body.placeholder = isReading ? 'メモ（任意）：使う場面、由来など' : '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった';
+      if (isReading) word.focus();
+    });
     const add = () => {
       const v = body.value.trim();
-      if (!v) { body.focus(); return; }
-      P().ideas.unshift({
+      const isReading = kindSel.value === '読み方';
+      if (isReading && (!word.value.trim() || !reading.value.trim())) { (word.value.trim() ? reading : word).focus(); toast('表記と読みを入れてください'); return; }
+      if (!isReading && !v) { body.focus(); return; }
+      P().ideas.unshift(Object.assign({
         id: UI.uid('i'), body: v, kind: kindSel.value, tags: splitTags(tags.value), color: '', pinned: false,
         createdAt: Date.now(), updatedAt: Date.now(),
-      });
+      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {}));
       touch();
       body.value = '';
+      word.value = '';
+      reading.value = '';
       renderFilters();
       renderGrid();
       body.focus();
       toast('メモしました');
     };
     body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add(); } });
+    [word, reading].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } }));
     wrap.appendChild(h('section', { class: 'quick-add card' },
+      readingRow,
       body,
       h('div', { class: 'row wrap' }, kindSel, tags, btn('メモする', { icon: 'plus', primary: true, onClick: add }))));
 
@@ -7020,7 +7278,7 @@ ruby rt { font-size: 0.5em; }
     clear(IS.grid);
     const q = IS.q.trim();
     const list = p.ideas
-      .filter((i) => (!q || i.body.indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
+      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
       .sort((a, b) => (b.pinned - a.pinned) || (b.updatedAt - a.updatedAt));
     if (!list.length) {
       IS.grid.appendChild(h('div', { class: 'empty' }, p.ideas.length ? '条件に合うメモはありません' : 'まだメモがありません。思いついたことは何でも上の欄に書き留めておきましょう。'));
@@ -7070,12 +7328,16 @@ ruby rt { font-size: 0.5em; }
       it.pinned ? icon('pin', 14) : null,
       h('span', { class: 'muted small idea-date' }, UI.relTime(it.updatedAt)),
       more),
-    h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
+    it.word && it.reading
+      ? h('div', { class: 'idea-body' }, h('div', { class: 'reading-big', html: NS.Text.rubyToHtml('|' + it.word + '《' + it.reading + '》', { vertical: false }) }), it.body ? h('p', null, it.body) : null)
+      : h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
     it.tags.length ? h('div', { class: 'idea-tags' }, it.tags.map((t) => h('span', { class: 'tag' }, '#' + t))) : null);
   }
 
   function editIdea(it) {
     const body = h('textarea', { class: 'input', rows: 8, value: it.body });
+    const word = h('input', { class: 'input', type: 'text', value: it.word || '', placeholder: '表記' });
+    const reading = h('input', { class: 'input', type: 'text', value: it.reading || '', placeholder: '読み' });
     const kindSel = h('select', { class: 'input' }, KINDS.map((k) => h('option', { value: k, selected: it.kind === k }, k)));
     const tags = h('input', { class: 'input', type: 'text', value: it.tags.join('、') });
     let color = it.color || '';
@@ -7085,11 +7347,14 @@ ruby rt { font-size: 0.5em; }
     })));
     UI.modal({
       title: 'メモを編集', wide: true,
-      body: h('div', { class: 'stack' }, body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
+      body: h('div', { class: 'stack' },
+        it.kind === '読み方' || it.word ? h('div', { class: 'grid-2' }, UI.field('表記', word), UI.field('読み', reading)) : null,
+        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
       actions: [
         { label: 'キャンセル', ghost: true },
         { label: '保存', primary: true, onClick: () => {
-          it.body = body.value.trim() || it.body;
+          it.body = body.value.trim() || (it.word ? '' : it.body);
+          if (it.kind === '読み方' || it.word) { it.word = word.value.trim(); it.reading = reading.value.trim(); }
           it.kind = kindSel.value;
           it.tags = splitTags(tags.value);
           it.color = color;
@@ -9511,6 +9776,8 @@ ruby rt { font-size: 0.5em; }
     '- reason は日本語で簡潔に（60字程度まで）。',
     '- 台詞の口語表現（い抜き言葉など）や、登場人物の個性としての言葉遣いは、明らかな誤りでない限り指摘しない。',
     '- 好みの問題にすぎない書き換えは控え、本当に直すべき箇所を優先する。多くても40件まで。',
+    '- ルビ記法（|漢字《かんじ》、漢字《かんじ》）や傍点記法（《《強調》》）は作者が意図した表記なので、記法そのものを誤りとして指摘しない。',
+    '- 「作者が登録した読み方」にある読み・ルビは、普段と違う読み方でも誤りとして指摘しない。',
     '- summary には原稿全体の講評（良い点と改善点）を2〜4文で書く。',
   ].join('\n');
 
@@ -9522,6 +9789,7 @@ ruby rt { font-size: 0.5em; }
     '- problem に何が食い違っているかを書き、setting にはその根拠となる設定資料の記述を短く引用する（原稿内の前後矛盾なら、食い違う相手の箇所）。',
     '- suggestion には quote をそのまま置き換えられる、設定に合わせた修正案を入れる。示せない場合は空文字。',
     '- 設定資料に書かれていないことを推測で矛盾扱いしない。確実なものだけを、多くても30件まで。',
+    '- 「作者が登録した読み方」にある読み・ルビは意図したものなので指摘しない。',
     '- summary には全体の所見を1〜3文で書く。食い違いがなければ items は空配列にする。',
   ].join('\n');
 
@@ -9588,6 +9856,12 @@ ruby rt { font-size: 0.5em; }
     return `## 設定資料\n<settings>\n${md}\n</settings>`;
   }
 
+  function readingsBlock(project) {
+    const list = NS.Readings ? NS.Readings.collect(project) : [];
+    if (!list.length) return '';
+    return '## 作者が登録した読み方（ルビ）\n' + list.map((r) => `- ${r.base}《${r.reading}》`).join('\n') + '\nこれらは意図した読み方なので、誤りとして指摘しないこと。\n\n';
+  }
+
   /** AI の引用を本文中の位置に結びつける */
   function locate(text, quote, offset, from) {
     if (!quote) return null;
@@ -9614,7 +9888,7 @@ ruby rt { font-size: 0.5em; }
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : full;
     const offset = sel ? sel.start : 0;
-    const user = (ctx.project.synopsis ? `## 作品のあらすじ\n${ctx.project.synopsis}\n\n` : '') + manuscriptBlock(ctx, text);
+    const user = (ctx.project.synopsis ? `## 作品のあらすじ\n${ctx.project.synopsis}\n\n` : '') + readingsBlock(ctx.project) + manuscriptBlock(ctx, text);
     const data = await runJSON(PROOF_SYSTEM, user, PROOF_SCHEMA, { signal, onText });
     let cursor = 0;
     const items = (data.items || []).map((it) => {
@@ -9635,7 +9909,7 @@ ruby rt { font-size: 0.5em; }
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : full;
     const offset = sel ? sel.start : 0;
-    const user = settingsBlock(ctx.project) + '\n\n' + manuscriptBlock(ctx, text);
+    const user = settingsBlock(ctx.project) + '\n\n' + readingsBlock(ctx.project) + manuscriptBlock(ctx, text);
     const data = await runJSON(CONS_SYSTEM, user, CONS_SCHEMA, { signal, onText });
     let cursor = 0;
     const items = (data.items || []).map((it) => {
@@ -9859,7 +10133,7 @@ ruby rt { font-size: 0.5em; }
     '「リオ！」',
     '　振り返ると、ガルドが息を切らして立っていた。',
     '「一人で行くなと言っただろう。……まったく、お前は昔から変わらん」',
-    '　ガルドは大剣を構え、霧の奥をにらんだ。「下がっていろ、リオ。ここは儂が食い止める」',
+    '　ガルドは|大剣《ツヴァイハンダー》を構え、霧の奥をにらんだ。「下がっていろ、リオ。ここは儂が食い止める」',
     '　霧の中から、赤い瞳がいくつも浮かび上がる。',
     '　それが、リオが師匠の背中を見た最後だった。',
   ].join('\n');
@@ -9871,6 +10145,7 @@ ruby rt { font-size: 0.5em; }
     '　風が吹いた。背後で、聞き慣れた声がした。',
     '「泣くな、小僧」と、ガルドは笑った。',
     '　リオは息をのんだ。',
+    '　すべては、あの|星降りの夜《スターフォール》から始まっていたのだ。',
   ].join('\n');
 
   function create() {
@@ -9934,6 +10209,7 @@ ruby rt { font-size: 0.5em; }
     p.ideas = [
       { id: UI.uid('i'), body: '星晶石は持ち主の感情に反応して光る\nリオの剣の柄にも小さな星晶石がはまっている（師匠の形見）', kind: '設定', tags: ['星晶石', '伏線'], color: '#3d7ea6', pinned: true, createdAt: now, updatedAt: now },
       { id: UI.uid('i'), body: 'セレナは実は王家の血を引いている？', kind: '伏線', tags: ['セレナ'], color: '#5f4b8b', pinned: false, createdAt: now - 3600e3, updatedAt: now - 3600e3 },
+      { id: UI.uid('i'), body: '世界を変えた大災厄。人々はこう呼ぶ', word: '星降りの夜', reading: 'スターフォール', kind: '読み方', tags: ['読み方'], color: '#d9a441', pinned: false, createdAt: now - 1800e3, updatedAt: now - 1800e3 },
       { id: UI.uid('i'), body: '「泣くのは、全部終わってからにしなさい」', kind: '台詞', tags: ['セレナ'], color: '', pinned: false, createdAt: now - 7200e3, updatedAt: now - 7200e3 },
       { id: UI.uid('i'), body: 'ラストシーン\n星降りの丘で、二人が流星を見上げる', kind: 'シーン', tags: ['終盤'], color: '#d9a441', pinned: false, createdAt: now - 86400e3, updatedAt: now - 86400e3 },
     ];

@@ -12,6 +12,21 @@
 
   const V = {};
   let S = null; // 画面の状態
+  // 話を切り替えても保つ表示設定
+  const PREF = Object.assign({ panelTab: 'proof', hideChapters: null, hidePanel: null }, UI.lsGet('tsuzuri.editorPref', {}));
+  const savePref = () => UI.lsSet('tsuzuri.editorPref', PREF);
+  // この画面を開いている間の、話ごとのスクロール位置とカーソル
+  const VIEWPOS = new Map();
+  // 話ごとの文字数のキャッシュ
+  const COUNT = new Map();
+  function countOf(c, body) {
+    const b = body == null ? c.body : body;
+    const hit = COUNT.get(c.id);
+    if (hit && hit.body === b) return hit.n;
+    const n = T.stats(b).charsNoSpace;
+    COUNT.set(c.id, { body: b, n });
+    return n;
+  }
 
   function App() { return NS.App; }
   function P() { return NS.App.project; }
@@ -21,18 +36,30 @@
     let ch = p.chapters.find((c) => c.id === params.id);
     if (!ch) ch = p.chapters.find((c) => c.id === p.lastChapterId) || p.chapters[0];
     p.lastChapterId = ch.id;
+    const narrow = window.innerWidth < 900;
     S = {
-      view, ch, issues: [], cons: null, active: -1, panelTab: S && S.panelTab ? S.panelTab : 'proof',
+      view, ch, issues: [], cons: null, active: -1, panelTab: PREF.panelTab || 'proof',
       filter: 'all', find: { open: false, q: '', r: '', matches: [], cur: -1 }, preview: false,
       lastText: ch.body, openedBody: ch.body, openedAt: Date.now(),
-      hideChapters: window.innerWidth < 900, hidePanel: window.innerWidth < 1200,
+      hideChapters: narrow ? true : (PREF.hideChapters != null ? PREF.hideChapters : false),
+      hidePanel: narrow ? true : (PREF.hidePanel != null ? PREF.hidePanel : window.innerWidth < 1200),
+      aiIssues: [],
     };
     build();
     runAnalysis();
+    const pos = VIEWPOS.get(ch.id);
+    if (pos) {
+      requestAnimationFrame(() => {
+        if (!S || S.ch.id !== ch.id) return;
+        S.scroll.scrollTop = pos.scroll;
+        try { S.textarea.setSelectionRange(pos.caret, pos.caret); } catch (e) { /* 無視 */ }
+      });
+    }
   };
 
   V.unmount = function () {
     if (!S) return;
+    VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, caret: S.textarea.selectionStart });
     autoSnapshot();
     if (S.analysisTimer) clearTimeout(S.analysisTimer);
     if (S.onKey) document.removeEventListener('keydown', S.onKey);
@@ -106,7 +133,7 @@
     [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
       S.panelTabs.appendChild(h('button', {
         type: 'button', role: 'tab', class: 'tab', dataset: { tab: id },
-        onclick: () => { S.panelTab = id; renderPanel(); },
+        onclick: () => { S.panelTab = id; PREF.panelTab = id; savePref(); renderPanel(); },
       }, label, h('span', { class: 'tab-badge', dataset: { badge: id } })));
     });
     S.panelBody = h('div', { class: 'panel-body' });
@@ -147,12 +174,16 @@
   function toggleChapters(forceHide) {
     S.hideChapters = forceHide === true ? true : !S.hideChapters;
     S.layout.classList.toggle('hide-chapters', S.hideChapters);
-    if (!S.hideChapters && window.innerWidth < 900) { S.hidePanel = true; S.layout.classList.add('hide-panel'); }
+    if (window.innerWidth < 900) {
+      if (!S.hideChapters) { S.hidePanel = true; S.layout.classList.add('hide-panel'); }
+    } else { PREF.hideChapters = S.hideChapters; savePref(); }
   }
   function togglePanel(forceHide) {
     S.hidePanel = forceHide === true ? true : !S.hidePanel;
     S.layout.classList.toggle('hide-panel', S.hidePanel);
-    if (!S.hidePanel && window.innerWidth < 900) { S.hideChapters = true; S.layout.classList.add('hide-chapters'); }
+    if (window.innerWidth < 900) {
+      if (!S.hidePanel) { S.hideChapters = true; S.layout.classList.add('hide-chapters'); }
+    } else { PREF.hidePanel = S.hidePanel; savePref(); }
   }
 
   // テキストエリアの高さを本文に合わせる（スクロールは外側の .editor-scroll が担当）
@@ -168,7 +199,7 @@
     clear(S.chapterList);
     let total = 0;
     p.chapters.forEach((c, i) => {
-      const n = c.id === S.ch.id ? T.stats(S.textarea ? S.textarea.value : c.body).charsNoSpace : T.stats(c.body).charsNoSpace;
+      const n = countOf(c, c.id === S.ch.id && S.textarea ? S.textarea.value : c.body);
       total += n;
       const more = btn('', { icon: 'more', ghost: true, small: true, title: 'その他の操作' });
       more.addEventListener('click', (e) => { e.stopPropagation(); chapterMenu(more, c, i); });
@@ -280,6 +311,7 @@
     const text = S.textarea.value;
     const diff = T.diffRange(S.lastText, text);
     S.issues = T.shiftRanges(S.issues, diff);
+    S.aiIssues = T.shiftRanges(S.aiIssues || [], diff);
     if (S.find.open) computeFind();
     S.lastText = text;
     S.ch.body = text;
@@ -310,6 +342,7 @@
       proof = NS.Proofread.proofread(text, {
         rules: st.rules, maxSentenceLength: st.maxSentenceLength, maxCommas: st.maxCommas, endingRepeat: st.endingRepeat,
         styleRules: p.rules.style, corpus, ignore,
+        readings: NS.Readings ? NS.Readings.index(NS.Readings.collect(p)) : null,
       });
     } catch (e) { console.error(e); }
     let cons = { issues: [], speakers: [], candidates: [] };
@@ -331,12 +364,16 @@
     if (refreshPanel !== false && (S.panelTab === 'proof' || S.panelTab === 'cons' || refreshPanel)) renderPanel();
   }
 
-  V.addAiIssues = function (items) {
-    if (!S) return;
+  V.addAiIssues = function (items, chapterId) {
+    if (!S || (chapterId && chapterId !== S.ch.id)) return;
     S.aiIssues = (S.aiIssues || []).concat(items);
     runAnalysis();
   };
-  V.clearAiIssues = function () { if (S) { S.aiIssues = []; runAnalysis(); } };
+  V.clearAiIssues = function (chapterId) {
+    if (!S || (chapterId && chapterId !== S.ch.id)) return;
+    S.aiIssues = [];
+    runAnalysis();
+  };
   V.getText = function () { return S ? S.textarea.value : ''; };
   V.getSelection = function () {
     if (!S) return null;
@@ -470,7 +507,8 @@
     S.issueBar.append(
       h('span', { class: 'sev-dot sev-' + it.severity }),
       h('span', { class: 'issue-bar-msg' }, h('strong', null, it.rule), '　', it.message),
-      it.suggestion != null && it.source !== 'ai-cons' ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
+      it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
+      actionButton(it),
       btn('無視', { small: true, ghost: true, onClick: () => ignoreIssue(it) }),
       btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) }));
   }
@@ -775,10 +813,32 @@
       more),
     h('div', { class: 'issue-excerpt' }, h('span', { class: 'ctx' }, before), h('mark', null, trunc(it.text, 40) || '　'), h('span', { class: 'ctx' }, after)),
     h('div', { class: 'issue-msg' }, it.message),
-    it.suggestion != null ? h('div', { class: 'issue-actions' },
-      btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 14)}」にする`, {
+    it.suggestion != null || it.action ? h('div', { class: 'issue-actions' },
+      it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 14)}」にする`, {
         small: true, onClick: (e) => { e.stopPropagation(); applyIssue(it); },
-      })) : null);
+      }) : null,
+      actionButton(it)) : null);
+  }
+
+  /** 指摘に付いた追加の操作（読み方の登録など） */
+  function actionButton(it) {
+    if (!it.action || it.action.type !== 'register-reading') return null;
+    return btn('読み方として登録', {
+      small: true, icon: 'bulb', onClick: (e) => { if (e) e.stopPropagation(); registerReading(it.action.base, it.action.reading); },
+    });
+  }
+
+  function registerReading(base, reading) {
+    const p = P();
+    p.ideas.unshift({
+      id: UI.uid('i'), kind: '読み方', word: base, reading, body: '', tags: ['読み方'], color: '', pinned: false,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    App().touch();
+    S.active = -1;
+    renderIssueBar();
+    runAnalysis(true);
+    toast(`アイデア帳に読み方「${base}《${reading}》」を登録しました。以後このルビは指摘しません`);
   }
 
   function issueList(items, empty) {
@@ -875,14 +935,15 @@
 
   function panelAI() {
     if (!NS.AIPanel) return h('p', null, 'AI機能を読み込めませんでした');
+    const chId = S.ch.id;
     return NS.AIPanel.render({
       getText: () => S.textarea.value,
       getSelection: V.getSelection,
       chapter: S.ch,
       project: P(),
       chapterNo: P().chapters.findIndex((c) => c.id === S.ch.id) + 1,
-      addIssues: V.addAiIssues,
-      clearIssues: V.clearAiIssues,
+      addIssues: (items) => V.addAiIssues(items, chId),
+      clearIssues: () => V.clearAiIssues(chId),
       focusRange,
       apply: (it) => applyIssue(it),
       aiIssues: () => (S.aiIssues || []),
@@ -917,7 +978,15 @@
     };
     search.addEventListener('input', render);
     render();
-    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results);
+    const readings = NS.Readings ? NS.Readings.collect(p) : [];
+    const readingBox = h('details', { class: 'sub-section' },
+      h('summary', null, `登録した読み方（ルビ） ${readings.length}`),
+      h('p', { class: 'small muted' }, 'アイデア帳に種類「読み方」で書いたもの、メモ中の 足《アルファ》 のような記法、設定資料の「読み」から集めています。ここにある読みのルビは添削で指摘しません。'),
+      readings.length ? h('div', { class: 'reading-list' }, readings.map((r) => h('button', {
+        type: 'button', class: 'reading-row', title: '本文に挿入', onclick: () => insertText('|' + r.base + '《' + r.reading + '》'),
+      }, h('span', { html: T.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) }), h('span', { class: 'muted small' }, r.source === 'lore' ? '設定資料' : 'アイデア帳')))) : null,
+      btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
+    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
   }
 
   function panelStats() {
@@ -925,7 +994,7 @@
     const st = T.stats(S.textarea.value);
     let total = 0;
     const rows = p.chapters.map((c, i) => {
-      const n = T.stats(c.id === S.ch.id ? S.textarea.value : c.body).charsNoSpace;
+      const n = countOf(c, c.id === S.ch.id ? S.textarea.value : c.body);
       total += n;
       return { i, c, n };
     });
