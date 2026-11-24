@@ -141,22 +141,35 @@
     const village = pick(0.05, 0.3);
     const castle = pick(0.2, 0.45);
     const forestPt = pick(0.06, 0.3);
-    map.markers = [
-      { id: UI.uid('mk'), ...capital, type: 'capital', name: '', entryId: rune.id, note: '' },
-      { id: UI.uid('mk'), ...portPt, type: 'port', name: '', entryId: port.id, note: '' },
-      { id: UI.uid('mk'), ...village, type: 'village', name: 'ハルト村', entryId: '', note: 'リオの故郷' },
-      { id: UI.uid('mk'), ...castle, type: 'castle', name: '北の砦', entryId: '', note: '' },
-      { id: UI.uid('mk'), ...forestPt, type: 'cave', name: '', entryId: forest.id, note: '' },
-    ];
+    // 町や城の素材を置く（周りの木や山は少しどける）
+    const clearAround = (pt, r) => { map.stamps = map.stamps.filter((st) => Math.hypot(st.x - pt.x, st.y - pt.y) > r); };
+    const place = (pt, a, extra) => {
+      clearAround(pt, 22);
+      map.stamps.push(Object.assign({ id: E.sid(), a, x: Math.round(pt.x * 10) / 10, y: Math.round(pt.y * 10) / 10, s: 1.1, r: 0, f: false, v: 0, name: '', entryId: '', note: '' }, extra));
+    };
+    place(capital, 'castle', { entryId: rune.id, s: 1.8 });
+    place(portPt, 'port', { entryId: port.id, s: 1.5 });
+    place(village, 'village', { name: 'ハルト村', note: 'リオの故郷', s: 1.5 });
+    place(castle, 'fort', { name: '北の砦', s: 1.5 });
+    // 黒霧の森：枯れ木を集めて名前を付ける
+    clearAround(forestPt, 34);
+    for (let i = 0; i < 26; i++) {
+      const a = rnd() * Math.PI * 2;
+      const rr = Math.sqrt(rnd()) * 30;
+      map.stamps.push({ id: E.sid(), a: 'tree-dead', x: Math.round((forestPt.x + Math.cos(a) * rr) * 10) / 10, y: Math.round((forestPt.y + Math.sin(a) * rr * 0.7) * 10) / 10, s: 0.9 + rnd() * 0.3, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 5) });
+    }
+    map.stamps.push({ id: E.sid(), a: 'cave', x: forestPt.x, y: forestPt.y + 4, s: 1.2, r: 0, f: false, v: 0, name: '', entryId: forest.id, note: '' });
+    map.stamps.sort((a, b) => a.y - b.y);
     const mid = (a, b, j) => [Math.round(((a.x + b.x) / 2 + j) * 10) / 10, Math.round(((a.y + b.y) / 2 - j) * 10) / 10];
     map.lines = [
-      { id: UI.uid('ln'), kind: 'highway', points: [[capital.x, capital.y], mid(capital, portPt, 14), [portPt.x, portPt.y]], name: '王都街道' },
-      { id: UI.uid('ln'), kind: 'road', points: [[capital.x, capital.y], mid(capital, village, -10), [village.x, village.y]], name: '' },
-      { id: UI.uid('ln'), kind: 'path', points: [[capital.x, capital.y], mid(capital, forestPt, 8), [forestPt.x, forestPt.y]], name: '' },
+      { id: UI.uid('ln'), kind: 'highway', points: [[capital.x, capital.y], mid(capital, portPt, 14), [portPt.x, portPt.y]], name: '王都街道', w: 1, wobble: 0.12 },
+      { id: UI.uid('ln'), kind: 'road', points: [[capital.x, capital.y], mid(capital, village, -10), [village.x, village.y]], name: '', w: 1, wobble: 0.18 },
+      { id: UI.uid('ln'), kind: 'trail', points: [[capital.x, capital.y], mid(capital, forestPt, 8), [forestPt.x, forestPt.y]], name: '', w: 1, wobble: 0.3 },
     ];
     map.labels = [
-      { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.5), y: Math.round(map.gh * cell * 0.3), text: 'エルミナ王国', style: 'region', size: 26, rotation: -4, vertical: false },
-      { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.12), y: Math.round(map.gh * cell * 0.86), text: '西の海', style: 'sea', size: 20, rotation: 0, vertical: false },
+      { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.5), y: Math.round(map.gh * cell * 0.27), text: 'エルミナ王国', style: 'region', size: 30, rotation: -3, vertical: false, curve: 16 },
+      { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.13), y: Math.round(map.gh * cell * 0.82), text: '西の海', style: 'sea', size: 22, rotation: 0, vertical: false, curve: 0 },
+      { id: UI.uid('lb'), x: Math.round(forestPt.x), y: Math.round(forestPt.y - 34), text: '黒霧の森', style: 'range', size: 14, rotation: 0, vertical: false, curve: -20 },
     ];
     p.maps = [map];
     p.lastChapterId = c1.id;

@@ -102,6 +102,17 @@
     building: 'M4 21V5l8-3v19|M12 8h8v13|M7 8h2|M7 12h2|M7 16h2|M15 12h2|M15 16h2',
     list: 'M8 6h13|M8 12h13|M8 18h13|M3 6h.01|M3 12h.01|M3 18h.01',
     feather: 'M20 4C10 4 5 10 5 19|M5 19l4-4|M20 4c0 8-5 12-11 12',
+    eraser: 'M20 20H9l-6-6 10-10 8 8-7 8|M11 6l8 8',
+    lock: 'M6 11h12v10H6z|M8 11V7a4 4 0 0 1 8 0v4',
+    unlock: 'M6 11h12v10H6z|M8 11V7a4 4 0 0 1 7.6-1.8',
+    eyeoff: 'M3 3l18 18|M10.6 10.6a2 2 0 0 0 2.8 2.8|M9.9 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2|M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6',
+    flip: 'M12 3v18|M8 7l-5 5 5 5|M16 7l5 5-5 5',
+    rotate: 'M21 12a9 9 0 1 1-3-6.7L21 8|M21 3v5h-5',
+    book2: 'M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z|M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z',
+    network: 'M12 5a2 2 0 1 0 0 .01|M5 18a2 2 0 1 0 0 .01|M19 18a2 2 0 1 0 0 .01|M12 7v4|M12 11l-6 5|M12 11l6 5',
+    play: 'M6 4l14 8-14 8z',
+    printer: 'M6 9V3h12v6|M6 18H4v-7h16v7h-2|M6 14h12v7H6z',
+    dict: 'M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z|M4 17a3 3 0 0 1 3-3h11|M9 8h5',
   };
 
   function icon(name, size) {
@@ -269,6 +280,28 @@
     return m;
   }
 
+  /** 任意の中身を持つポップオーバー */
+  function popover(anchor, content, opts) {
+    opts = opts || {};
+    document.querySelectorAll('.popover').forEach((m) => m.remove());
+    const m = h('div', { class: 'popover', role: 'dialog' }, content);
+    document.body.appendChild(m);
+    const r = anchor.getBoundingClientRect();
+    const mw = m.offsetWidth;
+    const mh = m.offsetHeight;
+    let left = opts.alignLeft ? r.left : r.right - mw;
+    left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+    let top = r.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
+    m.style.left = left + 'px';
+    m.style.top = top + 'px';
+    const close = () => { m.remove(); document.removeEventListener('mousedown', off, true); document.removeEventListener('keydown', onKey, true); };
+    const off = (e) => { if (!m.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) close(); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    setTimeout(() => { document.addEventListener('mousedown', off, true); document.addEventListener('keydown', onKey, true); }, 0);
+    return close;
+  }
+
   function debounce(fn, ms) {
     let t = null;
     const d = function () {
@@ -370,7 +403,7 @@
   const SWATCHES = ['#c8553d', '#d9a441', '#6a994e', '#3d7ea6', '#5f4b8b', '#b5838d', '#6c757d', '#2b9348'];
 
   NS.UI = {
-    h, append, clear, icon, btn, toast, modal, prompt, confirm, menu, debounce, uid, download, pickFile, readFileText,
+    h, append, clear, icon, btn, toast, modal, prompt, confirm, menu, popover, debounce, uid, download, pickFile, readFileText,
     fmtDate, relTime, today, fmtNum, safeFilename, field, lsGet, lsSet, SWATCHES,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});

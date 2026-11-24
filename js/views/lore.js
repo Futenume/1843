@@ -370,14 +370,14 @@
     // 地図との連携（場所）
     if (e.type === 'place') {
       const links = [];
-      p.maps.forEach((m) => (m.markers || []).forEach((mk) => { if (mk.entryId === e.id) links.push({ m, mk }); }));
+      p.maps.forEach((m) => (m.stamps || m.markers || []).forEach((mk) => { if (mk.entryId === e.id) links.push({ m, mk }); }));
       form.appendChild(h('h3', { class: 'form-section' }, '地図'));
       form.appendChild(links.length
         ? h('div', { class: 'row wrap' }, links.map(({ m, mk }) => btn(`${m.name}で表示`, { icon: 'map', small: true, onClick: () => {
-          NS.App.pendingMapFocus = { mapId: m.id, markerId: mk.id };
+          NS.App.pendingMapFocus = { mapId: m.id, stampId: mk.id };
           NS.App.navigate('map', { id: m.id });
         } })))
-        : h('p', { class: 'muted small' }, '地図画面で地点を置き、「設定資料とつなぐ」でこの場所を選ぶと、ここから地図を開けます。'));
+        : h('p', { class: 'muted small' }, '地図画面で城や町などの素材を置き、選択して「設定資料とつなぐ」でこの場所を選ぶと、ここから地図を開けます。'));
     }
 
     // 自由項目

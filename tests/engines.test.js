@@ -185,3 +185,35 @@ test('登場回数の集計', () => {
   assert.equal(counts[0].b, 1);
   assert.equal(counts[1].c, 1);
 });
+
+// ───── 地図 ─────
+require('../js/mapengine.js');
+const { MapEngine } = globalThis.Tsuzuri;
+
+test('旧形式の地図（地点・自動記号）を新形式に変換', () => {
+  const H = MapEngine.generate(40, 26, { preset: 'island', seed: 7 });
+  const old = {
+    id: 'm1', name: '旧地図', gw: 40, gh: 26, cell: 6, seed: 7, height: MapEngine.encodeHeights(H),
+    lines: [], areas: [], labels: [],
+    markers: [{ id: 'mk1', x: 100, y: 60, type: 'capital', name: '王都', entryId: 'e1', note: '' }],
+    style: { palette: 'parchment', glyphs: true, compass: true, title: true, grid: false },
+  };
+  MapEngine.migrate(old);
+  assert.ok(Array.isArray(old.stamps));
+  assert.equal(old.markers, undefined);
+  const cap = old.stamps.find((s) => s.a === 'sym-capital');
+  assert.ok(cap && cap.name === '王都' && cap.entryId === 'e1');
+  assert.ok(old.stamps.some((s) => s.a === 'compass'));
+  assert.equal(old.style.title, 'plain');
+  assert.equal(old.style.grid, 'none');
+  assert.ok(old.layers && old.layers.stamps);
+});
+
+test('新しい地図は山や森の素材を自動で置き、陸と海の区別を保存できる', () => {
+  const m = MapEngine.newMap('t', { preset: 'continent', size: 's', seed: 99 });
+  assert.ok(m.stamps.length > 50);
+  assert.ok(m.stamps.some((s) => s.a.startsWith('mountain')));
+  const H = MapEngine.decodeHeights(m.height, m.gw * m.gh);
+  const again = MapEngine.decodeHeights(MapEngine.encodeHeights(H), m.gw * m.gh);
+  for (let i = 0; i < H.length; i++) assert.equal(Math.sign(again[i]) || 1, Math.sign(H[i]) || 1);
+});
