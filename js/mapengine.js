@@ -290,8 +290,13 @@
    * 地形を ImageData に描く。
    * img は「世界座標 × res」の大きさ。rx0..ry1 は画像のピクセル範囲（その部分だけ描き直せる）。
    */
-  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res) {
+  /**
+   * 地形を描く。mask（同じ大きさの ImageData）を渡すと、陸を不透明・水を透明にした
+   * 「陸地マスク」も書き込む（川を海岸で切るのに使う。縁はなめらかに）。
+   */
+  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res, mask) {
     res = res || 1;
+    const md = mask ? mask.data : null;
     const pal = PALETTES[(map.style && map.style.palette) || 'parchment'] || PALETTES.parchment;
     const shade = !map.style || map.style.hillshade !== false;
     const ripples = !map.style || map.style.ripples !== false;
@@ -363,6 +368,13 @@
           c = [c[0] + n, c[1] + n, c[2] + n];
         }
         const o = (py * W + px) * 4;
+        if (md) {
+          // 海岸線からの符号つき距離（陸が正）を1画素ぶんの幅でなめらかにする
+          const sd = gm < 0.0004 ? (h > 0 ? 9 : -9) : h / gm;
+          const a = 0.5 + sd * res;
+          md[o] = 255; md[o + 1] = 255; md[o + 2] = 255;
+          md[o + 3] = a <= 0 ? 0 : a >= 1 ? 255 : a * 255;
+        }
         data[o] = c[0] < 0 ? 0 : c[0] > 255 ? 255 : c[0];
         data[o + 1] = c[1] < 0 ? 0 : c[1] > 255 ? 255 : c[1];
         data[o + 2] = c[2] < 0 ? 0 : c[2] > 255 ? 255 : c[2];

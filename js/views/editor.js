@@ -351,7 +351,7 @@
     try {
       cons = NS.Consistency.check(text, {
         entries: p.entries, rules: p.rules, chapterNo: p.chapters.findIndex((c) => c.id === S.ch.id) + 1,
-        enabled: st.consistency, ignore,
+        enabled: st.consistency, ignore, narrator: S.ch.narrator || p.rules.narrator || 'auto',
       });
     } catch (e) { console.error(e); }
     S.cons = cons;
@@ -870,6 +870,33 @@
       issueList(items, all.length ? 'この分類の指摘はありません' : '指摘はありません。'));
   }
 
+  /** この話の語り手（地の文の視点）。世界観NGワードを地の文でチェックするかが変わる */
+  function narratorRow() {
+    const p = P();
+    const C = NS.Consistency;
+    const nar = (S.cons && S.cons.narrator) || { setting: 'auto', effective: 'third' };
+    const projSetting = p.rules.narrator || 'auto';
+    const detectedText = !nar.detected ? ''
+      : nar.detected.kind === 'first' ? `自動判定：地の文に「${nar.detected.pronoun}」が${nar.detected.count}回`
+        : '自動判定：地の文に一人称がほとんどないため';
+    const inherit = `作品の設定に従う（${projSetting === 'auto' ? '自動' : C.NARRATOR_SHORT[projSetting]}）`;
+    const sel = h('select', {
+      class: 'input', 'aria-label': 'この話の語り手',
+      onchange: (e) => { S.ch.narrator = e.target.value; App().touch(); runAnalysis(true); },
+    }, [['', inherit]].concat(Object.keys(C.NARRATORS).filter((k) => k !== 'auto').map((k) => [k, C.NARRATORS[k]])).map(([v, l]) => h('option', { value: v, selected: (S.ch.narrator || '') === v }, l)));
+    const effLabel = nar.detected ? (nar.detected.kind === 'first' ? '一人称' : '三人称') : (C.NARRATOR_SHORT[nar.effective] || '');
+    const note = nar.effective === 'omniscient' ? '地の文の世界観NGワードは指摘しません（台詞だけチェック）'
+      : nar.effective === 'first' ? '語り手が作中の人物なので、地の文の世界観NGワードも指摘します'
+        : '地の文の世界観NGワードは「参考」として控えめに指摘します（神視点にすると指摘しません）';
+    const box = h('details', { class: 'sub-section narrator-box', open: S.narrOpen != null ? S.narrOpen : (!S.ch.narrator && projSetting === 'auto' && nar.effective !== 'first') },
+      h('summary', null, `語り手：${effLabel}`, detectedText ? h('span', { class: 'muted small' }, '　' + detectedText) : null),
+      h('div', { class: 'stack-sm' },
+        UI.field('この話の語り手（地の文の視点）', sel),
+        h('p', { class: 'small muted' }, note + '。作品全体の設定は「設定資料 → 世界観ルール」で変えられます。')));
+    box.addEventListener('toggle', () => { S.narrOpen = box.open; });
+    return box;
+  }
+
   function panelCons() {
     const p = P();
     const items = S.issues.filter((i) => i.source === 'consistency');
@@ -879,6 +906,7 @@
         h('p', null, '設定資料に人物・場所・用語を登録すると、名前の表記ゆれ、一人称や呼び方、髪や瞳の色、年齢、退場後の登場などの食い違いをチェックします。'),
         btn('設定資料を開く', { icon: 'users', onClick: () => App().navigate('lore') })));
     }
+    wrap.appendChild(narratorRow());
     wrap.appendChild(issueList(items, '設定との食い違いは見つかりませんでした。'));
 
     // 話者推定

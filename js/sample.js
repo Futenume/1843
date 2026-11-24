@@ -93,7 +93,7 @@
     p.rules.world = '剣と魔法の中世風ファンタジー。火薬・電気・機械はない。長さの単位は「歩（ほ）」「里（り）」を使う。';
     p.rules.ng = [
       { word: 'メートル', reason: 'この世界の長さの単位は「歩」', suggestion: '歩' },
-      { word: 'スマホ', reason: '電気製品は存在しない', suggestion: '' },
+      { word: 'スマホ', reason: '電気製品は存在しない', suggestion: '', scope: 'all' },
     ];
     p.rules.style = [{ from: '魔方陣', to: '魔法陣' }];
     p.timeline = [

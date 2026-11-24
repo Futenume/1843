@@ -99,6 +99,7 @@
       c.memo = c.memo || '';
       c.ignored = Array.isArray(c.ignored) ? c.ignored : [];
       c.snapshots = Array.isArray(c.snapshots) ? c.snapshots : [];
+      c.narrator = c.narrator || ''; // 空なら作品の設定に従う
     });
     p.entries = Array.isArray(p.entries) ? p.entries : [];
     p.entries.forEach((e) => {
@@ -115,6 +116,8 @@
     p.rules.ng = Array.isArray(p.rules.ng) ? p.rules.ng : [];
     p.rules.style = Array.isArray(p.rules.style) ? p.rules.style : [];
     p.rules.world = p.rules.world || '';
+    p.rules.narrator = p.rules.narrator || 'auto';
+    p.rules.ng.forEach((r) => { if (r && !r.scope) r.scope = 'auto'; });
     p.timeline = Array.isArray(p.timeline) ? p.timeline : [];
     p.ideas = Array.isArray(p.ideas) ? p.ideas : [];
     p.plot = p.plot || {};

@@ -9,7 +9,7 @@
 
   const RULES = [
     { id: 'ng-word', name: '世界観NGワード', severity: 'warning', default: true, fix: true,
-      desc: '設定資料の「世界観ルール」に登録した、作中に存在しない言葉を検出します。' },
+      desc: '設定資料の「世界観ルール」に登録した、作中に存在しない言葉を検出します。台詞は常に、地の文は語り手（一人称・三人称・神視点）に合わせてチェックします。' },
     { id: 'name-variant', name: '固有名詞の表記ゆれ', severity: 'error', default: true, fix: true,
       desc: '「斎藤／斉藤」「ヴァイス／バイス」など、登録名と表記が違う固有名詞を検出します。' },
     { id: 'first-person', name: '一人称の食い違い', severity: 'warning', default: true,
@@ -314,10 +314,46 @@
     return { min: Math.min.apply(null, nums), max: Math.max.apply(null, nums) };
   }
 
+  // ───── 語り手（地の文の視点） ─────
+  const NARRATORS = {
+    auto: '自動（本文から判定）',
+    first: '一人称（作中の人物が語る）',
+    third: '三人称・一元視点（作中の人物に寄り添って語る）',
+    omniscient: '三人称・神視点（作品の外から語る）',
+  };
+  const NARRATOR_SHORT = { first: '一人称', third: '三人称（一元視点）', omniscient: '神視点' };
+  // 地の文の一人称（「私立」「僕ら」などの語の一部は除く）
+  const RE_NARR_FP = /(私|わたし|あたし|僕|ぼく|俺|おれ|オレ|儂|わし|拙者|我輩|吾輩)(?=[はがもをにへとのやでだっ、。…―]|たち|達|ら[はがもをにのと、])/g;
+
+  /** 地の文に一人称がよく出てくるかで、一人称の語りかどうかを判定する */
+  function detectNarrator(text, analyzed) {
+    const a = analyzed || T.analyze(text || '');
+    const m = a.masked;
+    let count = 0;
+    let narrChars = 0;
+    const words = {};
+    for (let i = 0; i < m.length; i++) if (!a.inDialogue[i] && !/\s/.test(m[i])) narrChars++;
+    RE_NARR_FP.lastIndex = 0;
+    let mm;
+    while ((mm = RE_NARR_FP.exec(m)) !== null) {
+      if (a.inDialogue[mm.index]) continue;
+      // 「私立」「僕の」などの直前が漢字の語（「公私」など）は数えない
+      if (mm.index > 0 && /[一-龠々]/.test(m[mm.index - 1]) && mm[1] === '私') continue;
+      count++;
+      words[mm[1]] = (words[mm[1]] || 0) + 1;
+    }
+    const per1000 = narrChars ? (count * 1000) / narrChars : 0;
+    const first = count >= 2 && per1000 >= 1.2;
+    let top = '';
+    Object.keys(words).forEach((w) => { if (!top || words[w] > words[top]) top = w; });
+    return { kind: first ? 'first' : 'third', count, pronoun: top, narrChars };
+  }
+
   /**
    * 設定との矛盾をチェックする。
    * @param {string} text 本文
-   * @param {object} ctx { entries, rules:{ng:[{word,reason,suggestion}]}, chapterNo, enabled:{id:bool}, ignore:Set }
+   * @param {object} ctx { entries, rules:{ng:[{word,reason,suggestion,scope}]}, chapterNo, enabled:{id:bool}, ignore:Set,
+   *                       narrator:'auto'|'first'|'third'|'omniscient'（地の文の語り手） }
    */
   function check(text, ctx) {
     ctx = ctx || {};
@@ -338,16 +374,35 @@
     };
     const nameOf = (id) => (index.byId[id] ? index.byId[id].name : '？');
 
-    // 世界観NGワード
+    // 語り手
+    const narrSetting = NARRATORS[ctx.narrator] ? ctx.narrator : 'auto';
+    const detected = narrSetting === 'auto' ? detectNarrator(text, a) : null;
+    const narrator = { setting: narrSetting, effective: detected ? detected.kind : narrSetting, detected };
+
+    // 世界観NGワード（台詞は常に。地の文は語り手しだい）
     if (enabled('ng-word')) {
       ((ctx.rules && ctx.rules.ng) || []).forEach((r) => {
         if (!r || !r.word) return;
+        const scope = r.scope === 'all' || r.scope === 'dialogue' ? r.scope : 'auto';
         const re = new RegExp(T.escapeRegExp(r.word), 'g');
+        const base = `世界観NGワード「${r.word}」${r.reason ? '：' + r.reason : ''}${r.suggestion ? `（言い換え例：「${r.suggestion}」）` : ''}`;
         let mm;
         while ((mm = re.exec(m)) !== null) {
-          add('ng-word', mm.index, mm.index + mm[0].length,
-            `世界観NGワード「${r.word}」${r.reason ? '：' + r.reason : ''}${r.suggestion ? `（言い換え例：「${r.suggestion}」）` : ''}`,
-            r.suggestion || null);
+          const inDlg = !!a.inDialogue[mm.index];
+          let severity = null;
+          let note = '';
+          if (inDlg) { severity = 'warning'; note = '（台詞）'; }
+          else if (scope === 'all') { severity = 'warning'; note = '（地の文）'; }
+          else if (scope === 'dialogue') severity = null;
+          else if (narrator.effective === 'first') {
+            severity = 'warning';
+            note = detected ? `（一人称「${detected.pronoun}」の語りの地の文）` : '（一人称の語りの地の文）';
+          } else if (narrator.effective === 'third') {
+            severity = 'info';
+            note = '（三人称の地の文。視点人物に寄り添う語りなら言い換えを。作品の外から語る神視点なら、語り手を「神視点」にするとこの指摘は出ません）';
+          }
+          if (!severity) continue;
+          add('ng-word', mm.index, mm.index + mm[0].length, base + note, r.suggestion || null, { severity, inDialogue: inDlg });
         }
       });
     }
@@ -503,6 +558,7 @@
       speakers: speakers.map((s) => Object.assign({ name: nameOf(s.entryId) }, s)),
       mentions,
       candidates: findCandidates(m, index),
+      narrator,
     };
   }
 
@@ -669,7 +725,7 @@
   }
 
   NS.Consistency = {
-    RULES, RULE_MAP, check, buildNameIndex, findMentions, attributeSpeakers, countMentionsByEntry,
+    RULES, RULE_MAP, check, buildNameIndex, detectNarrator, NARRATORS, NARRATOR_SHORT, findMentions, attributeSpeakers, countMentionsByEntry,
     normKana, levenshtein, colorGroupsIn, parsePronounSetting, PRONOUN_FAMILIES,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

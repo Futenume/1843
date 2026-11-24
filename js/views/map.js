@@ -200,6 +200,12 @@
     M.base.height = Math.round(M.Hpx * M.res);
     M.baseCtx = M.base.getContext('2d');
     M.img = M.baseCtx.createImageData(M.base.width, M.base.height);
+    // 陸地マスク（川を海岸で切るため）
+    M.mask = document.createElement('canvas');
+    M.mask.width = M.base.width;
+    M.mask.height = M.base.height;
+    M.maskCtx = M.mask.getContext('2d');
+    M.maskImg = M.maskCtx.createImageData(M.base.width, M.base.height);
     M.baseCtx.fillStyle = '#e9e2d0';
     M.baseCtx.fillRect(0, 0, M.base.width, M.base.height);
     build();
@@ -367,10 +373,11 @@
       const y0 = job.y;
       while (job.y < ih && performance.now() - t0 < 14) {
         const y1 = Math.min(ih, job.y + 16);
-        E.renderTerrain(M.map, M.H, M.B, M.img, 0, job.y, iw, y1, M.res);
+        E.renderTerrain(M.map, M.H, M.B, M.img, 0, job.y, iw, y1, M.res, M.maskImg);
         job.y = y1;
       }
       M.baseCtx.putImageData(M.img, 0, 0, 0, y0, iw, job.y - y0);
+      M.maskCtx.putImageData(M.maskImg, 0, 0, 0, y0, iw, job.y - y0);
       M.progress.textContent = `地形を描いています… ${Math.round((job.y / ih) * 100)}%`;
       draw();
       if (job.y < ih) requestAnimationFrame(step);
@@ -386,8 +393,9 @@
     const x1 = Math.min(M.base.width, Math.ceil(wx1 * r));
     const y1 = Math.min(M.base.height, Math.ceil(wy1 * r));
     if (x1 <= x0 || y1 <= y0) return;
-    E.renderTerrain(M.map, M.H, M.B, M.img, x0, y0, x1, y1, r);
+    E.renderTerrain(M.map, M.H, M.B, M.img, x0, y0, x1, y1, r, M.maskImg);
     M.baseCtx.putImageData(M.img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+    M.maskCtx.putImageData(M.maskImg, 0, 0, x0, y0, x1 - x0, y1 - y0);
   }
 
   function applyBrush(wx, wy) {
@@ -948,9 +956,21 @@
     return pts.filter((_, i) => keep[i]);
   }
 
+  /** 川は高い方から低い方へ流れる（下流ほど太く描く）ように向きをそろえる */
+  function orientDownhill(pts) {
+    if (pts.length < 2) return pts;
+    const m = M.map;
+    const hAt = (p) => E.sampleH(M.H, m.gw, m.gh, m.cell, p[0], p[1]);
+    const a = hAt(pts[0]);
+    const b = hAt(pts[pts.length - 1]);
+    return a < b - 0.01 ? pts.slice().reverse() : pts;
+  }
+
   function createPath(pts) {
     pushUndo();
-    const ln = { id: UI.uid('ln'), kind: PREF.path.kind, points: pts, name: '', w: PREF.path.w, wobble: (PATH_KINDS[PREF.path.kind] || {}).wobble || 0 };
+    const kind = PREF.path.kind;
+    if (kind === 'river' || kind === 'stream') pts = orientDownhill(pts);
+    const ln = { id: UI.uid('ln'), kind, points: pts, name: '', w: PREF.path.w, wobble: (PATH_KINDS[kind] || {}).wobble || 0 };
     M.map.lines.push(ln);
     commit();
     renderInspector();
@@ -1219,7 +1239,11 @@
     if (!layerHidden('areas')) m.areas.forEach((ar) => drawArea(ctx, ar));
     if (!layerHidden('paths')) {
       const order = ['river', 'stream', 'route', 'trail', 'road', 'highway', 'rail', 'wall', 'border'];
-      m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)).forEach((ln) => drawPath(ctx, ln, pl));
+      const sorted = m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+      const rivers = sorted.filter((ln) => ln.kind === 'river' || ln.kind === 'stream');
+      // 川は陸の上だけに描き、海や湖に入ったら水面に溶け込ませる
+      if (rivers.length) drawRivers(ctx, rivers, pl, layerHidden('terrain') ? null : (opts.mask || M.mask));
+      sorted.forEach((ln) => { if (ln.kind !== 'river' && ln.kind !== 'stream') drawPath(ctx, ln, pl); });
     }
     if (!layerHidden('stamps')) {
       const pk = palKey();
@@ -1348,6 +1372,38 @@
   function seedOf(id) { return (AS.hashStr(String(id)) % 1000) / 10; }
   function inkOf(pl) { return pl.ink === '#f2ead8' ? '#1a1a1a' : pl.ink; }
 
+  let riverLayer = null;
+  /** 川をまとめて別の層に描き、陸地マスクで切り抜いてから重ねる */
+  function drawRivers(ctx, rivers, pl, mask) {
+    if (!mask) { rivers.forEach((ln) => drawPath(ctx, ln, pl)); return; }
+    const cw = ctx.canvas.width;
+    const ch = ctx.canvas.height;
+    if (!riverLayer) riverLayer = document.createElement('canvas');
+    if (riverLayer.width !== cw || riverLayer.height !== ch) { riverLayer.width = cw; riverLayer.height = ch; }
+    const o = riverLayer.getContext('2d');
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.globalCompositeOperation = 'source-over';
+    o.clearRect(0, 0, cw, ch);
+    o.setTransform(ctx.getTransform());
+    rivers.forEach((ln) => drawPath(o, ln, pl));
+    o.globalCompositeOperation = 'destination-in';
+    o.imageSmoothingEnabled = true;
+    o.drawImage(mask, 0, 0, M.W, M.Hpx);
+    o.globalCompositeOperation = 'source-over';
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(riverLayer, 0, 0);
+    ctx.restore();
+  }
+
+  /** 川の色：海岸近くの海と同じ色にして、河口で海につながって見えるようにする */
+  function riverColors(pl) {
+    const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    const fill = mixc(pl.shallow, pl.glow, 0.35);
+    return { fill: `rgb(${fill.join(',')})`, edge: `rgba(${pl.coast.join(',')},0.9)` };
+  }
+
   function drawPath(ctx, ln, pl) {
     if (ln.points.length < 2) return;
     const w = ln.w || 1;
@@ -1361,8 +1417,9 @@
         const max = (ln.kind === 'river' ? 3.2 : 1.4) * w;
         const min = (ln.kind === 'river' ? 0.7 : 0.5) * w;
         const n = pts.length;
+        const rc = riverColors(pl);
         for (let pass = 0; pass < 2; pass++) {
-          ctx.strokeStyle = pass ? pl.water : hexA(inkOf(pl), 0.55);
+          ctx.strokeStyle = pass ? rc.fill : rc.edge;
           for (let i = 0; i < n - 1; i++) {
             const t = i / Math.max(1, n - 2);
             ctx.lineWidth = min + (max - min) * t + (pass ? 0 : 0.9);
@@ -1819,9 +1876,14 @@
     base.height = ih;
     const bctx = base.getContext('2d');
     const img = bctx.createImageData(iw, ih);
+    const mask = document.createElement('canvas');
+    mask.width = iw;
+    mask.height = ih;
+    const mctx = mask.getContext('2d');
+    const mimg = mctx.createImageData(iw, ih);
     M.progress.hidden = false;
     for (let y = 0; y < ih; y += 48) {
-      E.renderTerrain(M.map, M.H, M.B, img, 0, y, iw, Math.min(ih, y + 48), scale);
+      E.renderTerrain(M.map, M.H, M.B, img, 0, y, iw, Math.min(ih, y + 48), scale, mimg);
       if (y % 240 === 0) {
         M.progress.textContent = `書き出し中… ${Math.round((y / ih) * 100)}%`;
         await new Promise((r) => setTimeout(r, 0));
@@ -1829,11 +1891,12 @@
       }
     }
     bctx.putImageData(img, 0, 0);
+    mctx.putImageData(mimg, 0, 0);
     const c = document.createElement('canvas');
     c.width = iw;
     c.height = ih;
     const ctx = c.getContext('2d');
-    renderMap(ctx, { scale, tx: 0, ty: 0, w: iw, h: ih, editing: false }, { base });
+    renderMap(ctx, { scale, tx: 0, ty: 0, w: iw, h: ih, editing: false }, { base, mask });
     M.progress.hidden = true;
     c.toBlob((blob) => {
       if (!blob) { toast('書き出せませんでした（画像が大きすぎる可能性があります）', 'error'); return; }

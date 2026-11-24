@@ -275,3 +275,33 @@ test('創作辞典：語・読み（カタカナも可）・言い換えで引�
   assert.deepEqual(DictData.search('  '), []);
   assert.equal(DictData.kata2hira('アルファ'), 'あるふぁ');
 });
+
+test('世界観NGワード：台詞は常に、地の文は語り手しだい', () => {
+  const ng = [{ word: 'メートル', reason: '単位は歩', suggestion: '歩' }];
+  const firstText = '　僕は剣を握った。百メートル先に敵がいる。僕の足は震えていた。\n「十メートル下がれ」と師匠が叫んだ。';
+  const thirdText = '　リオは剣を握った。百メートル先に敵がいる。彼の足は震えていた。\n「十メートル下がれ」と師匠が叫んだ。';
+  const ngIssues = (t, narrator, scope) => Consistency.check(t, { rules: { ng: ng.map((r) => Object.assign({}, r, { scope })) }, narrator }).issues.filter((i) => i.ruleId === 'ng-word');
+  // 自動判定：一人称 → 地の文も警告
+  const a = ngIssues(firstText, 'auto');
+  assert.equal(a.length, 2);
+  assert.ok(a.every((i) => i.severity === 'warning'));
+  // 神視点 → 台詞だけ
+  const o = ngIssues(thirdText, 'omniscient');
+  assert.equal(o.length, 1);
+  assert.ok(o[0].inDialogue && o[0].text === 'メートル');
+  // 三人称（自動判定でも）→ 地の文は参考（info）
+  const t = ngIssues(thirdText, 'auto');
+  assert.deepEqual(t.map((i) => i.severity).sort(), ['info', 'warning']);
+  // 語ごとの対象：台詞だけ／台詞も地の文も
+  assert.equal(ngIssues(firstText, 'first', 'dialogue').length, 1);
+  assert.ok(ngIssues(thirdText, 'omniscient', 'all').every((i) => i.severity === 'warning'));
+  assert.equal(ngIssues(thirdText, 'omniscient', 'all').length, 2);
+});
+
+test('語り手の自動判定（地の文の一人称）', () => {
+  assert.equal(Consistency.detectNarrator('　俺はため息をついた。俺たちの村は小さい。').kind, 'first');
+  assert.equal(Consistency.detectNarrator('　彼女は私立高校に通っている。公私ともに忙しい。「私は平気」と彼女は笑った。').kind, 'third');
+  const r = Consistency.detectNarrator('　わたしは窓を開けた。わたしの部屋は二階にある。');
+  assert.equal(r.kind, 'first');
+  assert.equal(r.pronoun, 'わたし');
+});

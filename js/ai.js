@@ -136,6 +136,7 @@
     '- suggestion には quote をそのまま置き換えられる、設定に合わせた修正案を入れる。示せない場合は空文字。',
     '- 設定資料に書かれていないことを推測で矛盾扱いしない。確実なものだけを、多くても30件まで。',
     '- 「作者が登録した読み方」にある読み・ルビは意図したものなので指摘しない。',
+    '- 「作中で使わない言葉」は台詞では常に指摘する。地の文では「語り手」に従う：一人称なら指摘し、三人称・一元視点なら軽め（info）に、神視点（作品の外の語り手）なら地の文では指摘しない。［台詞だけ］と書かれた語は地の文では指摘しない。',
     '- summary には全体の所見を1〜3文で書く。食い違いがなければ items は空配列にする。',
   ].join('\n');
 
@@ -193,8 +194,16 @@
     },
   };
 
+  function narratorLine(ctx) {
+    const C = NS.Consistency;
+    const p = ctx.project;
+    const v = (ctx.chapter && ctx.chapter.narrator) || (p && p.rules && p.rules.narrator) || 'auto';
+    if (!C || v === 'auto') return '';
+    return `この話の語り手：${C.NARRATORS[v] || v}\n`;
+  }
+
   function manuscriptBlock(ctx, text) {
-    return `## 原稿（第${ctx.chapterNo}話「${ctx.chapter.title}」）\n<manuscript>\n${text}\n</manuscript>`;
+    return `## 原稿（第${ctx.chapterNo}話「${ctx.chapter.title}」）\n${narratorLine(ctx)}<manuscript>\n${text}\n</manuscript>`;
   }
 
   function settingsBlock(project) {

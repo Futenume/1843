@@ -622,7 +622,7 @@ ruby rt { font-size: 0.5em; }
 .table-like { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .table-like > div { width: 100%; }
 .rel-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; align-items: center; }
-.ng-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 6px; align-items: center; }
+.ng-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .kv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 6px; align-items: center; }
 .tl-head { font-size: 11.5px; color: var(--muted); }
 .timeline { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 18px; }
@@ -889,7 +889,8 @@ ruby rt { font-size: 0.5em; }
   .rel-row > :nth-child(4) { grid-column: 2 / 3; grid-row: 2; }
   .rel-row > :last-child { grid-column: 3; grid-row: 1; }
   .ng-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
-  .ng-row > :nth-child(3) { grid-column: 1 / 3; grid-row: 2; }
+  .ng-row > :nth-child(3) { grid-column: 1 / 2; grid-row: 2; }
+  .ng-row > :nth-child(4) { grid-column: 2 / 3; grid-row: 2; }
   .ng-row > :last-child { grid-column: 3; grid-row: 1; }
   .lore-detail.full { display: block; overflow: visible; }
   .relmap-body { display: flex; flex-direction: column; }
@@ -2300,7 +2301,7 @@ ruby rt { font-size: 0.5em; }
 
   const RULES = [
     { id: 'ng-word', name: '世界観NGワード', severity: 'warning', default: true, fix: true,
-      desc: '設定資料の「世界観ルール」に登録した、作中に存在しない言葉を検出します。' },
+      desc: '設定資料の「世界観ルール」に登録した、作中に存在しない言葉を検出します。台詞は常に、地の文は語り手（一人称・三人称・神視点）に合わせてチェックします。' },
     { id: 'name-variant', name: '固有名詞の表記ゆれ', severity: 'error', default: true, fix: true,
       desc: '「斎藤／斉藤」「ヴァイス／バイス」など、登録名と表記が違う固有名詞を検出します。' },
     { id: 'first-person', name: '一人称の食い違い', severity: 'warning', default: true,
@@ -2605,10 +2606,46 @@ ruby rt { font-size: 0.5em; }
     return { min: Math.min.apply(null, nums), max: Math.max.apply(null, nums) };
   }
 
+  // ───── 語り手（地の文の視点） ─────
+  const NARRATORS = {
+    auto: '自動（本文から判定）',
+    first: '一人称（作中の人物が語る）',
+    third: '三人称・一元視点（作中の人物に寄り添って語る）',
+    omniscient: '三人称・神視点（作品の外から語る）',
+  };
+  const NARRATOR_SHORT = { first: '一人称', third: '三人称（一元視点）', omniscient: '神視点' };
+  // 地の文の一人称（「私立」「僕ら」などの語の一部は除く）
+  const RE_NARR_FP = /(私|わたし|あたし|僕|ぼく|俺|おれ|オレ|儂|わし|拙者|我輩|吾輩)(?=[はがもをにへとのやでだっ、。…―]|たち|達|ら[はがもをにのと、])/g;
+
+  /** 地の文に一人称がよく出てくるかで、一人称の語りかどうかを判定する */
+  function detectNarrator(text, analyzed) {
+    const a = analyzed || T.analyze(text || '');
+    const m = a.masked;
+    let count = 0;
+    let narrChars = 0;
+    const words = {};
+    for (let i = 0; i < m.length; i++) if (!a.inDialogue[i] && !/\s/.test(m[i])) narrChars++;
+    RE_NARR_FP.lastIndex = 0;
+    let mm;
+    while ((mm = RE_NARR_FP.exec(m)) !== null) {
+      if (a.inDialogue[mm.index]) continue;
+      // 「私立」「僕の」などの直前が漢字の語（「公私」など）は数えない
+      if (mm.index > 0 && /[一-龠々]/.test(m[mm.index - 1]) && mm[1] === '私') continue;
+      count++;
+      words[mm[1]] = (words[mm[1]] || 0) + 1;
+    }
+    const per1000 = narrChars ? (count * 1000) / narrChars : 0;
+    const first = count >= 2 && per1000 >= 1.2;
+    let top = '';
+    Object.keys(words).forEach((w) => { if (!top || words[w] > words[top]) top = w; });
+    return { kind: first ? 'first' : 'third', count, pronoun: top, narrChars };
+  }
+
   /**
    * 設定との矛盾をチェックする。
    * @param {string} text 本文
-   * @param {object} ctx { entries, rules:{ng:[{word,reason,suggestion}]}, chapterNo, enabled:{id:bool}, ignore:Set }
+   * @param {object} ctx { entries, rules:{ng:[{word,reason,suggestion,scope}]}, chapterNo, enabled:{id:bool}, ignore:Set,
+   *                       narrator:'auto'|'first'|'third'|'omniscient'（地の文の語り手） }
    */
   function check(text, ctx) {
     ctx = ctx || {};
@@ -2629,16 +2666,35 @@ ruby rt { font-size: 0.5em; }
     };
     const nameOf = (id) => (index.byId[id] ? index.byId[id].name : '？');
 
-    // 世界観NGワード
+    // 語り手
+    const narrSetting = NARRATORS[ctx.narrator] ? ctx.narrator : 'auto';
+    const detected = narrSetting === 'auto' ? detectNarrator(text, a) : null;
+    const narrator = { setting: narrSetting, effective: detected ? detected.kind : narrSetting, detected };
+
+    // 世界観NGワード（台詞は常に。地の文は語り手しだい）
     if (enabled('ng-word')) {
       ((ctx.rules && ctx.rules.ng) || []).forEach((r) => {
         if (!r || !r.word) return;
+        const scope = r.scope === 'all' || r.scope === 'dialogue' ? r.scope : 'auto';
         const re = new RegExp(T.escapeRegExp(r.word), 'g');
+        const base = `世界観NGワード「${r.word}」${r.reason ? '：' + r.reason : ''}${r.suggestion ? `（言い換え例：「${r.suggestion}」）` : ''}`;
         let mm;
         while ((mm = re.exec(m)) !== null) {
-          add('ng-word', mm.index, mm.index + mm[0].length,
-            `世界観NGワード「${r.word}」${r.reason ? '：' + r.reason : ''}${r.suggestion ? `（言い換え例：「${r.suggestion}」）` : ''}`,
-            r.suggestion || null);
+          const inDlg = !!a.inDialogue[mm.index];
+          let severity = null;
+          let note = '';
+          if (inDlg) { severity = 'warning'; note = '（台詞）'; }
+          else if (scope === 'all') { severity = 'warning'; note = '（地の文）'; }
+          else if (scope === 'dialogue') severity = null;
+          else if (narrator.effective === 'first') {
+            severity = 'warning';
+            note = detected ? `（一人称「${detected.pronoun}」の語りの地の文）` : '（一人称の語りの地の文）';
+          } else if (narrator.effective === 'third') {
+            severity = 'info';
+            note = '（三人称の地の文。視点人物に寄り添う語りなら言い換えを。作品の外から語る神視点なら、語り手を「神視点」にするとこの指摘は出ません）';
+          }
+          if (!severity) continue;
+          add('ng-word', mm.index, mm.index + mm[0].length, base + note, r.suggestion || null, { severity, inDialogue: inDlg });
         }
       });
     }
@@ -2794,6 +2850,7 @@ ruby rt { font-size: 0.5em; }
       speakers: speakers.map((s) => Object.assign({ name: nameOf(s.entryId) }, s)),
       mentions,
       candidates: findCandidates(m, index),
+      narrator,
     };
   }
 
@@ -2960,7 +3017,7 @@ ruby rt { font-size: 0.5em; }
   }
 
   NS.Consistency = {
-    RULES, RULE_MAP, check, buildNameIndex, findMentions, attributeSpeakers, countMentionsByEntry,
+    RULES, RULE_MAP, check, buildNameIndex, detectNarrator, NARRATORS, NARRATOR_SHORT, findMentions, attributeSpeakers, countMentionsByEntry,
     normKana, levenshtein, colorGroupsIn, parsePronounSetting, PRONOUN_FAMILIES,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
@@ -3260,8 +3317,13 @@ ruby rt { font-size: 0.5em; }
    * 地形を ImageData に描く。
    * img は「世界座標 × res」の大きさ。rx0..ry1 は画像のピクセル範囲（その部分だけ描き直せる）。
    */
-  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res) {
+  /**
+   * 地形を描く。mask（同じ大きさの ImageData）を渡すと、陸を不透明・水を透明にした
+   * 「陸地マスク」も書き込む（川を海岸で切るのに使う。縁はなめらかに）。
+   */
+  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res, mask) {
     res = res || 1;
+    const md = mask ? mask.data : null;
     const pal = PALETTES[(map.style && map.style.palette) || 'parchment'] || PALETTES.parchment;
     const shade = !map.style || map.style.hillshade !== false;
     const ripples = !map.style || map.style.ripples !== false;
@@ -3333,6 +3395,13 @@ ruby rt { font-size: 0.5em; }
           c = [c[0] + n, c[1] + n, c[2] + n];
         }
         const o = (py * W + px) * 4;
+        if (md) {
+          // 海岸線からの符号つき距離（陸が正）を1画素ぶんの幅でなめらかにする
+          const sd = gm < 0.0004 ? (h > 0 ? 9 : -9) : h / gm;
+          const a = 0.5 + sd * res;
+          md[o] = 255; md[o + 1] = 255; md[o + 2] = 255;
+          md[o + 3] = a <= 0 ? 0 : a >= 1 ? 255 : a * 255;
+        }
         data[o] = c[0] < 0 ? 0 : c[0] > 255 ? 255 : c[0];
         data[o + 1] = c[1] < 0 ? 0 : c[1] > 255 ? 255 : c[1];
         data[o + 2] = c[2] < 0 ? 0 : c[2] > 255 ? 255 : c[2];
@@ -5400,6 +5469,7 @@ ruby rt { font-size: 0.5em; }
       c.memo = c.memo || '';
       c.ignored = Array.isArray(c.ignored) ? c.ignored : [];
       c.snapshots = Array.isArray(c.snapshots) ? c.snapshots : [];
+      c.narrator = c.narrator || ''; // 空なら作品の設定に従う
     });
     p.entries = Array.isArray(p.entries) ? p.entries : [];
     p.entries.forEach((e) => {
@@ -5416,6 +5486,8 @@ ruby rt { font-size: 0.5em; }
     p.rules.ng = Array.isArray(p.rules.ng) ? p.rules.ng : [];
     p.rules.style = Array.isArray(p.rules.style) ? p.rules.style : [];
     p.rules.world = p.rules.world || '';
+    p.rules.narrator = p.rules.narrator || 'auto';
+    p.rules.ng.forEach((r) => { if (r && !r.scope) r.scope = 'auto'; });
     p.timeline = Array.isArray(p.timeline) ? p.timeline : [];
     p.ideas = Array.isArray(p.ideas) ? p.ideas : [];
     p.plot = p.plot || {};
@@ -6295,7 +6367,7 @@ ruby rt { font-size: 0.5em; }
     try {
       cons = NS.Consistency.check(text, {
         entries: p.entries, rules: p.rules, chapterNo: p.chapters.findIndex((c) => c.id === S.ch.id) + 1,
-        enabled: st.consistency, ignore,
+        enabled: st.consistency, ignore, narrator: S.ch.narrator || p.rules.narrator || 'auto',
       });
     } catch (e) { console.error(e); }
     S.cons = cons;
@@ -6814,6 +6886,33 @@ ruby rt { font-size: 0.5em; }
       issueList(items, all.length ? 'この分類の指摘はありません' : '指摘はありません。'));
   }
 
+  /** この話の語り手（地の文の視点）。世界観NGワードを地の文でチェックするかが変わる */
+  function narratorRow() {
+    const p = P();
+    const C = NS.Consistency;
+    const nar = (S.cons && S.cons.narrator) || { setting: 'auto', effective: 'third' };
+    const projSetting = p.rules.narrator || 'auto';
+    const detectedText = !nar.detected ? ''
+      : nar.detected.kind === 'first' ? `自動判定：地の文に「${nar.detected.pronoun}」が${nar.detected.count}回`
+        : '自動判定：地の文に一人称がほとんどないため';
+    const inherit = `作品の設定に従う（${projSetting === 'auto' ? '自動' : C.NARRATOR_SHORT[projSetting]}）`;
+    const sel = h('select', {
+      class: 'input', 'aria-label': 'この話の語り手',
+      onchange: (e) => { S.ch.narrator = e.target.value; App().touch(); runAnalysis(true); },
+    }, [['', inherit]].concat(Object.keys(C.NARRATORS).filter((k) => k !== 'auto').map((k) => [k, C.NARRATORS[k]])).map(([v, l]) => h('option', { value: v, selected: (S.ch.narrator || '') === v }, l)));
+    const effLabel = nar.detected ? (nar.detected.kind === 'first' ? '一人称' : '三人称') : (C.NARRATOR_SHORT[nar.effective] || '');
+    const note = nar.effective === 'omniscient' ? '地の文の世界観NGワードは指摘しません（台詞だけチェック）'
+      : nar.effective === 'first' ? '語り手が作中の人物なので、地の文の世界観NGワードも指摘します'
+        : '地の文の世界観NGワードは「参考」として控えめに指摘します（神視点にすると指摘しません）';
+    const box = h('details', { class: 'sub-section narrator-box', open: S.narrOpen != null ? S.narrOpen : (!S.ch.narrator && projSetting === 'auto' && nar.effective !== 'first') },
+      h('summary', null, `語り手：${effLabel}`, detectedText ? h('span', { class: 'muted small' }, '　' + detectedText) : null),
+      h('div', { class: 'stack-sm' },
+        UI.field('この話の語り手（地の文の視点）', sel),
+        h('p', { class: 'small muted' }, note + '。作品全体の設定は「設定資料 → 世界観ルール」で変えられます。')));
+    box.addEventListener('toggle', () => { S.narrOpen = box.open; });
+    return box;
+  }
+
   function panelCons() {
     const p = P();
     const items = S.issues.filter((i) => i.source === 'consistency');
@@ -6823,6 +6922,7 @@ ruby rt { font-size: 0.5em; }
         h('p', null, '設定資料に人物・場所・用語を登録すると、名前の表記ゆれ、一人称や呼び方、髪や瞳の色、年齢、退場後の登場などの食い違いをチェックします。'),
         btn('設定資料を開く', { icon: 'users', onClick: () => App().navigate('lore') })));
     }
+    wrap.appendChild(narratorRow());
     wrap.appendChild(issueList(items, '設定との食い違いは見つかりませんでした。'));
 
     // 話者推定
@@ -7148,9 +7248,10 @@ ruby rt { font-size: 0.5em; }
         out.push('');
       });
       if (p.rules.world) out.push('## 世界観', '', p.rules.world, '');
+      out.push('## 語り手', '', (NS.Consistency.NARRATORS[p.rules.narrator || 'auto'] || ''), '');
       if (p.rules.ng.length) {
         out.push('## 作中で使わない言葉', '');
-        p.rules.ng.forEach((r) => out.push(`- ${r.word}${r.reason ? '：' + r.reason : ''}${r.suggestion ? '（→' + r.suggestion + '）' : ''}`));
+        p.rules.ng.forEach((r) => out.push(`- ${r.word}${r.reason ? '：' + r.reason : ''}${r.suggestion ? '（→' + r.suggestion + '）' : ''}${r.scope === 'dialogue' ? '［台詞だけ］' : r.scope === 'all' ? '［台詞も地の文も］' : ''}`));
         out.push('');
       }
       if (p.rules.style.length) {
@@ -7489,18 +7590,41 @@ ruby rt { font-size: 0.5em; }
       textarea: true, rows: 6, placeholder: '例：剣と魔法の世界。火薬や電気は存在しない。魔法は詠唱が必要で、使うと体力を消耗する。…',
     }), 'AIの設定矛盾チェックで参照します'));
 
+    // 語り手（地の文の視点）
+    const C = NS.Consistency;
+    const narrHelp = h('p', { class: 'muted small' });
+    const updateNarrHelp = () => {
+      const v = p.rules.narrator || 'auto';
+      narrHelp.textContent = {
+        auto: '話ごとに本文から判定します。地の文に「僕は」「私の」などがよく出てくれば一人称、そうでなければ三人称とみなします。',
+        first: '主人公など作中の人物が語るので、地の文に出てくるNGワードも指摘します。',
+        third: '作中の人物に寄り添った三人称なので、地の文のNGワードは「参考」として控えめに指摘します。',
+        omniscient: '作品の外にいる語り手なので、地の文のNGワード（読者向けの「メートル」など）は指摘しません。台詞だけチェックします。',
+      }[v];
+    };
+    const narrSel = h('select', {
+      class: 'input', onchange: (e) => { p.rules.narrator = e.target.value; touch(); updateNarrHelp(); },
+    }, Object.keys(C.NARRATORS).map((k) => h('option', { value: k, selected: (p.rules.narrator || 'auto') === k }, C.NARRATORS[k])));
+    updateNarrHelp();
+    box.appendChild(h('h3', { class: 'form-section' }, '語り手（地の文の視点）'));
+    box.appendChild(UI.field('この作品の語り手', narrSel));
+    box.appendChild(narrHelp);
+    box.appendChild(h('p', { class: 'muted small' }, '話ごとに語り手が違う場合は、執筆画面の「設定チェック」タブで、その話だけ変えられます。'));
+
     box.appendChild(h('h3', { class: 'form-section' }, '作中で使わない言葉（NGワード）', h('span', { class: 'check-note' }, '本文から自動検出')));
-    box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。'));
+    box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。台詞の中は常にチェックし、地の文は「対象」と語り手の設定に従います。'));
     const ngBox = h('div', { class: 'table-like' });
     const renderNg = () => {
       clear(ngBox);
-      ngBox.appendChild(h('div', { class: 'tl-head ng-row' }, h('span', null, '言葉'), h('span', null, '理由'), h('span', null, '言い換え'), h('span')));
+      ngBox.appendChild(h('div', { class: 'tl-head ng-row' }, h('span', null, '言葉'), h('span', null, '理由'), h('span', null, '言い換え'), h('span', null, '対象'), h('span')));
       p.rules.ng.forEach((r, i) => ngBox.appendChild(h('div', { class: 'ng-row' },
         textInput(r.word, (v) => { r.word = v; touch(); }, { placeholder: 'メートル' }),
         textInput(r.reason, (v) => { r.reason = v; touch(); }, { placeholder: 'この世界の単位は「歩」' }),
         textInput(r.suggestion, (v) => { r.suggestion = v; touch(); }, { placeholder: '歩' }),
+        h('select', { class: 'input', 'aria-label': 'チェックする範囲', title: 'チェックする範囲', onchange: (e) => { r.scope = e.target.value; touch(); } },
+          [['auto', '台詞＋語り手しだい'], ['all', '台詞も地の文も'], ['dialogue', '台詞だけ']].map(([v, l]) => h('option', { value: v, selected: (r.scope || 'auto') === v }, l))),
         btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: () => { p.rules.ng.splice(i, 1); touch(); renderNg(); renderTabs(); } }))));
-      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '' }); touch(); renderNg(); renderTabs(); } }));
+      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '', scope: 'auto' }); touch(); renderNg(); renderTabs(); } }));
     };
     renderNg();
     box.appendChild(ngBox);
@@ -8716,6 +8840,12 @@ ruby rt { font-size: 0.5em; }
     M.base.height = Math.round(M.Hpx * M.res);
     M.baseCtx = M.base.getContext('2d');
     M.img = M.baseCtx.createImageData(M.base.width, M.base.height);
+    // 陸地マスク（川を海岸で切るため）
+    M.mask = document.createElement('canvas');
+    M.mask.width = M.base.width;
+    M.mask.height = M.base.height;
+    M.maskCtx = M.mask.getContext('2d');
+    M.maskImg = M.maskCtx.createImageData(M.base.width, M.base.height);
     M.baseCtx.fillStyle = '#e9e2d0';
     M.baseCtx.fillRect(0, 0, M.base.width, M.base.height);
     build();
@@ -8883,10 +9013,11 @@ ruby rt { font-size: 0.5em; }
       const y0 = job.y;
       while (job.y < ih && performance.now() - t0 < 14) {
         const y1 = Math.min(ih, job.y + 16);
-        E.renderTerrain(M.map, M.H, M.B, M.img, 0, job.y, iw, y1, M.res);
+        E.renderTerrain(M.map, M.H, M.B, M.img, 0, job.y, iw, y1, M.res, M.maskImg);
         job.y = y1;
       }
       M.baseCtx.putImageData(M.img, 0, 0, 0, y0, iw, job.y - y0);
+      M.maskCtx.putImageData(M.maskImg, 0, 0, 0, y0, iw, job.y - y0);
       M.progress.textContent = `地形を描いています… ${Math.round((job.y / ih) * 100)}%`;
       draw();
       if (job.y < ih) requestAnimationFrame(step);
@@ -8902,8 +9033,9 @@ ruby rt { font-size: 0.5em; }
     const x1 = Math.min(M.base.width, Math.ceil(wx1 * r));
     const y1 = Math.min(M.base.height, Math.ceil(wy1 * r));
     if (x1 <= x0 || y1 <= y0) return;
-    E.renderTerrain(M.map, M.H, M.B, M.img, x0, y0, x1, y1, r);
+    E.renderTerrain(M.map, M.H, M.B, M.img, x0, y0, x1, y1, r, M.maskImg);
     M.baseCtx.putImageData(M.img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+    M.maskCtx.putImageData(M.maskImg, 0, 0, x0, y0, x1 - x0, y1 - y0);
   }
 
   function applyBrush(wx, wy) {
@@ -9464,9 +9596,21 @@ ruby rt { font-size: 0.5em; }
     return pts.filter((_, i) => keep[i]);
   }
 
+  /** 川は高い方から低い方へ流れる（下流ほど太く描く）ように向きをそろえる */
+  function orientDownhill(pts) {
+    if (pts.length < 2) return pts;
+    const m = M.map;
+    const hAt = (p) => E.sampleH(M.H, m.gw, m.gh, m.cell, p[0], p[1]);
+    const a = hAt(pts[0]);
+    const b = hAt(pts[pts.length - 1]);
+    return a < b - 0.01 ? pts.slice().reverse() : pts;
+  }
+
   function createPath(pts) {
     pushUndo();
-    const ln = { id: UI.uid('ln'), kind: PREF.path.kind, points: pts, name: '', w: PREF.path.w, wobble: (PATH_KINDS[PREF.path.kind] || {}).wobble || 0 };
+    const kind = PREF.path.kind;
+    if (kind === 'river' || kind === 'stream') pts = orientDownhill(pts);
+    const ln = { id: UI.uid('ln'), kind, points: pts, name: '', w: PREF.path.w, wobble: (PATH_KINDS[kind] || {}).wobble || 0 };
     M.map.lines.push(ln);
     commit();
     renderInspector();
@@ -9735,7 +9879,11 @@ ruby rt { font-size: 0.5em; }
     if (!layerHidden('areas')) m.areas.forEach((ar) => drawArea(ctx, ar));
     if (!layerHidden('paths')) {
       const order = ['river', 'stream', 'route', 'trail', 'road', 'highway', 'rail', 'wall', 'border'];
-      m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)).forEach((ln) => drawPath(ctx, ln, pl));
+      const sorted = m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+      const rivers = sorted.filter((ln) => ln.kind === 'river' || ln.kind === 'stream');
+      // 川は陸の上だけに描き、海や湖に入ったら水面に溶け込ませる
+      if (rivers.length) drawRivers(ctx, rivers, pl, layerHidden('terrain') ? null : (opts.mask || M.mask));
+      sorted.forEach((ln) => { if (ln.kind !== 'river' && ln.kind !== 'stream') drawPath(ctx, ln, pl); });
     }
     if (!layerHidden('stamps')) {
       const pk = palKey();
@@ -9864,6 +10012,38 @@ ruby rt { font-size: 0.5em; }
   function seedOf(id) { return (AS.hashStr(String(id)) % 1000) / 10; }
   function inkOf(pl) { return pl.ink === '#f2ead8' ? '#1a1a1a' : pl.ink; }
 
+  let riverLayer = null;
+  /** 川をまとめて別の層に描き、陸地マスクで切り抜いてから重ねる */
+  function drawRivers(ctx, rivers, pl, mask) {
+    if (!mask) { rivers.forEach((ln) => drawPath(ctx, ln, pl)); return; }
+    const cw = ctx.canvas.width;
+    const ch = ctx.canvas.height;
+    if (!riverLayer) riverLayer = document.createElement('canvas');
+    if (riverLayer.width !== cw || riverLayer.height !== ch) { riverLayer.width = cw; riverLayer.height = ch; }
+    const o = riverLayer.getContext('2d');
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.globalCompositeOperation = 'source-over';
+    o.clearRect(0, 0, cw, ch);
+    o.setTransform(ctx.getTransform());
+    rivers.forEach((ln) => drawPath(o, ln, pl));
+    o.globalCompositeOperation = 'destination-in';
+    o.imageSmoothingEnabled = true;
+    o.drawImage(mask, 0, 0, M.W, M.Hpx);
+    o.globalCompositeOperation = 'source-over';
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(riverLayer, 0, 0);
+    ctx.restore();
+  }
+
+  /** 川の色：海岸近くの海と同じ色にして、河口で海につながって見えるようにする */
+  function riverColors(pl) {
+    const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    const fill = mixc(pl.shallow, pl.glow, 0.35);
+    return { fill: `rgb(${fill.join(',')})`, edge: `rgba(${pl.coast.join(',')},0.9)` };
+  }
+
   function drawPath(ctx, ln, pl) {
     if (ln.points.length < 2) return;
     const w = ln.w || 1;
@@ -9877,8 +10057,9 @@ ruby rt { font-size: 0.5em; }
         const max = (ln.kind === 'river' ? 3.2 : 1.4) * w;
         const min = (ln.kind === 'river' ? 0.7 : 0.5) * w;
         const n = pts.length;
+        const rc = riverColors(pl);
         for (let pass = 0; pass < 2; pass++) {
-          ctx.strokeStyle = pass ? pl.water : hexA(inkOf(pl), 0.55);
+          ctx.strokeStyle = pass ? rc.fill : rc.edge;
           for (let i = 0; i < n - 1; i++) {
             const t = i / Math.max(1, n - 2);
             ctx.lineWidth = min + (max - min) * t + (pass ? 0 : 0.9);
@@ -10335,9 +10516,14 @@ ruby rt { font-size: 0.5em; }
     base.height = ih;
     const bctx = base.getContext('2d');
     const img = bctx.createImageData(iw, ih);
+    const mask = document.createElement('canvas');
+    mask.width = iw;
+    mask.height = ih;
+    const mctx = mask.getContext('2d');
+    const mimg = mctx.createImageData(iw, ih);
     M.progress.hidden = false;
     for (let y = 0; y < ih; y += 48) {
-      E.renderTerrain(M.map, M.H, M.B, img, 0, y, iw, Math.min(ih, y + 48), scale);
+      E.renderTerrain(M.map, M.H, M.B, img, 0, y, iw, Math.min(ih, y + 48), scale, mimg);
       if (y % 240 === 0) {
         M.progress.textContent = `書き出し中… ${Math.round((y / ih) * 100)}%`;
         await new Promise((r) => setTimeout(r, 0));
@@ -10345,11 +10531,12 @@ ruby rt { font-size: 0.5em; }
       }
     }
     bctx.putImageData(img, 0, 0);
+    mctx.putImageData(mimg, 0, 0);
     const c = document.createElement('canvas');
     c.width = iw;
     c.height = ih;
     const ctx = c.getContext('2d');
-    renderMap(ctx, { scale, tx: 0, ty: 0, w: iw, h: ih, editing: false }, { base });
+    renderMap(ctx, { scale, tx: 0, ty: 0, w: iw, h: ih, editing: false }, { base, mask });
     M.progress.hidden = true;
     c.toBlob((blob) => {
       if (!blob) { toast('書き出せませんでした（画像が大きすぎる可能性があります）', 'error'); return; }
@@ -11299,6 +11486,7 @@ ruby rt { font-size: 0.5em; }
     '- suggestion には quote をそのまま置き換えられる、設定に合わせた修正案を入れる。示せない場合は空文字。',
     '- 設定資料に書かれていないことを推測で矛盾扱いしない。確実なものだけを、多くても30件まで。',
     '- 「作者が登録した読み方」にある読み・ルビは意図したものなので指摘しない。',
+    '- 「作中で使わない言葉」は台詞では常に指摘する。地の文では「語り手」に従う：一人称なら指摘し、三人称・一元視点なら軽め（info）に、神視点（作品の外の語り手）なら地の文では指摘しない。［台詞だけ］と書かれた語は地の文では指摘しない。',
     '- summary には全体の所見を1〜3文で書く。食い違いがなければ items は空配列にする。',
   ].join('\n');
 
@@ -11356,8 +11544,16 @@ ruby rt { font-size: 0.5em; }
     },
   };
 
+  function narratorLine(ctx) {
+    const C = NS.Consistency;
+    const p = ctx.project;
+    const v = (ctx.chapter && ctx.chapter.narrator) || (p && p.rules && p.rules.narrator) || 'auto';
+    if (!C || v === 'auto') return '';
+    return `この話の語り手：${C.NARRATORS[v] || v}\n`;
+  }
+
   function manuscriptBlock(ctx, text) {
-    return `## 原稿（第${ctx.chapterNo}話「${ctx.chapter.title}」）\n<manuscript>\n${text}\n</manuscript>`;
+    return `## 原稿（第${ctx.chapterNo}話「${ctx.chapter.title}」）\n${narratorLine(ctx)}<manuscript>\n${text}\n</manuscript>`;
   }
 
   function settingsBlock(project) {
@@ -11722,7 +11918,7 @@ ruby rt { font-size: 0.5em; }
     p.rules.world = '剣と魔法の中世風ファンタジー。火薬・電気・機械はない。長さの単位は「歩（ほ）」「里（り）」を使う。';
     p.rules.ng = [
       { word: 'メートル', reason: 'この世界の長さの単位は「歩」', suggestion: '歩' },
-      { word: 'スマホ', reason: '電気製品は存在しない', suggestion: '' },
+      { word: 'スマホ', reason: '電気製品は存在しない', suggestion: '', scope: 'all' },
     ];
     p.rules.style = [{ from: '魔方陣', to: '魔法陣' }];
     p.timeline = [

@@ -124,9 +124,10 @@
         out.push('');
       });
       if (p.rules.world) out.push('## 世界観', '', p.rules.world, '');
+      out.push('## 語り手', '', (NS.Consistency.NARRATORS[p.rules.narrator || 'auto'] || ''), '');
       if (p.rules.ng.length) {
         out.push('## 作中で使わない言葉', '');
-        p.rules.ng.forEach((r) => out.push(`- ${r.word}${r.reason ? '：' + r.reason : ''}${r.suggestion ? '（→' + r.suggestion + '）' : ''}`));
+        p.rules.ng.forEach((r) => out.push(`- ${r.word}${r.reason ? '：' + r.reason : ''}${r.suggestion ? '（→' + r.suggestion + '）' : ''}${r.scope === 'dialogue' ? '［台詞だけ］' : r.scope === 'all' ? '［台詞も地の文も］' : ''}`));
         out.push('');
       }
       if (p.rules.style.length) {
@@ -465,18 +466,41 @@
       textarea: true, rows: 6, placeholder: '例：剣と魔法の世界。火薬や電気は存在しない。魔法は詠唱が必要で、使うと体力を消耗する。…',
     }), 'AIの設定矛盾チェックで参照します'));
 
+    // 語り手（地の文の視点）
+    const C = NS.Consistency;
+    const narrHelp = h('p', { class: 'muted small' });
+    const updateNarrHelp = () => {
+      const v = p.rules.narrator || 'auto';
+      narrHelp.textContent = {
+        auto: '話ごとに本文から判定します。地の文に「僕は」「私の」などがよく出てくれば一人称、そうでなければ三人称とみなします。',
+        first: '主人公など作中の人物が語るので、地の文に出てくるNGワードも指摘します。',
+        third: '作中の人物に寄り添った三人称なので、地の文のNGワードは「参考」として控えめに指摘します。',
+        omniscient: '作品の外にいる語り手なので、地の文のNGワード（読者向けの「メートル」など）は指摘しません。台詞だけチェックします。',
+      }[v];
+    };
+    const narrSel = h('select', {
+      class: 'input', onchange: (e) => { p.rules.narrator = e.target.value; touch(); updateNarrHelp(); },
+    }, Object.keys(C.NARRATORS).map((k) => h('option', { value: k, selected: (p.rules.narrator || 'auto') === k }, C.NARRATORS[k])));
+    updateNarrHelp();
+    box.appendChild(h('h3', { class: 'form-section' }, '語り手（地の文の視点）'));
+    box.appendChild(UI.field('この作品の語り手', narrSel));
+    box.appendChild(narrHelp);
+    box.appendChild(h('p', { class: 'muted small' }, '話ごとに語り手が違う場合は、執筆画面の「設定チェック」タブで、その話だけ変えられます。'));
+
     box.appendChild(h('h3', { class: 'form-section' }, '作中で使わない言葉（NGワード）', h('span', { class: 'check-note' }, '本文から自動検出')));
-    box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。'));
+    box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。台詞の中は常にチェックし、地の文は「対象」と語り手の設定に従います。'));
     const ngBox = h('div', { class: 'table-like' });
     const renderNg = () => {
       clear(ngBox);
-      ngBox.appendChild(h('div', { class: 'tl-head ng-row' }, h('span', null, '言葉'), h('span', null, '理由'), h('span', null, '言い換え'), h('span')));
+      ngBox.appendChild(h('div', { class: 'tl-head ng-row' }, h('span', null, '言葉'), h('span', null, '理由'), h('span', null, '言い換え'), h('span', null, '対象'), h('span')));
       p.rules.ng.forEach((r, i) => ngBox.appendChild(h('div', { class: 'ng-row' },
         textInput(r.word, (v) => { r.word = v; touch(); }, { placeholder: 'メートル' }),
         textInput(r.reason, (v) => { r.reason = v; touch(); }, { placeholder: 'この世界の単位は「歩」' }),
         textInput(r.suggestion, (v) => { r.suggestion = v; touch(); }, { placeholder: '歩' }),
+        h('select', { class: 'input', 'aria-label': 'チェックする範囲', title: 'チェックする範囲', onchange: (e) => { r.scope = e.target.value; touch(); } },
+          [['auto', '台詞＋語り手しだい'], ['all', '台詞も地の文も'], ['dialogue', '台詞だけ']].map(([v, l]) => h('option', { value: v, selected: (r.scope || 'auto') === v }, l))),
         btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: () => { p.rules.ng.splice(i, 1); touch(); renderNg(); renderTabs(); } }))));
-      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '' }); touch(); renderNg(); renderTabs(); } }));
+      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '', scope: 'auto' }); touch(); renderNg(); renderTabs(); } }));
     };
     renderNg();
     box.appendChild(ngBox);
