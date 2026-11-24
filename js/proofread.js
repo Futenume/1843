@@ -624,7 +624,12 @@
   /** 地の文で、同じ語が同じ文か隣の文で近くに繰り返される箇所 */
   function checkWordRepeat(a, m, add, names) {
     const skip = new Set();
-    (names || []).forEach((n) => String(n || '').split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); }));
+    // 名前そのものと、名前に含まれる漢字・カタカナのまとまり（黒霧の森 → 黒霧）は除く
+    (names || []).forEach((n) => {
+      const str = String(n || '');
+      str.split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); });
+      (str.match(RE_CONTENT_WORD) || []).forEach((part) => skip.add(part));
+    });
     const last = new Map(); // 語 → { pos, si }
     a.sentences.forEach((s, si) => {
       if (s.kind !== 'narration') return;

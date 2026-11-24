@@ -513,7 +513,7 @@
     const others = p.entries.filter((e) => e.type === 'character' && e.id !== sel.id);
     const incoming = [];
     p.entries.forEach((e) => e.relations.forEach((r, i) => { if (r.targetId === sel.id) incoming.push({ e, r, i }); }));
-    R.side.append(
+    R.side.append(...[
       h('div', { class: 'row' }, h('span', { class: 'color-dot big', style: { background: sel.color || '#6c7a96' } }), h('h3', null, sel.name)),
       sel.fields && sel.fields.role ? h('p', { class: 'small muted' }, sel.fields.role) : null,
       h('div', { class: 'row wrap' },
@@ -529,7 +529,7 @@
       h('h3', { class: 'panel-h' }, `${sel.name}から`),
       relList(sel.relations.map((r, i) => ({ owner: sel, r, i, other: p.entries.find((x) => x.id === r.targetId) }))),
       h('h3', { class: 'panel-h' }, `${sel.name}へ`),
-      relList(incoming.map(({ e, r, i }) => ({ owner: e, r, i, other: e }))));
+      relList(incoming.map(({ e, r, i }) => ({ owner: e, r, i, other: e })))].filter(Boolean));
   }
 
   function relList(items) {

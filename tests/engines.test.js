@@ -380,3 +380,9 @@ test('話者推定：台詞だけの行（次の行・前の行から）', () =>
   // 次の行が発話の動詞でなければ推定しない
   assert.equal(check('「いただきます！」\n　エリスは目を輝かせてスプーンを手に取った。').speakers.length, 0);
 });
+
+test('同じ語の繰り返し：名前の一部（黒霧の森 → 黒霧）も除く', () => {
+  const t = '　黒霧の森は静かだった。黒霧の森の奥で、何かが動いた。';
+  assert.equal(rules(t, { names: ['黒霧の森'] }).filter((i) => i.ruleId === 'word-repeat').length, 0);
+  assert.equal(rules(t).filter((i) => i.ruleId === 'word-repeat').length, 1);
+});

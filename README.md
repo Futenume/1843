@@ -202,4 +202,5 @@ npm run build       # dist/tsuzuri.html を作り直す
 npm run serve       # http://localhost:8765 で起動
 npm run e2e         # ブラウザでの動作確認（Playwright が必要。先に serve を起動）
 node tests/e2e-ai-mock.js   # AI機能の結合テスト（APIキー不要）
+node tests/e2e-sweep.js     # 全画面を巡回し、null などの表示崩れがないか確認
 ```

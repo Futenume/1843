@@ -946,6 +946,11 @@ ruby rt { font-size: 0.5em; }
   max-width: min(760px, calc(100vw - 24px)); padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--danger); box-shadow: var(--shadow-lg); font-size: 13.5px; }
 .conflict-bar > span { flex: 1 1 260px; }
 
+/* 狭い画面：添削パネルのタブが横にはみ出すことを示す */
+@media (max-width: 759px) {
+  .panel-tabs { -webkit-mask-image: linear-gradient(90deg, #000 86%, transparent); mask-image: linear-gradient(90deg, #000 86%, transparent); padding-right: 24px; }
+}
+
 </style>
 </head>
 <body>
@@ -2335,7 +2340,12 @@ ruby rt { font-size: 0.5em; }
   /** 地の文で、同じ語が同じ文か隣の文で近くに繰り返される箇所 */
   function checkWordRepeat(a, m, add, names) {
     const skip = new Set();
-    (names || []).forEach((n) => String(n || '').split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); }));
+    // 名前そのものと、名前に含まれる漢字・カタカナのまとまり（黒霧の森 → 黒霧）は除く
+    (names || []).forEach((n) => {
+      const str = String(n || '');
+      str.split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); });
+      (str.match(RE_CONTENT_WORD) || []).forEach((part) => skip.add(part));
+    });
     const last = new Map(); // 語 → { pos, si }
     a.sentences.forEach((s, si) => {
       if (s.kind !== 'narration') return;
@@ -6806,13 +6816,13 @@ ruby rt { font-size: 0.5em; }
         renderSpeakBar();
       },
     });
-    bar.append(
+    bar.append(...[
       h('span', { class: 'speak-state' }, h('span', { class: 'speak-dot' + (sp.paused ? ' paused' : '') }), `読み上げ中　${Math.min(sp.i + 1, sp.list.length)} / ${sp.list.length}文`),
       pauseBtn,
       btn('止める', { icon: 'stop', small: true, onClick: () => stopSpeak() }),
       h('label', { class: 'small speak-opt' }, '速さ', rate),
       voiceSel ? h('label', { class: 'small speak-opt' }, '声', voiceSel) : null,
-      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null);
+      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null].filter(Boolean));
   }
 
   // ───── 入力とハイライト ─────
@@ -7016,13 +7026,14 @@ ruby rt { font-size: 0.5em; }
     clear(S.issueBar);
     if (!it) { S.issueBar.hidden = true; return; }
     S.issueBar.hidden = false;
-    S.issueBar.append(
+    // （DOM の append は null を「null」という文字にしてしまうので除く）
+    S.issueBar.append(...[
       h('span', { class: 'sev-dot sev-' + it.severity }),
       h('span', { class: 'issue-bar-msg' }, h('strong', null, it.rule), '　', it.message),
       it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
       actionButton(it),
       btn('無視', { small: true, ghost: true, onClick: () => ignoreIssue(it) }),
-      btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) }));
+      btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) })].filter(Boolean));
   }
 
   function trunc(s, n) {
@@ -7289,6 +7300,12 @@ ruby rt { font-size: 0.5em; }
       t.classList.toggle('active', t.dataset.tab === S.panelTab);
       t.setAttribute('aria-selected', t.dataset.tab === S.panelTab ? 'true' : 'false');
     });
+    // 狭い画面でタブが横にはみ出すとき、選んだタブが見えるように
+    const act = S.panelTabs.querySelector('.tab.active');
+    if (act && S.panelTabs.scrollWidth > S.panelTabs.clientWidth) {
+      const l = act.offsetLeft - S.panelTabs.offsetLeft;
+      if (l < S.panelTabs.scrollLeft || l + act.offsetWidth > S.panelTabs.scrollLeft + S.panelTabs.clientWidth) S.panelTabs.scrollLeft = l - 16;
+    }
     clear(S.panelBody);
     const fn = { proof: panelProof, cons: panelCons, ai: panelAI, dict: panelDict, ref: panelRef, stats: panelStats }[S.panelTab] || panelProof;
     S.panelBody.appendChild(fn());
@@ -8713,7 +8730,7 @@ ruby rt { font-size: 0.5em; }
     const others = p.entries.filter((e) => e.type === 'character' && e.id !== sel.id);
     const incoming = [];
     p.entries.forEach((e) => e.relations.forEach((r, i) => { if (r.targetId === sel.id) incoming.push({ e, r, i }); }));
-    R.side.append(
+    R.side.append(...[
       h('div', { class: 'row' }, h('span', { class: 'color-dot big', style: { background: sel.color || '#6c7a96' } }), h('h3', null, sel.name)),
       sel.fields && sel.fields.role ? h('p', { class: 'small muted' }, sel.fields.role) : null,
       h('div', { class: 'row wrap' },
@@ -8729,7 +8746,7 @@ ruby rt { font-size: 0.5em; }
       h('h3', { class: 'panel-h' }, `${sel.name}から`),
       relList(sel.relations.map((r, i) => ({ owner: sel, r, i, other: p.entries.find((x) => x.id === r.targetId) }))),
       h('h3', { class: 'panel-h' }, `${sel.name}へ`),
-      relList(incoming.map(({ e, r, i }) => ({ owner: e, r, i, other: e }))));
+      relList(incoming.map(({ e, r, i }) => ({ owner: e, r, i, other: e })))].filter(Boolean));
   }
 
   function relList(items) {

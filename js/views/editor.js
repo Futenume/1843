@@ -415,13 +415,13 @@
         renderSpeakBar();
       },
     });
-    bar.append(
+    bar.append(...[
       h('span', { class: 'speak-state' }, h('span', { class: 'speak-dot' + (sp.paused ? ' paused' : '') }), `読み上げ中　${Math.min(sp.i + 1, sp.list.length)} / ${sp.list.length}文`),
       pauseBtn,
       btn('止める', { icon: 'stop', small: true, onClick: () => stopSpeak() }),
       h('label', { class: 'small speak-opt' }, '速さ', rate),
       voiceSel ? h('label', { class: 'small speak-opt' }, '声', voiceSel) : null,
-      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null);
+      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null].filter(Boolean));
   }
 
   // ───── 入力とハイライト ─────
@@ -625,13 +625,14 @@
     clear(S.issueBar);
     if (!it) { S.issueBar.hidden = true; return; }
     S.issueBar.hidden = false;
-    S.issueBar.append(
+    // （DOM の append は null を「null」という文字にしてしまうので除く）
+    S.issueBar.append(...[
       h('span', { class: 'sev-dot sev-' + it.severity }),
       h('span', { class: 'issue-bar-msg' }, h('strong', null, it.rule), '　', it.message),
       it.suggestion != null ? btn(it.suggestion === '' ? '削除する' : `「${trunc(it.suggestion, 10)}」にする`, { small: true, primary: true, onClick: () => applyIssue(it) }) : null,
       actionButton(it),
       btn('無視', { small: true, ghost: true, onClick: () => ignoreIssue(it) }),
-      btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) }));
+      btn('', { icon: 'x', small: true, ghost: true, title: '閉じる', onClick: () => setActive(-1) })].filter(Boolean));
   }
 
   function trunc(s, n) {
@@ -898,6 +899,12 @@
       t.classList.toggle('active', t.dataset.tab === S.panelTab);
       t.setAttribute('aria-selected', t.dataset.tab === S.panelTab ? 'true' : 'false');
     });
+    // 狭い画面でタブが横にはみ出すとき、選んだタブが見えるように
+    const act = S.panelTabs.querySelector('.tab.active');
+    if (act && S.panelTabs.scrollWidth > S.panelTabs.clientWidth) {
+      const l = act.offsetLeft - S.panelTabs.offsetLeft;
+      if (l < S.panelTabs.scrollLeft || l + act.offsetWidth > S.panelTabs.scrollLeft + S.panelTabs.clientWidth) S.panelTabs.scrollLeft = l - 16;
+    }
     clear(S.panelBody);
     const fn = { proof: panelProof, cons: panelCons, ai: panelAI, dict: panelDict, ref: panelRef, stats: panelStats }[S.panelTab] || panelProof;
     S.panelBody.appendChild(fn());
