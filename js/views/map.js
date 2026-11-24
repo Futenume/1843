@@ -351,7 +351,7 @@
     M.ox = (M.cw - M.W * M.zoom) / 2;
     M.oy = (M.ch - M.Hpx * M.zoom) / 2;
     if (auto !== true) M.userMoved = false;
-    draw();
+    draw(true);
   }
 
   function centerOn(x, y, zoom) {
@@ -359,7 +359,7 @@
     M.ox = M.cw / 2 - x * M.zoom;
     M.oy = M.ch / 2 - y * M.zoom;
     M.userMoved = true;
-    draw();
+    draw(true);
   }
 
   function zoomBy(f, sx, sy) {
@@ -371,7 +371,8 @@
     M.ox = sx - wx * z;
     M.oy = sy - wy * z;
     M.userMoved = true;
-    draw();
+    navigating();
+    draw(true);
   }
 
   function toWorld(e) {
@@ -635,7 +636,7 @@
     c.addEventListener('pointermove', onMove);
     c.addEventListener('pointerup', onUp);
     c.addEventListener('pointercancel', onUp);
-    c.addEventListener('pointerleave', () => { M.hover = null; draw(); });
+    c.addEventListener('pointerleave', () => { M.hover = null; draw(true); });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     c.addEventListener('dblclick', (e) => { if (M.draft) { e.preventDefault(); finishDraft(); } });
     c.addEventListener('wheel', (e) => {
@@ -646,7 +647,8 @@
       } else {
         M.ox -= e.deltaX;
         M.userMoved = true;
-        draw();
+        navigating();
+        draw(true);
       }
     }, { passive: false });
     M.onKey = onKey;
@@ -868,7 +870,8 @@
       M.ox = cx - wx * z;
       M.oy = cy - wy * z;
       M.userMoved = true;
-      draw();
+      navigating();
+      draw(true);
       return;
     }
     M.hover = w;
@@ -879,7 +882,7 @@
         const cur = hd ? (hd.kind === 'rotate' ? 'grab' : 'nwse-resize') : '';
         if (M.canvas.style.cursor !== cur) M.canvas.style.cursor = cur;
       }
-      if (M.draft || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw();
+      if (M.draft || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw(true);
       return;
     }
     if (d.kind === 'scale' || d.kind === 'rotate') {
@@ -908,7 +911,8 @@
       M.ox = d.ox + (w.sx - d.sx);
       M.oy = d.oy + (w.sy - d.sy);
       M.userMoved = true;
-      draw();
+      navigating();
+      draw(true);
     } else if (d.kind === 'stroke') {
       const dist = Math.hypot(w.x - d.last.x, w.y - d.last.y);
       const radius = PREF.tool === 'scatter' ? PREF.scatter.size : PREF.tool === 'erase' ? PREF.erase.size : PREF.brush.size * M.map.cell;
@@ -921,7 +925,7 @@
         }
         d.last = w;
       } else {
-        draw();
+        draw(true);
       }
     } else if (d.kind === 'freehand') {
       const f = M.freehand;
@@ -1269,19 +1273,81 @@
   function palKey() { return (E.PALETTES[M.map.style.palette] || E.PALETTES.parchment).assets; }
   function pal() { return E.PALETTES[M.map.style.palette] || E.PALETTES.parchment; }
 
-  function draw() {
-    if (!M || !M.ctx || M.raf) return;
-    M.raf = requestAnimationFrame(() => {
-      if (!M || !M.ctx) return;
-      M.raf = 0;
-      const ctx = M.ctx;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, M.canvas.width, M.canvas.height);
-      const view = { scale: M.dpr * M.zoom, tx: M.dpr * M.ox, ty: M.dpr * M.oy, w: M.canvas.width, h: M.canvas.height, editing: true };
+  /**
+   * 再描画を予約する。viewOnly＝見え方（拡大・移動・カーソル）だけが変わったときは、
+   * 地図全体を1枚に描いておいた「場面の画像」を使って速く描く。中身が変わったら描き直す。
+   */
+  function draw(viewOnly) {
+    if (!M || !M.ctx) return;
+    if (!viewOnly) M.sceneDirty = true;
+    if (M.raf) return;
+    M.raf = requestAnimationFrame(frame);
+  }
+
+  /** 拡大・移動の操作中（止まってから少しして、くっきり描き直す） */
+  function navigating() {
+    M.navigating = true;
+    clearTimeout(M.navTimer);
+    M.navTimer = setTimeout(() => { if (!M) return; M.navigating = false; draw(true); }, 170);
+  }
+
+  /** 場面の画像の最大の細かさ（大きすぎる画像は端末の負担になる） */
+  function sceneCap() { return Math.min(3, 3200 / Math.max(M.W, M.Hpx)); }
+
+  function buildScene(cs) {
+    const w = Math.max(1, Math.ceil(M.W * cs));
+    const hh = Math.max(1, Math.ceil(M.Hpx * cs));
+    if (!M.scene) M.scene = { canvas: document.createElement('canvas'), scale: 0 };
+    const c = M.scene.canvas;
+    if (c.width !== w || c.height !== hh) { c.width = w; c.height = hh; }
+    const g = c.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, w, hh);
+    renderMap(g, { scale: cs, tx: 0, ty: 0, w, h: hh, editing: true, scene: true });
+    M.scene.scale = cs;
+    M.sceneDirty = false;
+  }
+
+  function scheduleSceneBuild() {
+    if (M.sceneTimer) return;
+    M.sceneTimer = setTimeout(() => {
+      if (!M) return;
+      M.sceneTimer = 0;
+      if (M.navigating) { scheduleSceneBuild(); return; }
+      const cap = sceneCap();
+      if (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - cap) > 1e-6) buildScene(cap);
+    }, 260);
+  }
+
+  function frame() {
+    if (!M || !M.ctx) return;
+    M.raf = 0;
+    const ctx = M.ctx;
+    const S = M.dpr * M.zoom;
+    const cap = sceneCap();
+    const view = { scale: S, tx: M.dpr * M.ox, ty: M.dpr * M.oy, w: M.canvas.width, h: M.canvas.height, editing: true };
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, M.canvas.width, M.canvas.height);
+    // 全体が場面の画像に収まる倍率なら、ちょうどの細かさで作り直して使う
+    if (!M.navigating && S <= cap + 1e-6 && (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - S) > 1e-6)) buildScene(S);
+    const useScene = M.scene && !M.sceneDirty && (M.navigating || M.scene.scale >= S - 1e-6);
+    if (useScene) {
+      // 地図の下の影と、場面の画像
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.25)';
+      ctx.shadowBlur = 18 * M.dpr;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(view.tx, view.ty, M.W * S, M.Hpx * S);
+      ctx.restore();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = M.navigating ? 'low' : 'high';
+      ctx.drawImage(M.scene.canvas, view.tx, view.ty, M.W * S, M.Hpx * S);
+    } else {
       renderMap(ctx, view);
-      ctx.setTransform(view.scale, 0, 0, view.scale, view.tx, view.ty);
-      drawOverlay(ctx);
-    });
+      if (S > cap) scheduleSceneBuild();
+    }
+    ctx.setTransform(S, 0, 0, S, view.tx, view.ty);
+    drawOverlay(ctx);
   }
 
   let paperCanvas = null;
