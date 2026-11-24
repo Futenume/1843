@@ -417,18 +417,61 @@
     const rnd = mulberry32(((seed >>> 0) || 1) + 31337);
     const out = [];
     const put = (a, x, y, s) => out.push({ id: sid(), a, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, s: Math.round(s * 100) / 100, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 8) });
-    const ms = 18;
-    let row = 0;
-    for (let y = ms; y < Hpx - 4; y += ms * 0.62, row++) {
-      for (let x = ms / 2; x < W - 4; x += ms) {
-        const jx = x + (rnd() - 0.5) * ms * 0.7 + (row % 2) * ms * 0.5;
-        const jy = y + (rnd() - 0.5) * ms * 0.35;
+    // 山：高い所から順に、大きさに合わせて間隔をあけて置く（主峰ほど大きく、裾へ向かって小さく）
+    const placed = [];
+    const GS = 40;
+    const grid = new Map();
+    const near = (x, y, fn) => {
+      const gx = Math.floor(x / GS);
+      const gy = Math.floor(y / GS);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const list = grid.get((gx + dx) + ',' + (gy + dy));
+        if (list) for (const q of list) if (fn(q)) return true;
+      }
+      return false;
+    };
+    const addPlaced = (q) => {
+      const k = Math.floor(q.x / GS) + ',' + Math.floor(q.y / GS);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(q);
+      placed.push(q);
+    };
+    const cs = 6;
+    const cand = [];
+    for (let y = cs; y < Hpx - 6; y += cs) {
+      for (let x = cs / 2; x < W - 6; x += cs) {
+        const jx = x + (rnd() - 0.5) * cs;
+        const jy = y + (rnd() - 0.5) * cs;
         const h = sampleH(H, gw, gh, cell, jx, jy);
-        if (h > 0.44 && rnd() < 0.35 + (h - 0.44) * 1.6) {
-          put(h > 0.76 ? (rnd() < 0.5 ? 'mountain-snow' : 'mountain-tall') : 'mountain', jx, jy, 0.85 + Math.min(0.5, (h - 0.44) * 1.0) + rnd() * 0.15);
-        } else if (h > 0.28 && h <= 0.44 && rnd() < 0.3) {
-          put('hill', jx, jy, 0.85 + rnd() * 0.3);
-        }
+        if (h <= 0.3) continue;
+        // 尾根らしさ：周りより高い所ほど山を置きやすく、谷や台地の中ほどは間をあける
+        const around = (sampleH(H, gw, gh, cell, jx - 14, jy) + sampleH(H, gw, gh, cell, jx + 14, jy) + sampleH(H, gw, gh, cell, jx, jy - 14) + sampleH(H, gw, gh, cell, jx, jy + 14)) / 4;
+        const ridge = h - around;
+        const gap = vnoise(jx * 0.018 + 41.3, jy * 0.018 + 7.9);
+        cand.push({ x: jx, y: jy, h, ridge, gap, o: h + ridge * 2 + (rnd() - 0.5) * 0.05 });
+      }
+    }
+    cand.sort((a, b) => b.o - a.o);
+    for (const c of cand) {
+      if (c.h > 0.42) {
+        // 谷筋や、ところどころ（ゆるやかなノイズで決める）は山を置かず、連なりの間に切れ目を作る
+        if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.32) && rnd() < 0.75) continue;
+        const t = Math.min(1, (c.h - 0.42) / 0.45);
+        const sc = 0.75 + t * 1.15 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
+        const r = 14 * sc;
+        // 横方向は重なりを少なく、縦方向（手前と奥）は少し重ねて奥行きを出す
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.74)) continue;
+        const snowy = c.h > 0.74;
+        const a = snowy ? (rnd() < 0.55 ? 'mountain-snow' : 'mountain-tall') : (c.h > 0.62 && rnd() < 0.18 ? 'mountain-snow' : 'mountain');
+        put(a, c.x, c.y, sc);
+        addPlaced({ x: c.x, y: c.y, r, kind: 'm' });
+      } else if (c.h <= 0.42 && rnd() < 0.35) {
+        // 裾野の丘
+        const sc = 0.8 + rnd() * 0.35;
+        const r = 12 * sc;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.5) < (r + q.r) * (q.kind === 'm' ? 0.7 : 0.95))) continue;
+        put('hill', c.x, c.y, sc);
+        addPlaced({ x: c.x, y: c.y, r, kind: 'h' });
       }
     }
     const ts = 5.5;

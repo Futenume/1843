@@ -1555,8 +1555,11 @@
     if (!a || s.lp === 'none' || a.labelPos === 'none') return;
     const pos = s.lp || a.labelPos || 'below';
     const big = a.cat === '町・建物' || a.cat === '和風';
-    const size = s.ls || (a.cat === '地図記号' ? (s.a === 'sym-capital' ? 14 : 11) : big ? 12 : 10.5);
-    const weight = ['sym-capital', 'castle', 'city', 'jcastle'].includes(s.a) ? 700 : 600;
+    // 地図の広さに合わせた大きさ（全体表示でも読めるように）×「地名の大きさ」の設定
+    const unit = Math.max(9, Math.min(18, M.W / 92)) * (M.map.style.labelScale || 1);
+    const major = ['sym-capital', 'castle', 'city', 'jcastle'].includes(s.a);
+    const size = s.ls || unit * (major ? 1.25 : a.cat === '地図記号' ? 0.95 : big ? 1.05 : 0.9);
+    const weight = major ? 700 : 600;
     const sp = AS.sprite(s.a, s.v, palKey());
     const ink = pl.ink;
     const sideY = s.y + (a.anchor === 'center' ? 0 : -sp.h * s.s * 0.3);
@@ -2121,6 +2124,40 @@
     return section('地名の一覧', list);
   }
 
+  // 地形に合わせて、山・丘・森などの自然の素材を置き直す（町や建物、文字はそのまま）
+  const NATURE = new Set(['mountain', 'mountain-tall', 'mountain-snow', 'mountain-range', 'hill', 'tree-round', 'tree-conifer', 'tree-snow', 'tree-jungle', 'tree-palm', 'reeds', 'dune', 'rocks']);
+  const MOUNTAINS = new Set(['mountain', 'mountain-tall', 'mountain-snow', 'mountain-range', 'hill']);
+  function replantDialog() {
+    const m = M.map;
+    const cM = m.stamps.filter((x) => MOUNTAINS.has(x.a)).length;
+    const cT = m.stamps.filter((x) => NATURE.has(x.a) && !MOUNTAINS.has(x.a)).length;
+    const chM = h('input', { type: 'checkbox', checked: true });
+    const chT = h('input', { type: 'checkbox', checked: false });
+    UI.modal({
+      title: '山・森を置き直す',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, '今の地形（高さ・地面の種類）に合わせて、自然の素材を自動で置き直します。町・建物・文字・道などはそのままです。手で置いた山や木も置き直されます（「元に戻す」で戻せます）。'),
+        h('label', { class: 'check' }, chM, `山・丘（今 ${cM}個）`),
+        h('label', { class: 'check' }, chT, `森・湿地・砂丘・岩（今 ${cT}個）`)),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: '置き直す', primary: true, onClick: () => {
+          if (!chM.checked && !chT.checked) return;
+          pushUndo();
+          const fresh = E.autoStamps(m, M.H, M.B, (m.seed || 1) + Date.now() % 997);
+          const want = (a) => (MOUNTAINS.has(a) ? chM.checked : NATURE.has(a) ? chT.checked : false);
+          m.stamps = m.stamps.filter((x) => !want(x.a)).concat(fresh.filter((x) => want(x.a)));
+          m.stamps.sort((a, b) => a.y - b.y);
+          M.sel = [];
+          commit();
+          draw();
+          renderInspector();
+          toast('置き直しました');
+        } },
+      ],
+    });
+  }
+
   function mapPane() {
     const p = P();
     const m = M.map;
@@ -2141,6 +2178,8 @@
       h('div', { class: 'grid-2' },
         sel('title', [['none', 'なし'], ['plain', '文字だけ'], ['banner', '帯（リボン）']], '題名'),
         sel('frame', [['none', 'なし'], ['simple', 'シンプル'], ['ornate', '古地図風']], '枠')),
+      UI.field('地名の大きさ', h('select', { class: 'input', onchange: (e) => { set('labelScale', parseFloat(e.target.value)); renderInspector(); } },
+        [[0.8, '小さめ'], [1, 'ふつう'], [1.25, '大きめ'], [1.55, 'とても大きく']].map(([v, l]) => h('option', { value: v, selected: (st.labelScale || 1) === v }, l)))),
       h('div', { class: 'grid-2' },
         sel('grid', [['none', 'なし'], ['square', '方眼'], ['hex', '六角形（ヘックス）']], 'マス目'),
         UI.field('マスの大きさ', h('input', { class: 'input input-num', type: 'number', min: 2, max: 80, value: st.gridSize || 12, onchange: (e) => set('gridSize', Math.max(2, parseInt(e.target.value, 10) || 12)) }))),
@@ -2150,6 +2189,7 @@
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
         toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感')),
       h('div', { class: 'row wrap' },
+        btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),
         btn('画像で書き出す', { icon: 'image', small: true, onClick: exportDialog })),
       h('div', { class: 'row wrap' },

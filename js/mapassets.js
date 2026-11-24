@@ -99,71 +99,124 @@
   }
 
   // ───── 山・丘 ─────
+  /** 稜線を少しだけぎざぎざにした折れ線（端点は固定） */
+  function jag(rnd, a, b, n, amp, bow) {
+    const pts = [a];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    for (let i = 1; i < n; i++) {
+      const t = i / n;
+      const nx = -(b[1] - a[1]);
+      const ny = b[0] - a[0];
+      const L = Math.hypot(nx, ny) || 1;
+      // bow > 0 で斜面を内側へ少しへこませる（山らしい反り）
+      const k = jit(rnd, amp) + (bow || 0) * Math.sin(Math.PI * t) * len;
+      pts.push([a[0] + (b[0] - a[0]) * t + (nx / L) * k, a[1] + (b[1] - a[1]) * t + (ny / L) * k]);
+    }
+    pts.push(b);
+    return pts;
+  }
+
+  /**
+   * 山：裾の広い形に、肩（小さな峰）を1つ付けることがある。光の当たる左面は明るく、
+   * 右面は陰にして斜線を入れる。雪は形に沿ったぎざぎざの縁。足もとに薄い影を落とす。
+   */
   function mountain(ctx, rnd, C, o) {
     o = o || {};
-    const W = (o.w || 13) * (0.85 + rnd() * 0.3);
-    const Hh = (o.h || 22) * (0.85 + rnd() * 0.3);
-    const px = (o.px || 0) + jit(rnd, W * 0.18);
+    const W = (o.w || 15) * (0.88 + rnd() * 0.28);
+    const Hh = (o.h || 23) * (0.88 + rnd() * 0.26);
+    const px = jit(rnd, W * 0.14);
     const peak = [px, -Hh];
-    const L = ridge(rnd, [-W, 0], peak, 4, W * 0.07);
-    const R = ridge(rnd, peak, [W, 0], 4, W * 0.07);
-    const body = L.concat(R.slice(1));
+    // 足もとの影（地面になじませる）
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = C.ink;
+    ctx.beginPath();
+    ctx.ellipse(W * 0.18, 0.6, W * 1.08, Math.max(2, W * 0.16), 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    // 輪郭（左の裾 → 左肩 → 頂 → 右肩 → 右の裾）
+    const shoulderL = rnd() < 0.45;
+    const shoulderR = !shoulderL && rnd() < 0.55;
+    let left = [];
+    if (shoulderL) {
+      const s = [-W * (0.5 + rnd() * 0.12), -Hh * (0.48 + rnd() * 0.14)];
+      const dip = [s[0] + (px - s[0]) * 0.45, s[1] + (peak[1] - s[1]) * 0.25 + Hh * 0.06];
+      left = jag(rnd, [-W, 0], s, 4, W * 0.05, 0.05).concat(jag(rnd, s, dip, 2, W * 0.03).slice(1), jag(rnd, dip, peak, 4, W * 0.05, 0.04).slice(1));
+    } else {
+      left = jag(rnd, [-W, 0], peak, 8, W * 0.055, 0.07);
+    }
+    let right = [];
+    if (shoulderR) {
+      const s = [W * (0.52 + rnd() * 0.12), -Hh * (0.46 + rnd() * 0.14)];
+      const dip = [px + (s[0] - px) * 0.55, peak[1] + (s[1] - peak[1]) * 0.75 + Hh * 0.06];
+      right = jag(rnd, peak, dip, 4, W * 0.05, 0.04).concat(jag(rnd, dip, s, 2, W * 0.03).slice(1), jag(rnd, s, [W, 0], 4, W * 0.05, 0.05).slice(1));
+    } else {
+      right = jag(rnd, peak, [W, 0], 8, W * 0.055, 0.07);
+    }
+    const body = left.concat(right.slice(1));
+    // 稜線（頂から裾へ下りる尾根。ここから右が陰）
+    const foot = [px + W * (0.12 + rnd() * 0.16), 0];
+    const spine = jag(rnd, peak, foot, 5, W * 0.06);
     poly(ctx, body, true);
     fs(ctx, C.rock);
-    const valley = [px + W * (0.08 + rnd() * 0.22), 0];
-    const spine = ridge(rnd, peak, valley, 4, W * 0.06);
-    poly(ctx, R.concat(spine.slice().reverse().slice(0, -1)), true);
+    const shade = right.concat(spine.slice().reverse().slice(1));
+    ctx.save();
+    poly(ctx, body, true);
+    ctx.clip();
+    poly(ctx, shade, true);
     fs(ctx, C.rockShade);
-    // 陰の斜線
+    // 陰の面の斜線（尾根から外へ、斜面に沿って）
     ctx.strokeStyle = C.hatch;
-    ctx.lineWidth = 0.55;
-    for (let k = 0; k < 6; k++) {
-      const t = 0.22 + k * 0.12;
+    ctx.lineWidth = 0.5;
+    const nH = 7;
+    for (let k = 0; k < nH; k++) {
+      const t = 0.16 + (k / nH) * 0.8;
       const a = along(spine, t);
-      const b = along(R, t);
-      line(ctx, a[0] + (b[0] - a[0]) * 0.15, a[1] + (b[1] - a[1]) * 0.15 + 0.6, a[0] + (b[0] - a[0]) * 0.75, a[1] + (b[1] - a[1]) * 0.75 + 1.4);
+      const b = along(right, t);
+      const len = 0.35 + rnd() * 0.35;
+      line(ctx, a[0] + (b[0] - a[0]) * 0.08, a[1] + 0.4, a[0] + (b[0] - a[0]) * len, a[1] + (b[1] - a[1]) * len + 1.2 + Hh * 0.03);
     }
-    ctx.strokeStyle = C.hatch;
+    // 明るい面の短い筋（岩肌）
     ctx.lineWidth = 0.4;
-    for (let k = 0; k < 2; k++) {
-      const a = along(L, 0.35 + k * 0.25);
-      line(ctx, a[0] + 1.2, a[1] + 1, a[0] + 2.6, a[1] + 2.6);
+    for (let k = 0; k < 3; k++) {
+      const a = along(left, 0.3 + k * 0.2 + jit(rnd, 0.04));
+      line(ctx, a[0] + 1.2, a[1] + 1.1, a[0] + 3 + rnd() * 1.5, a[1] + 3.2 + rnd() * 1.4);
     }
+    // 雪
     if (o.snow) {
-      const cut = 0.36 + rnd() * 0.1;
-      const lp = along(L, 1 - cut);
-      const rp = along(R, cut);
-      const iL = Math.ceil((1 - cut) * (L.length - 1));
-      const iR = Math.floor(cut * (R.length - 1));
-      const cap = [lp].concat(L.slice(iL), R.slice(1, iR + 1), [rp]);
-      const n = 4;
+      const cut = (o.snowCut || 0.42) + rnd() * 0.12; // 頂からどこまで雪か（高さの割合）
+      const yLine = peak[1] + Hh * cut;
+      const lp = left.reduce((best, q) => (Math.abs(q[1] - yLine) < Math.abs(best[1] - yLine) ? q : best), left[0]);
+      const rp = right.reduce((best, q) => (Math.abs(q[1] - yLine) < Math.abs(best[1] - yLine) ? q : best), right[right.length - 1]);
+      const iL = left.indexOf(lp);
+      const iR = right.indexOf(rp);
+      const cap = left.slice(iL).concat(right.slice(1, iR + 1));
+      // 雪の下の縁：ぎざぎざ（谷に向かって垂れる）
+      const n = 8;
       for (let i = 1; i < n; i++) {
         const t = i / n;
-        cap.push([rp[0] + (lp[0] - rp[0]) * t, rp[1] + (lp[1] - rp[1]) * t + (i % 2 ? Hh * 0.12 : -Hh * 0.02)]);
+        const x = rp[0] + (lp[0] - rp[0]) * t;
+        const y = rp[1] + (lp[1] - rp[1]) * t + (i % 2 ? Hh * (0.1 + rnd() * 0.1) : -Hh * (0.02 + rnd() * 0.03));
+        cap.push([x, y]);
       }
       poly(ctx, cap, true);
       fs(ctx, C.snow);
       ctx.save();
       poly(ctx, cap, true);
       ctx.clip();
-      poly(ctx, R.concat(spine.slice().reverse().slice(0, -1)), true);
+      poly(ctx, shade, true);
       fs(ctx, C.snowShade);
       ctx.restore();
-      poly(ctx, cap.slice(cap.length - n + 1).concat([lp]), false);
-      ctx.strokeStyle = C.hatch;
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
     }
+    ctx.restore();
+    // 輪郭と尾根の線
     ctx.strokeStyle = C.ink;
-    ctx.lineWidth = o.lw || 1.15;
+    ctx.lineWidth = o.lw || 0.95;
     poly(ctx, body, false);
     ctx.stroke();
-    ctx.lineWidth = 0.6;
-    poly(ctx, spine.slice(0, 3), false);
+    ctx.lineWidth = 0.55;
+    poly(ctx, spine.slice(0, 4), false);
     ctx.stroke();
-    ctx.lineWidth = 0.7;
-    line(ctx, -W - 2.5, 0.2, -W + 2.5, 0.2);
-    line(ctx, W - 2, 0.2, W + 3, 0.2);
   }
 
   function volcano(ctx, rnd, C) {
@@ -221,30 +274,48 @@
   }
 
   function hill(ctx, rnd, C) {
-    const W = 11 + rnd() * 4;
-    const Hh = 6 + rnd() * 3;
-    const px = jit(rnd, 2);
-    const shape = (c) => { c.moveTo(-W, 0); c.bezierCurveTo(-W * 0.55, -Hh * 1.3, px + W * 0.35, -Hh * 1.35, W, 0); c.closePath(); };
+    const W = 12 + rnd() * 4;
+    const Hh = 6.5 + rnd() * 3;
+    const px = jit(rnd, 2.5);
+    const top = (c) => { c.moveTo(-W, 0); c.bezierCurveTo(-W * 0.6, -Hh * 1.05, px - W * 0.2, -Hh * 1.32, px + W * 0.12, -Hh * 1.25); c.bezierCurveTo(px + W * 0.45, -Hh * 1.2, W * 0.7, -Hh * 0.75, W, 0); };
+    // 足もとの影
+    ctx.save();
+    ctx.globalAlpha = 0.14;
+    ctx.fillStyle = C.ink;
     ctx.beginPath();
-    shape(ctx);
+    ctx.ellipse(W * 0.15, 0.5, W * 1.05, 2.2, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    top(ctx);
+    ctx.closePath();
     fs(ctx, C.hill);
     ctx.save();
     ctx.beginPath();
-    shape(ctx);
+    top(ctx);
+    ctx.closePath();
     ctx.clip();
+    // 右側の陰
     ctx.beginPath();
-    ctx.ellipse(W * 0.62, -Hh * 0.1, W * 0.62, Hh * 1.4, 0, 0, TAU);
+    ctx.ellipse(W * 0.75 + px * 0.3, -Hh * 0.05, W * 0.75, Hh * 1.5, -0.25, 0, TAU);
     fs(ctx, C.hillShade);
+    ctx.strokeStyle = C.hatch;
+    ctx.lineWidth = 0.45;
+    for (let k = 0; k < 4; k++) line(ctx, W * 0.18 + k * 2.3 + px * 0.3, -Hh * 0.9 + k * 1.2, W * 0.26 + k * 2.5 + px * 0.3, -Hh * 0.45 + k * 0.9);
     ctx.restore();
     ctx.strokeStyle = C.ink;
-    ctx.lineWidth = 1.05;
+    ctx.lineWidth = 0.95;
     ctx.beginPath();
-    ctx.moveTo(-W, 0);
-    ctx.bezierCurveTo(-W * 0.55, -Hh * 1.3, px + W * 0.35, -Hh * 1.35, W, 0);
+    top(ctx);
     ctx.stroke();
+    // 草のしるし
+    ctx.lineWidth = 0.45;
     ctx.strokeStyle = C.hatch;
-    ctx.lineWidth = 0.5;
-    for (let k = 0; k < 3; k++) line(ctx, W * 0.2 + k * 2.2, -Hh * 0.75 + k * 1.2, W * 0.3 + k * 2.4, -Hh * 0.35 + k * 0.9);
+    for (let k = 0; k < 2; k++) {
+      const gx = -W * 0.45 + k * W * 0.35 + jit(rnd, 1.5);
+      line(ctx, gx, -1, gx - 0.8, -2.6);
+      line(ctx, gx + 0.8, -1, gx + 1.1, -2.8);
+    }
   }
 
   function rocks(ctx, rnd, C) {
@@ -1201,17 +1272,17 @@
   function def(id, cat, label, box, draw, o) {
     A.push(Object.assign({ id, cat, label, box, draw, variants: 4, labelPos: 'below' }, o || {}));
   }
-  def('mountain', '山・丘', '山', [-20, -34, 20, 3], (c, r, C) => mountain(c, r, C, {}), { variants: 8, size: 26 });
-  def('mountain-tall', '山・丘', '高い山', [-18, -44, 18, 3], (c, r, C) => mountain(c, r, C, { w: 11, h: 34, snow: r() < 0.5 }), { variants: 6, size: 34 });
-  def('mountain-snow', '山・丘', '雪山', [-20, -36, 20, 3], (c, r, C) => mountain(c, r, C, { snow: true, h: 25 }), { variants: 6, size: 28 });
-  def('mountain-range', '山・丘', '連山', [-28, -36, 24, 3], (c, r, C) => {
+  def('mountain', '山・丘', '山', [-23, -32, 23, 5], (c, r, C) => mountain(c, r, C, {}), { variants: 10, size: 26 });
+  def('mountain-tall', '山・丘', '高い山', [-21, -44, 21, 5], (c, r, C) => mountain(c, r, C, { w: 16, h: 33, snow: r() < 0.7 }), { variants: 8, size: 34 });
+  def('mountain-snow', '山・丘', '雪山', [-23, -35, 23, 5], (c, r, C) => mountain(c, r, C, { snow: true, h: 25 }), { variants: 8, size: 28 });
+  def('mountain-range', '山・丘', '連山', [-32, -36, 30, 6], (c, r, C) => {
     c.save(); c.translate(-9, -3); c.scale(0.75, 0.75); mountain(c, r, C, { snow: r() < 0.4 }); c.restore();
     c.save(); c.translate(8, -2); c.scale(0.7, 0.7); mountain(c, r, C, {}); c.restore();
     mountain(c, r, C, { h: 24 });
   }, { variants: 5, size: 30 });
   def('volcano', '山・丘', '火山', [-18, -40, 18, 3], volcano, { variants: 3, size: 30 });
   def('mesa', '山・丘', '台地', [-18, -16, 18, 3], mesa, { variants: 3, size: 14 });
-  def('hill', '山・丘', '丘', [-17, -14, 17, 3], hill, { variants: 6, size: 11 });
+  def('hill', '山・丘', '丘', [-19, -15, 19, 4], hill, { variants: 6, size: 11 });
   def('rocks', '山・丘', '岩', [-12, -10, 12, 2], rocks, { variants: 5, size: 8 });
   def('dune', '山・丘', '砂丘', [-16, -11, 16, 2], dune, { variants: 4, size: 8 });
 
