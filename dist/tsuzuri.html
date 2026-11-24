@@ -13423,11 +13423,11 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     map.stamps.push({ id: E.sid(), a: 'cave', x: forestPt.x, y: forestPt.y + 4, s: 1.2, r: 0, f: false, v: 0, name: '', entryId: forest.id, note: '' });
     map.stamps.sort((a, b) => a.y - b.y);
     const mid = (a, b, j) => [Math.round(((a.x + b.x) / 2 + j) * 10) / 10, Math.round(((a.y + b.y) / 2 - j) * 10) / 10];
-    map.lines = [
+    map.lines = (map.lines || []).concat([
       { id: UI.uid('ln'), kind: 'highway', points: [[capital.x, capital.y], mid(capital, portPt, 14), [portPt.x, portPt.y]], name: '王都街道', w: 1, wobble: 0.12 },
       { id: UI.uid('ln'), kind: 'road', points: [[capital.x, capital.y], mid(capital, village, -10), [village.x, village.y]], name: '', w: 1, wobble: 0.18 },
       { id: UI.uid('ln'), kind: 'trail', points: [[capital.x, capital.y], mid(capital, forestPt, 8), [forestPt.x, forestPt.y]], name: '', w: 1, wobble: 0.3 },
-    ];
+    ]);
     map.labels = [
       { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.5), y: Math.round(map.gh * cell * 0.27), text: 'エルミナ王国', style: 'region', size: 30, rotation: -3, vertical: false, curve: 16 },
       { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.13), y: Math.round(map.gh * cell * 0.82), text: '西の海', style: 'sea', size: 22, rotation: 0, vertical: false, curve: 0 },
