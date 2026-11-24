@@ -147,21 +147,23 @@
   // ───── 画面 ─────
   const V = {};
   let S = null;
+  let lastTab = 'character'; // 画面を出入りしても、開いていた分類を覚えておく
+  let openedFromList = false; // 狭い画面で一覧から開いたか（戻るボタンで履歴を戻す）
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
 
   V.mount = function (view, params) {
     const p = P();
-    let tab = (S && S.tab) || 'character';
+    let tab = (S && S.tab) || lastTab || 'character';
     let selected = null;
     if (params.id) {
       const e = p.entries.find((x) => x.id === params.id);
       if (e) { tab = e.type; selected = e.id; }
-    }
+    } else openedFromList = false;
     S = { view, tab, selected, q: '', mentionCache: null };
     build();
   };
-  V.unmount = function () { S = null; };
+  V.unmount = function () { if (S) lastTab = S.tab; S = null; };
 
   function build() {
     clear(S.view);
@@ -184,16 +186,62 @@
         : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : t.id === 'relmap' ? 0 : p.timeline.length;
       S.tabsEl.appendChild(h('button', {
         type: 'button', class: 'lore-tab' + (S.tab === t.id ? ' active' : ''),
-        onclick: () => { S.tab = t.id; S.selected = null; S.q = ''; renderTabs(); renderList(); renderDetail(); },
+        onclick: () => {
+          S.tab = t.id; lastTab = t.id; S.selected = null; S.q = '';
+          // 詳細を開いていた（URL に項目がある）なら、一覧の URL に戻す
+          if (NS.App.params && NS.App.params.id) { openedFromList = false; NS.App.navigate('lore'); return; }
+          renderTabs(); renderList(); renderDetail(); toTop();
+        },
       }, icon(t.icon, 16), h('span', null, t.label), n ? h('span', { class: 'count' }, n) : null));
     });
+    // 狭い画面（タブが横に並ぶ）では、選んでいるタブが見えるように
+    const act = S.tabsEl.querySelector('.lore-tab.active');
+    if (act && S.tabsEl.scrollWidth > S.tabsEl.clientWidth) {
+      requestAnimationFrame(() => {
+        if (!S) return;
+        const l = act.offsetLeft - S.tabsEl.offsetLeft;
+        if (l < S.tabsEl.scrollLeft + 8 || l + act.offsetWidth > S.tabsEl.scrollLeft + S.tabsEl.clientWidth - 8) {
+          S.tabsEl.scrollLeft = l - (S.tabsEl.clientWidth - act.offsetWidth) / 2;
+        }
+      });
+    }
   }
+
+  function openEntry(e) {
+    if (narrow()) {
+      // 狭い画面では履歴に積み、端末の「戻る」で一覧に戻れるようにする
+      lastTab = S.tab;
+      openedFromList = true;
+      NS.App.navigate('lore', { id: e.id });
+      return;
+    }
+    S.selected = e.id;
+    S.renderItems();
+    renderDetail();
+  }
+
+  function backToList() {
+    lastTab = S.tab;
+    if (openedFromList) { openedFromList = false; history.back(); return; }
+    S.selected = null;
+    NS.App.navigate('lore');
+  }
+
+  /** 狭い画面では「一覧」と「詳細」を切り替えて表示する（選んでいるかどうかを枠に印す） */
+  function syncLayout() {
+    const layout = S.view.querySelector('.lore-layout');
+    if (!layout) return;
+    layout.classList.toggle('no-list', !TYPE_LABEL[S.tab]);
+    layout.classList.toggle('has-selection', !!(TYPE_LABEL[S.tab] && S.selected && P().entries.some((x) => x.id === S.selected)));
+  }
+  const narrow = () => window.matchMedia('(max-width: 899px)').matches;
+  function toTop() { if (narrow()) S.view.scrollTop = 0; }
 
   function renderList() {
     const p = P();
     clear(S.listPane);
     S.listPane.hidden = !TYPE_LABEL[S.tab];
-    S.view.querySelector('.lore-layout').classList.toggle('no-list', !TYPE_LABEL[S.tab]);
+    syncLayout();
     if (!TYPE_LABEL[S.tab]) return;
     const search = h('input', {
       class: 'input', type: 'search', placeholder: '検索', value: S.q, 'aria-label': TYPE_LABEL[S.tab] + 'を検索',
@@ -209,8 +257,8 @@
         const sub = e.type === 'character' ? [e.fields.role, e.fields.age ? e.fields.age + (/歳|才/.test(e.fields.age) ? '' : '歳') : ''].filter(Boolean).join('・') : (e.fields.kind || '');
         items.appendChild(h('li', {
           class: 'entry-item' + (S.selected === e.id ? ' active' : ''), tabindex: 0,
-          onclick: () => { S.selected = e.id; renderItems(); renderDetail(); },
-          onkeydown: (ev) => { if (ev.key === 'Enter') { S.selected = e.id; renderItems(); renderDetail(); } },
+          onclick: () => openEntry(e),
+          onkeydown: (ev) => { if (ev.key === 'Enter') openEntry(e); },
         },
         h('span', { class: 'color-dot', style: { background: e.color || 'var(--line-strong)' } }),
         h('span', { class: 'entry-item-text' }, h('span', { class: 'entry-item-name' }, e.name), sub ? h('span', { class: 'muted small' }, sub) : null)));
@@ -221,13 +269,17 @@
       h('div', { class: 'row' }, search, btn('追加', { icon: 'plus', small: true, primary: true, onClick: () => {
         const e = newEntry(S.tab);
         p.entries.push(e);
-        S.selected = e.id;
         S.q = '';
         touch();
-        renderTabs();
-        renderList();
-        renderDetail();
-        const nameInput = S.detail.querySelector('.entry-name-input');
+        if (narrow()) {
+          openEntry(e);
+        } else {
+          S.selected = e.id;
+          renderTabs();
+          renderList();
+          renderDetail();
+        }
+        const nameInput = S && S.detail.querySelector('.entry-name-input');
         if (nameInput) { nameInput.focus(); nameInput.select(); }
       } })),
       items);
@@ -236,6 +288,7 @@
 
   function renderDetail() {
     clear(S.detail);
+    syncLayout();
     S.detail.classList.toggle('full', S.tab === 'relmap');
     if (S.tab === 'relmap') { NS.RelMap.mount(S.detail); return; }
     if (S.tab === 'rules') { S.detail.appendChild(rulesPane()); return; }
@@ -245,10 +298,15 @@
     if (!e) {
       S.detail.appendChild(h('div', { class: 'empty big' },
         icon(TYPE_ICON[S.tab], 40),
-        h('p', null, `左の一覧から${TYPE_LABEL[S.tab]}を選ぶか、「追加」で新しく登録します。`),
+        h('p', null, `一覧から${TYPE_LABEL[S.tab]}を選ぶか、「追加」で新しく登録します。`),
         S.tab === 'character' ? h('p', { class: 'muted small' }, '一人称・呼び方・髪や瞳の色・年齢・登場範囲を入れておくと、本文との食い違いを自動でチェックします。') : null));
       return;
     }
+    // 狭い画面では、一覧へ戻るボタンを付ける
+    S.detail.appendChild(h('div', { class: 'lore-back-row' }, btn(`${TYPE_LABEL[S.tab]}の一覧へ`, {
+      icon: 'left', small: true, ghost: true, class: 'lore-back',
+      onClick: backToList,
+    })));
     S.detail.appendChild(entryForm(e));
   }
 
@@ -290,8 +348,9 @@
         copy.id = UI.uid('e');
         copy.name += '（複製）';
         p.entries.push(copy);
-        S.selected = copy.id;
         touch();
+        if (narrow()) { NS.App.navigate('lore', { id: copy.id }); return; }
+        S.selected = copy.id;
         renderTabs(); renderList(); renderDetail();
       } },
       { label: '本文で探す', icon: 'search', onClick: () => searchInChapters(e) },
@@ -302,6 +361,7 @@
         p.entries.forEach((x) => { x.relations = x.relations.filter((r) => r.targetId !== e.id); });
         S.selected = null;
         touch();
+        if (NS.App.params && NS.App.params.id) { lastTab = S.tab; openedFromList = false; NS.App.navigate('lore'); return; }
         renderTabs(); renderList(); renderDetail();
       } },
     ]));

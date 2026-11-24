@@ -108,6 +108,8 @@ function assert(cond, msg) {
   await page.locator('.entry-name-input').fill('アレン・ウォーカー');
   await page.waitForTimeout(100);
   assert(await page.locator('.entry-item', { hasText: 'アレン・ウォーカー' }).count() === 1, '人物を追加できる');
+  await page.locator('.lore-tab', { hasText: '年表' }).click();
+  assert(await page.evaluate(() => document.querySelector('.tl-fields').getBoundingClientRect().width) > 200, '年表の入力欄が表示される');
 
   console.log('アイデア・プロット');
   await page.locator('.nav-item[data-route="ideas"]').click();
@@ -184,6 +186,15 @@ function assert(cond, msg) {
   const overflow = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   assert(!overflow, 'スマートフォン幅で横スクロールが出ない');
   await mp.screenshot({ path: path.join(OUT, 'mobile-write.png') });
+  await mp.locator('.nav-item[data-route="lore"]').click();
+  await mp.waitForTimeout(300);
+  assert(await mp.locator('.entry-item').count() === 3 && await mp.locator('.lore-detail').isHidden(), 'スマートフォンの設定資料：一覧が全画面で出る');
+  await mp.locator('.entry-item').nth(2).click();
+  await mp.waitForTimeout(300);
+  assert(await mp.locator('.entry-name-input').isVisible() && await mp.locator('.lore-list-pane').isHidden(), 'スマートフォンの設定資料：選ぶと詳細が全画面で開く');
+  await mp.goBack();
+  await mp.waitForTimeout(300);
+  assert(await mp.locator('.entry-item').count() === 3, 'スマートフォンの設定資料：「戻る」で一覧へ');
   await mp.locator('.nav-item[data-route="map"]').click();
   await mp.waitForTimeout(800);
   await mp.screenshot({ path: path.join(OUT, 'mobile-map.png') });

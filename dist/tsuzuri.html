@@ -613,6 +613,7 @@ ruby rt { font-size: 0.5em; }
 .entry-item-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-li { padding: 10px; }
 .lore-detail { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
+.lore-back-row { display: none; }
 .entry-form { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .entry-head { display: flex; align-items: center; gap: 10px; }
 .entry-name-input { font-family: var(--font-serif); font-size: 22px; font-weight: 600; padding: 6px 10px; }
@@ -627,7 +628,7 @@ ruby rt { font-size: 0.5em; }
 .tl-head { font-size: 11.5px; color: var(--muted); }
 .timeline { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 18px; }
 .timeline::before { content: ""; position: absolute; left: 5px; top: 8px; bottom: 8px; width: 2px; background: var(--line-strong); }
-.tl-item { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto; gap: 10px; padding: 8px 0; position: relative; }
+.tl-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 8px 0; position: relative; }
 .tl-dot { position: absolute; left: -17px; top: 18px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--bg); }
 .tl-fields { display: flex; flex-direction: column; gap: 6px; }
 .tl-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 6px; }
@@ -849,10 +850,26 @@ ruby rt { font-size: 0.5em; }
   .editor-backdrop, .editor-input { padding: 24px 18px 40px; }
   .toolbar-group { border-left: 0; padding-left: 0; }
   .editor-toolbar { gap: 2px; }
-  .lore-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .lore-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 44vh; }
-  .lore-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 8px; }
-  .lore-detail { padding: 16px 16px 60px; }
+  /* 設定資料：一覧 → 詳細の切り替え（画面全体を1つのスクロールに） */
+  .view-lore { overflow-y: auto; overflow-x: hidden; }
+  .lore-layout { display: block; height: auto; }
+  .lore-side { display: contents; }
+  .lore-tabs {
+    display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 8px 12px; position: sticky; top: 0; z-index: 6;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .lore-tabs::-webkit-scrollbar { display: none; }
+  .lore-tab { flex: none; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); }
+  .lore-tab span:not(.count) { flex: none; overflow: visible; }
+  .lore-tab.active { border-color: transparent; }
+  .lore-list-pane { overflow: visible; padding: 12px 16px 40px; }
+  .entry-item { padding: 12px 10px; }
+  .lore-layout.has-selection .lore-list-pane { display: none; }
+  .lore-layout:not(.has-selection):not(.no-list) .lore-detail { display: none; }
+  .lore-detail { overflow: visible; padding: 10px 16px 60px; }
+  .lore-detail.full { display: block; overflow: visible; padding: 0; }
+  .lore-detail.full .relmap-body { height: 72vh; }
+  .lore-back-row { display: block; max-width: 860px; margin: 0 auto 6px; }
   .map-layout, .map-layout.sheet-open { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .map-tools { grid-row: 2; flex-direction: row; overflow-x: auto; border-right: 0; border-top: 1px solid var(--line); padding: 4px; }
   .map-tool { flex: 0 0 54px; }
@@ -892,13 +909,14 @@ ruby rt { font-size: 0.5em; }
   .ng-row > :nth-child(3) { grid-column: 1 / 2; grid-row: 2; }
   .ng-row > :nth-child(4) { grid-column: 2 / 3; grid-row: 2; }
   .ng-row > :last-child { grid-column: 3; grid-row: 1; }
-  .lore-detail.full { display: block; overflow: visible; }
-  .relmap-body { display: flex; flex-direction: column; }
+  .lore-detail.full .relmap-body { display: flex; flex-direction: column; height: auto; }
   .relmap-stage { display: flex; flex-direction: column; height: 68vh; min-height: 340px; flex: none; }
   .relmap-svg { flex: 1; min-height: 0; height: auto; }
   .relmap-legend { position: static; max-width: none; border-radius: 0; box-shadow: none; border-top: 1px solid var(--line); font-size: 11px; padding: 6px 12px; }
   .relmap-side { border-left: 0; border-top: 1px solid var(--line); }
   .tl-head { display: none !important; }
+  .tl-row { grid-template-columns: minmax(0, 1fr); }
+  .tl-actions { flex-direction: column; }
   .ideas { padding: 16px 16px 40px; }
   .findbar .input { width: 100%; flex: 1 1 140px; }
   .modal-overlay { padding: 8px; align-items: flex-end; }
@@ -7808,21 +7826,23 @@ ruby rt { font-size: 0.5em; }
   // ───── 画面 ─────
   const V = {};
   let S = null;
+  let lastTab = 'character'; // 画面を出入りしても、開いていた分類を覚えておく
+  let openedFromList = false; // 狭い画面で一覧から開いたか（戻るボタンで履歴を戻す）
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
 
   V.mount = function (view, params) {
     const p = P();
-    let tab = (S && S.tab) || 'character';
+    let tab = (S && S.tab) || lastTab || 'character';
     let selected = null;
     if (params.id) {
       const e = p.entries.find((x) => x.id === params.id);
       if (e) { tab = e.type; selected = e.id; }
-    }
+    } else openedFromList = false;
     S = { view, tab, selected, q: '', mentionCache: null };
     build();
   };
-  V.unmount = function () { S = null; };
+  V.unmount = function () { if (S) lastTab = S.tab; S = null; };
 
   function build() {
     clear(S.view);
@@ -7845,16 +7865,62 @@ ruby rt { font-size: 0.5em; }
         : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : t.id === 'relmap' ? 0 : p.timeline.length;
       S.tabsEl.appendChild(h('button', {
         type: 'button', class: 'lore-tab' + (S.tab === t.id ? ' active' : ''),
-        onclick: () => { S.tab = t.id; S.selected = null; S.q = ''; renderTabs(); renderList(); renderDetail(); },
+        onclick: () => {
+          S.tab = t.id; lastTab = t.id; S.selected = null; S.q = '';
+          // 詳細を開いていた（URL に項目がある）なら、一覧の URL に戻す
+          if (NS.App.params && NS.App.params.id) { openedFromList = false; NS.App.navigate('lore'); return; }
+          renderTabs(); renderList(); renderDetail(); toTop();
+        },
       }, icon(t.icon, 16), h('span', null, t.label), n ? h('span', { class: 'count' }, n) : null));
     });
+    // 狭い画面（タブが横に並ぶ）では、選んでいるタブが見えるように
+    const act = S.tabsEl.querySelector('.lore-tab.active');
+    if (act && S.tabsEl.scrollWidth > S.tabsEl.clientWidth) {
+      requestAnimationFrame(() => {
+        if (!S) return;
+        const l = act.offsetLeft - S.tabsEl.offsetLeft;
+        if (l < S.tabsEl.scrollLeft + 8 || l + act.offsetWidth > S.tabsEl.scrollLeft + S.tabsEl.clientWidth - 8) {
+          S.tabsEl.scrollLeft = l - (S.tabsEl.clientWidth - act.offsetWidth) / 2;
+        }
+      });
+    }
   }
+
+  function openEntry(e) {
+    if (narrow()) {
+      // 狭い画面では履歴に積み、端末の「戻る」で一覧に戻れるようにする
+      lastTab = S.tab;
+      openedFromList = true;
+      NS.App.navigate('lore', { id: e.id });
+      return;
+    }
+    S.selected = e.id;
+    S.renderItems();
+    renderDetail();
+  }
+
+  function backToList() {
+    lastTab = S.tab;
+    if (openedFromList) { openedFromList = false; history.back(); return; }
+    S.selected = null;
+    NS.App.navigate('lore');
+  }
+
+  /** 狭い画面では「一覧」と「詳細」を切り替えて表示する（選んでいるかどうかを枠に印す） */
+  function syncLayout() {
+    const layout = S.view.querySelector('.lore-layout');
+    if (!layout) return;
+    layout.classList.toggle('no-list', !TYPE_LABEL[S.tab]);
+    layout.classList.toggle('has-selection', !!(TYPE_LABEL[S.tab] && S.selected && P().entries.some((x) => x.id === S.selected)));
+  }
+  const narrow = () => window.matchMedia('(max-width: 899px)').matches;
+  function toTop() { if (narrow()) S.view.scrollTop = 0; }
 
   function renderList() {
     const p = P();
     clear(S.listPane);
     S.listPane.hidden = !TYPE_LABEL[S.tab];
-    S.view.querySelector('.lore-layout').classList.toggle('no-list', !TYPE_LABEL[S.tab]);
+    syncLayout();
     if (!TYPE_LABEL[S.tab]) return;
     const search = h('input', {
       class: 'input', type: 'search', placeholder: '検索', value: S.q, 'aria-label': TYPE_LABEL[S.tab] + 'を検索',
@@ -7870,8 +7936,8 @@ ruby rt { font-size: 0.5em; }
         const sub = e.type === 'character' ? [e.fields.role, e.fields.age ? e.fields.age + (/歳|才/.test(e.fields.age) ? '' : '歳') : ''].filter(Boolean).join('・') : (e.fields.kind || '');
         items.appendChild(h('li', {
           class: 'entry-item' + (S.selected === e.id ? ' active' : ''), tabindex: 0,
-          onclick: () => { S.selected = e.id; renderItems(); renderDetail(); },
-          onkeydown: (ev) => { if (ev.key === 'Enter') { S.selected = e.id; renderItems(); renderDetail(); } },
+          onclick: () => openEntry(e),
+          onkeydown: (ev) => { if (ev.key === 'Enter') openEntry(e); },
         },
         h('span', { class: 'color-dot', style: { background: e.color || 'var(--line-strong)' } }),
         h('span', { class: 'entry-item-text' }, h('span', { class: 'entry-item-name' }, e.name), sub ? h('span', { class: 'muted small' }, sub) : null)));
@@ -7882,13 +7948,17 @@ ruby rt { font-size: 0.5em; }
       h('div', { class: 'row' }, search, btn('追加', { icon: 'plus', small: true, primary: true, onClick: () => {
         const e = newEntry(S.tab);
         p.entries.push(e);
-        S.selected = e.id;
         S.q = '';
         touch();
-        renderTabs();
-        renderList();
-        renderDetail();
-        const nameInput = S.detail.querySelector('.entry-name-input');
+        if (narrow()) {
+          openEntry(e);
+        } else {
+          S.selected = e.id;
+          renderTabs();
+          renderList();
+          renderDetail();
+        }
+        const nameInput = S && S.detail.querySelector('.entry-name-input');
         if (nameInput) { nameInput.focus(); nameInput.select(); }
       } })),
       items);
@@ -7897,6 +7967,7 @@ ruby rt { font-size: 0.5em; }
 
   function renderDetail() {
     clear(S.detail);
+    syncLayout();
     S.detail.classList.toggle('full', S.tab === 'relmap');
     if (S.tab === 'relmap') { NS.RelMap.mount(S.detail); return; }
     if (S.tab === 'rules') { S.detail.appendChild(rulesPane()); return; }
@@ -7906,10 +7977,15 @@ ruby rt { font-size: 0.5em; }
     if (!e) {
       S.detail.appendChild(h('div', { class: 'empty big' },
         icon(TYPE_ICON[S.tab], 40),
-        h('p', null, `左の一覧から${TYPE_LABEL[S.tab]}を選ぶか、「追加」で新しく登録します。`),
+        h('p', null, `一覧から${TYPE_LABEL[S.tab]}を選ぶか、「追加」で新しく登録します。`),
         S.tab === 'character' ? h('p', { class: 'muted small' }, '一人称・呼び方・髪や瞳の色・年齢・登場範囲を入れておくと、本文との食い違いを自動でチェックします。') : null));
       return;
     }
+    // 狭い画面では、一覧へ戻るボタンを付ける
+    S.detail.appendChild(h('div', { class: 'lore-back-row' }, btn(`${TYPE_LABEL[S.tab]}の一覧へ`, {
+      icon: 'left', small: true, ghost: true, class: 'lore-back',
+      onClick: backToList,
+    })));
     S.detail.appendChild(entryForm(e));
   }
 
@@ -7951,8 +8027,9 @@ ruby rt { font-size: 0.5em; }
         copy.id = UI.uid('e');
         copy.name += '（複製）';
         p.entries.push(copy);
-        S.selected = copy.id;
         touch();
+        if (narrow()) { NS.App.navigate('lore', { id: copy.id }); return; }
+        S.selected = copy.id;
         renderTabs(); renderList(); renderDetail();
       } },
       { label: '本文で探す', icon: 'search', onClick: () => searchInChapters(e) },
@@ -7963,6 +8040,7 @@ ruby rt { font-size: 0.5em; }
         p.entries.forEach((x) => { x.relations = x.relations.filter((r) => r.targetId !== e.id); });
         S.selected = null;
         touch();
+        if (NS.App.params && NS.App.params.id) { lastTab = S.tab; openedFromList = false; NS.App.navigate('lore'); return; }
         renderTabs(); renderList(); renderDetail();
       } },
     ]));
