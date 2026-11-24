@@ -272,6 +272,22 @@
     return { kind: 'cons', summary: data.summary || '', items, at: Date.now() };
   }
 
+  const WORD_SYSTEM = [
+    'あなたは国語辞典と類語辞典を兼ねた、小説を書く人のための辞書です。調べたい語について、次の見出しで簡潔に答えてください。',
+    '【読み】',
+    '【意味】（複数あれば番号を付ける）',
+    '【例文】小説の文章らしい例を2つ',
+    '【言い換え・類語】',
+    '【使うときの注意】誤用しやすい点、時代や場面に合うかなど（なければ省く）',
+    '固有名詞や専門用語なら、概要を3〜5文で説明してください。確かでないことは「〜とされる」「不確か」と明記してください。',
+  ].join('\n');
+
+  async function askWord(project, word, signal, onText) {
+    const params = baseParams(WORD_SYSTEM, '調べたい語：' + word, 4000);
+    params.output_config.effort = 'low';
+    return run(params, { signal, onText });
+  }
+
   async function ask(ctx, question, scope, signal, onText) {
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : ctx.getText();
@@ -441,6 +457,6 @@
       } }), testOut));
   };
 
-  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, locate, MODELS };
+  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, MODELS };
   NS.AIPanel = Panel;
 })(window.Tsuzuri = window.Tsuzuri || {});

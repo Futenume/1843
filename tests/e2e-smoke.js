@@ -22,6 +22,7 @@ function assert(cond, msg) {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/ERR_FAILED|fonts/.test(m.text())) errors.push(m.text()); });
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+  await page.route(/wik(ipedia|tionary)\.org/, (r) => r.abort()); // ネット辞書はテストでは使わない
   await page.goto(BASE);
 
   console.log('作品の作成');
@@ -64,10 +65,25 @@ function assert(cond, msg) {
   assert(/\d+\/\d+/.test(cnt), `検索結果の件数が出る（${cnt}）`);
   await page.locator('.findbar button[title="閉じる"]').click();
 
-  console.log('縦書き・統計');
-  await page.locator('button[title="縦書きプレビュー"]').click();
-  assert(await page.locator('.preview-vertical ruby').count() > 0, '縦書きプレビューでルビが表示される');
-  await page.locator('button[title="縦書きプレビュー"]').click();
+  console.log('プレビュー・辞書・統計');
+  await page.locator('.editor-toolbar button[title^="プレビュー"]').click();
+  await page.waitForSelector('.pv-overlay .pv-content');
+  assert(await page.locator('.pv-content ruby').count() > 0, '縦書きプレビューでルビが表示される');
+  assert(/\d+ \/ \d+ ページ/.test(await page.locator('.pv-foot').textContent()), 'ページ数が表示される');
+  await page.locator('.pv-seg-btn', { hasText: '横書き' }).click();
+  assert(await page.locator('.pv-article p').count() > 3, '横書きプレビューに切り替えられる');
+  await page.locator('.pv-seg-btn', { hasText: '縦書き' }).click();
+  await page.keyboard.press('Escape');
+  assert(await page.locator('.pv-overlay').count() === 0, 'Esc でプレビューを閉じる');
+  await page.locator('.panel-tabs .tab[data-tab="dict"]').click();
+  await page.locator('.dict-search input').fill('見る');
+  await page.locator('.dict-search button').click();
+  await page.waitForTimeout(300);
+  assert((await page.locator('.panel-body').textContent()).includes('言い換え'), '辞書で言い換えを引ける');
+  await page.locator('.dict-search input').fill('セレナ');
+  await page.locator('.dict-search button').click();
+  await page.waitForTimeout(300);
+  assert((await page.locator('.panel-body').textContent()).includes('作品の中'), '辞書で作品内の設定を引ける');
   await page.locator('.panel-tabs .tab[data-tab="stats"]').click();
   assert(await page.locator('.stat').count() >= 8, '統計が表示される');
 

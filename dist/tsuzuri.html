@@ -41,8 +41,8 @@
   --shadow: 0 1px 2px rgba(40, 30, 20, 0.06), 0 6px 20px rgba(40, 30, 20, 0.07);
   --shadow-lg: 0 10px 40px rgba(30, 20, 10, 0.18);
   --radius: 10px;
-  --font-sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
-  --font-serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
+  --font-sans: "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "Source Han Sans JP", "IPAexGothic", "IPAGothic", system-ui, sans-serif;
+  --font-serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif CJK JP", "Source Han Serif JP", "IPAexMincho", "IPAMincho", serif;
   --editor-font: var(--font-serif);
   --editor-size: 17px;
   --editor-lh: 1.9;
@@ -413,17 +413,6 @@ select.input { padding-right: 28px; }
 .editor-backdrop .mk.active { background: var(--mark-active); }
 .editor-backdrop .mk-find { background: var(--mark-find); }
 .editor-backdrop .mk-find.cur { background: var(--mark-find-cur); }
-.preview-vertical {
-  flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; writing-mode: vertical-rl; background: var(--paper);
-  padding: 40px 32px; font-family: var(--editor-font); font-size: var(--editor-size); line-height: 1.9; letter-spacing: 0.04em;
-}
-.preview-vertical:focus { outline: none; }
-.tate { height: 100%; max-height: calc(var(--editor-size) * 40); }
-.tate p { margin: 0; }
-.tate .blank { opacity: 0; }
-.tate-title { font-size: 1.3em; margin-left: 2em; font-weight: 600; }
-.tcy { text-combine-upright: all; -webkit-text-combine: horizontal; }
-.boten { font-style: normal; -webkit-text-emphasis: filled sesame; text-emphasis: filled sesame; }
 ruby rt { font-size: 0.5em; }
 .issue-bar {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border-top: 1px solid var(--line); font-size: 13px;
@@ -504,6 +493,104 @@ ruby rt { font-size: 0.5em; }
 .ai-suggest { font-family: var(--font-serif); font-size: 13px; background: var(--surface-2); border-radius: 6px; padding: 6px 8px; }
 .ai-answer-box { background: var(--surface-2); border-radius: 9px; padding: 12px; }
 .ai-answer { white-space: pre-wrap; font-size: 13.5px; line-height: 1.75; overflow-wrap: anywhere; }
+
+/* ───── 辞書 ───── */
+.dict { display: flex; flex-direction: column; gap: 10px; }
+.dict-search .input { flex: 1; }
+.dict-results { display: flex; flex-direction: column; gap: 12px; }
+.dict-section { display: flex; flex-direction: column; gap: 8px; }
+.dict-list, .dict-cat { display: flex; flex-direction: column; gap: 6px; }
+.dict-item { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; display: flex; flex-direction: column; gap: 4px; }
+.dict-item-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dict-item-head strong { font-family: var(--font-serif); font-size: 15px; }
+.dict-spacer { flex: 1; }
+.dict-swatch { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.15); flex: none; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.dict-card { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.dict-card-head { display: flex; align-items: baseline; gap: 8px; }
+.dict-card-head a { margin-left: auto; }
+.dict-defs { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.dict-pos { display: inline-block; font-size: 10.5px; padding: 0 5px; margin-right: 6px; border-radius: 4px; background: var(--surface-3); color: var(--ink-2); }
+.dict-wp { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.7; }
+.dict-wp img { width: 72px; height: auto; border-radius: 6px; flex: none; }
+.dict-net { display: flex; flex-direction: column; gap: 8px; }
+.dict-compact .dict-wp img { width: 56px; }
+.reading-row.static { cursor: default; }
+.link-btn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.link-btn:hover { text-decoration: underline; }
+.status-sel:empty { display: none; }
+
+/* ───── プレビュー ───── */
+.pv-overlay {
+  --pv-bg: #f3eddf; --pv-paper: #fbf8f0; --pv-ink: #2b2520; --pv-sub: #8a7f72; --pv-line: #e2d9c6;
+  position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; background: var(--pv-bg); color: var(--pv-ink);
+}
+.pv-overlay.pv-theme-white { --pv-bg: #ecebea; --pv-paper: #ffffff; --pv-ink: #1d1d1d; --pv-sub: #888; --pv-line: #e3e3e3; }
+.pv-overlay.pv-theme-dark { --pv-bg: #111213; --pv-paper: #1d1e20; --pv-ink: #e4e0d8; --pv-sub: #8d877e; --pv-line: #2e2f32; }
+.pv-overlay:focus { outline: none; }
+.pv-bar { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--pv-line); background: var(--pv-paper); flex-wrap: wrap; }
+.pv-bar .btn { color: var(--pv-ink); }
+.pv-heading { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
+.pv-work { font-size: 11.5px; color: var(--pv-sub); }
+.pv-chapter { font-family: var(--font-serif); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pv-seg { display: inline-flex; border: 1px solid var(--pv-line); border-radius: 8px; overflow: hidden; }
+.pv-seg-btn { border: 0; background: transparent; color: var(--pv-ink); padding: 4px 9px; cursor: pointer; font-size: 12.5px; }
+.pv-seg-btn + .pv-seg-btn { border-left: 1px solid var(--pv-line); }
+.pv-seg-btn.active { background: var(--accent); color: var(--accent-ink); }
+.pv-check { color: var(--pv-ink); }
+.pv-main { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pv-foot { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 4px 12px 8px; color: var(--pv-sub); }
+.pv-foot .btn { color: var(--pv-ink); }
+.pv-book { display: flex; gap: 24px; align-items: center; justify-content: center; }
+.pv-page {
+  position: relative; background: var(--pv-paper); box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 10px 30px rgba(0,0,0,0.1);
+  padding: 32px 28px; display: flex; align-items: center; justify-content: center; border-radius: 3px;
+}
+.pv-book.spread .pv-page:first-child { border-radius: 3px 0 0 3px; }
+.pv-book.spread .pv-page:last-child { border-radius: 0 3px 3px 0; }
+.pv-page.pv-empty .pv-content { visibility: hidden; }
+.pv-content {
+  writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl; overflow: hidden; font-family: var(--pv-font); font-size: var(--pv-size);
+  letter-spacing: 0.02em; text-align: justify; line-break: strict; font-feature-settings: "palt" 0;
+}
+.pv-content p { margin: 0; }
+.pv-content .pv-blank { visibility: hidden; }
+.pv-content .pv-title { font-size: 1.35em; font-weight: 600; margin: 0 0 0 var(--pv-lh, 2em); padding: 0; line-height: var(--pv-lh, 2em); letter-spacing: 0.1em; }
+.pv-content .pv-pad { height: 1px; flex: none; }
+.pv-content ruby { line-height: 1; }
+.pv-content ruby rt, .pv-article ruby rt { font-size: 0.5em; }
+.pv-content .tcy { text-combine-upright: all; -webkit-text-combine: horizontal; }
+.pv-content .boten, .pv-article .boten { font-style: normal; -webkit-text-emphasis: filled sesame; text-emphasis: filled sesame; }
+.pv-article .boten { text-emphasis-position: over right; }
+.pv-running { position: absolute; top: 10px; left: 16px; font-size: 10.5px; color: var(--pv-sub); writing-mode: horizontal-tb; }
+.pv-nombre { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--pv-sub); }
+.pv-scroll { position: absolute; inset: 0; overflow-y: auto; padding: 32px 16px 60px; }
+.pv-article { max-width: 36em; margin: 0 auto; font-family: var(--pv-font); font-size: var(--pv-size); line-height: 1.95; letter-spacing: 0.02em; }
+.pv-article p { margin: 0; }
+.pv-article .pv-blank { height: 1.95em; }
+.pv-article .pv-title { font-size: 1.4em; margin: 0 0 1.4em; font-weight: 600; }
+.pv-chapter-nav { max-width: 36em; margin: 3em auto 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pv-print { display: none; }
+
+@media print {
+  body.printing { overflow: visible; background: #fff; }
+  body.printing #app, body.printing .pv-overlay, body.printing #toast, body.printing .modal-overlay { display: none !important; }
+  body.printing .pv-print { display: block; color: #000; font-family: var(--pv-font, var(--font-serif)); font-size: 10.5pt; }
+  .pv-print-cover { break-after: page; display: flex; flex-direction: column; justify-content: center; min-height: 80vh; text-align: center; }
+  .pv-print-cover h1 { font-size: 24pt; letter-spacing: 0.2em; }
+  .pv-print-chapter { break-before: page; }
+  .pv-print p { margin: 0; }
+  .pv-print .pv-blank { visibility: hidden; }
+  .pv-print .pv-title { font-size: 14pt; font-weight: 600; }
+  .pv-print-tate .pv-print-chapter { writing-mode: vertical-rl; line-height: 1.9; height: 100vh; }
+  .pv-print-tate .pv-title { margin: 0 0 0 2em; }
+  .pv-print-yoko { line-height: 1.9; }
+  .pv-print-yoko .pv-title { margin: 0 0 1.5em; }
+  .pv-print .tcy { text-combine-upright: all; }
+  .pv-print .boten { font-style: normal; text-emphasis: filled sesame; }
+  @page { margin: 18mm 16mm; }
+}
 
 /* ───── 設定資料 ───── */
 .lore-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100%; }
@@ -779,6 +866,9 @@ ruby rt { font-size: 0.5em; }
   .gen-dialog { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 759px) {
+  .pv-bar { gap: 6px; padding: 6px 8px; }
+  .pv-page { padding: 24px 14px; }
+  .pv-tools { width: 100%; }
   #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   #sidebar {
     grid-row: 2; flex-direction: row; justify-content: space-around; padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
@@ -1241,6 +1331,189 @@ ruby rt { font-size: 0.5em; }
   }
 
   NS.Readings = { collect, index, findRubies, normReading, looksSpecial, parseLine, hasKanji };
+})(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
+
+</script>
+<script>
+// js/dictdata.js
+/*
+ * 綴り — 創作辞典（オフラインで引ける小さな辞書）
+ * 伝統色、言い換え（類語）、助数詞、昔の単位、時刻・暦の言葉、天気・自然の言葉、感情の仕草など。
+ * w: 語、r: 読み、m: 説明、c: 色（伝統色のみ）、s: 言い換えの候補
+ */
+(function (NS) {
+  'use strict';
+
+  const COLORS = [
+    ['紅', 'くれない', '#d7003a', '鮮やかな赤。紅花で染めた色'], ['茜色', 'あかねいろ', '#b7282e', '夕焼けのような沈んだ赤'],
+    ['朱色', 'しゅいろ', '#eb6101', '黄みの強い赤。鳥居の色'], ['緋色', 'ひいろ', '#d3381c', '燃えるような明るい赤'],
+    ['臙脂', 'えんじ', '#b94047', '黒みを帯びた深い赤'], ['蘇芳', 'すおう', '#9e3d3f', '紫がかった暗い赤'],
+    ['小豆色', 'あずきいろ', '#96514d', '小豆のような茶色がかった赤'], ['柿色', 'かきいろ', '#ed6d3d', '熟した柿の実の色'],
+    ['珊瑚色', 'さんごいろ', '#f5b1aa', '珊瑚のような淡い赤'], ['桜色', 'さくらいろ', '#fef4f4', 'ごく淡い紅色'],
+    ['桃色', 'ももいろ', '#f09199', '桃の花のような淡い紅'], ['撫子色', 'なでしこいろ', '#eebbcb', '撫子の花のような柔らかな紅'],
+    ['牡丹色', 'ぼたんいろ', '#e7609e', '牡丹の花のような紫みの紅'], ['躑躅色', 'つつじいろ', '#e95295', '躑躅の花のような鮮やかな紅'],
+    ['薔薇色', 'ばらいろ', '#e9546b', '薔薇の花のような明るい紅'], ['煉瓦色', 'れんがいろ', '#b55233', '赤煉瓦のような茶みの赤'],
+    ['橙色', 'だいだいいろ', '#ee7800', '橙の実のような赤みの黄'], ['蜜柑色', 'みかんいろ', '#f08300', '蜜柑の皮のような色'],
+    ['杏色', 'あんずいろ', '#f7b977', '熟した杏のような柔らかな橙'], ['山吹色', 'やまぶきいろ', '#f8b500', '山吹の花のような赤みの黄'],
+    ['蒲公英色', 'たんぽぽいろ', '#ffd900', 'たんぽぽの花の鮮やかな黄'], ['鬱金色', 'うこんいろ', '#fabf14', '鬱金で染めた鮮やかな黄'],
+    ['黄金色', 'こがねいろ', '#e6b422', '金のような輝く黄'], ['刈安色', 'かりやすいろ', '#f5e56b', '緑みの淡い黄'],
+    ['卵色', 'たまごいろ', '#fcd575', '卵の黄身のような色'], ['琥珀色', 'こはくいろ', '#bf783a', '琥珀のような透明感のある黄褐色'],
+    ['栗色', 'くりいろ', '#762f07', '栗の皮のような濃い茶'], ['焦茶', 'こげちゃ', '#6f4b3e', '焦げたような黒みの茶'],
+    ['鳶色', 'とびいろ', '#95483f', '鳶の羽のような赤茶'], ['胡桃色', 'くるみいろ', '#a86f4c', '胡桃で染めた灰みの茶'],
+    ['小麦色', 'こむぎいろ', '#e49e61', '日焼けした肌のような明るい茶'], ['狐色', 'きつねいろ', '#c38743', '狐の毛のような黄みの茶'],
+    ['亜麻色', 'あまいろ', '#d6c6af', '亜麻の繊維のような淡い黄褐色。髪の色にも'], ['檜皮色', 'ひわだいろ', '#965036', '檜の皮のような黒みの赤茶'],
+    ['萌黄', 'もえぎ', '#aacf53', '芽吹いたばかりの若葉の色'], ['若草色', 'わかくさいろ', '#c3d825', '春の若草のような明るい黄緑'],
+    ['若竹色', 'わかたけいろ', '#68be8d', '若い竹のような爽やかな緑'], ['常磐色', 'ときわいろ', '#007b43', '常緑樹の葉のような深い緑'],
+    ['翡翠色', 'ひすいいろ', '#38b48b', '翡翠のような青みの緑'], ['青磁色', 'せいじいろ', '#7ebea5', '青磁の器のような淡い青緑'],
+    ['抹茶色', 'まっちゃいろ', '#c5c56a', '抹茶のような柔らかな黄緑'], ['鶯色', 'うぐいすいろ', '#928c36', '鶯の羽のような渋い緑'],
+    ['苔色', 'こけいろ', '#69821b', '苔のような深い黄緑'], ['千歳緑', 'ちとせみどり', '#316745', '松の葉のような暗い緑'],
+    ['深緑', 'ふかみどり', '#00552e', '深い森のような濃い緑'], ['浅葱色', 'あさぎいろ', '#00a3af', '薄い葱の葉のような緑みの青'],
+    ['空色', 'そらいろ', '#a0d8ef', '晴れた空のような明るい青'], ['水色', 'みずいろ', '#bce2e8', '澄んだ水のような淡い青'],
+    ['甕覗', 'かめのぞき', '#a2d7dd', '藍甕を覗いたようなごく淡い青'], ['勿忘草色', 'わすれなぐさいろ', '#89c3eb', '勿忘草の花のような明るい青'],
+    ['露草色', 'つゆくさいろ', '#38a1db', '露草の花のような鮮やかな青'], ['縹色', 'はなだいろ', '#2792c3', '藍染めの明るい青'],
+    ['瑠璃色', 'るりいろ', '#1e50a2', '宝石の瑠璃のような紫みの深い青'], ['群青色', 'ぐんじょういろ', '#4c6cb3', '群青の顔料のような鮮やかな青'],
+    ['紺碧', 'こんぺき', '#007bbb', '深く澄んだ海や空の青'], ['藍色', 'あいいろ', '#165e83', '藍で染めた深い青'],
+    ['紺色', 'こんいろ', '#223a70', '紫みの暗い青'], ['鉄紺', 'てつこん', '#17184b', '黒に近い紺'],
+    ['菫色', 'すみれいろ', '#7058a3', '菫の花のような青みの紫'], ['藤色', 'ふじいろ', '#bbbcde', '藤の花のような淡い青紫'],
+    ['藤紫', 'ふじむらさき', '#a59aca', '藤色より濃い紫'], ['桔梗色', 'ききょういろ', '#5654a2', '桔梗の花のような青紫'],
+    ['江戸紫', 'えどむらさき', '#745399', '江戸で好まれた青みの紫'], ['菖蒲色', 'しょうぶいろ', '#674598', '菖蒲の花のような紫'],
+    ['紫苑色', 'しおんいろ', '#867ba9', '紫苑の花のような灰みの紫'], ['京紫', 'きょうむらさき', '#9d5b8b', '京で好まれた赤みの紫'],
+    ['葡萄色', 'えびいろ', '#640125', '熟した山葡萄のような暗い赤紫'], ['白練', 'しろねり', '#f3f3f2', '練った絹のような白'],
+    ['胡粉色', 'ごふんいろ', '#fffffc', '貝殻から作る顔料のような白'], ['生成り色', 'きなりいろ', '#fbfaf5', '染めていない布のような白'],
+    ['象牙色', 'ぞうげいろ', '#f8f4e6', '象牙のような黄みの白'], ['灰白色', 'かいはくしょく', '#e9e4d4', '灰みがかった白'],
+    ['銀鼠', 'ぎんねず', '#afafb0', '銀色のような明るい灰色'], ['鼠色', 'ねずみいろ', '#949495', '鼠の毛のような灰色'],
+    ['利休鼠', 'りきゅうねずみ', '#888e7e', '緑みの灰色'], ['鉛色', 'なまりいろ', '#7b7c7d', '鉛のような青みの灰色。曇り空に'],
+    ['鈍色', 'にびいろ', '#727171', '濃い灰色。喪の色'], ['墨色', 'すみいろ', '#595857', '墨のような黒に近い灰色'],
+    ['漆黒', 'しっこく', '#0d0015', '漆を塗ったような艶のある黒'], ['濡羽色', 'ぬればいろ', '#000b00', '濡れた烏の羽のような艶のある黒。黒髪の形容に'],
+  ].map(([w, r, c, m]) => ({ w, r, c, m }));
+
+  const THESAURUS = [
+    ['見る', 'みる', '眺める・見つめる・凝視する・見据える・睨む・一瞥する・垣間見る・見遣る・目を凝らす・盗み見る・見下ろす・見上げる・見入る・注視する・見澄ます'],
+    ['言う', 'いう', '呟く・囁く・叫ぶ・告げる・述べる・語る・漏らす・口にする・言い放つ・吐き捨てる・嘯く・問う・応じる・返す・唸る・切り出す'],
+    ['笑う', 'わらう', '微笑む・笑みを浮かべる・頬を緩める・苦笑する・失笑する・嘲笑う・嗤う・吹き出す・破顔する・哄笑する・含み笑いをする・はにかむ・口元を綻ばせる'],
+    ['泣く', 'なく', '涙ぐむ・目を潤ませる・啜り泣く・嗚咽する・号泣する・泣き崩れる・しゃくり上げる・涙をこぼす・目頭が熱くなる・袖を濡らす'],
+    ['怒る', 'おこる', '憤る・激昂する・苛立つ・腹を立てる・気色ばむ・眉を吊り上げる・声を荒らげる・激怒する・むっとする・業を煮やす・頭に血が上る'],
+    ['驚く', 'おどろく', '息をのむ・目を見張る・目を丸くする・瞠目する・唖然とする・愕然とする・度肝を抜かれる・肝を潰す・ぎょっとする・はっとする・言葉を失う'],
+    ['歩く', 'あるく', '進む・歩む・辿る・彷徨う・闊歩する・練り歩く・忍び足で進む・足を運ぶ・歩を進める・よろめく・ぶらつく・踏みしめる'],
+    ['走る', 'はしる', '駆ける・駆け出す・疾走する・突っ走る・馳せる・走り抜ける・駆け抜ける・小走りになる・全力で駆ける'],
+    ['思う', 'おもう', '考える・感じる・案じる・思い巡らす・思案する・顧みる・想像する・推し量る・慮る・胸に抱く・思いを馳せる'],
+    ['頷く', 'うなずく', '首肯する・首を縦に振る・うなずき返す・小さく頷く・顎を引く'],
+    ['戦う', 'たたかう', '争う・刃を交える・渡り合う・挑む・立ち向かう・迎え撃つ・応戦する・剣を交える・干戈を交える'],
+    ['死ぬ', 'しぬ', '亡くなる・息を引き取る・逝く・事切れる・果てる・散る・命を落とす・永眠する・帰らぬ人となる・身罷る'],
+    ['嬉しい', 'うれしい', '喜ばしい・心が弾む・胸が躍る・有頂天・浮き立つ・晴れやかな・感無量・頬が緩む'],
+    ['悲しい', 'かなしい', '切ない・哀しい・やるせない・胸が痛む・物悲しい・痛ましい・悲痛な・侘しい・寂しい・胸が塞がる'],
+    ['怖い', 'こわい', '恐ろしい・不気味な・おぞましい・背筋が凍る・身の毛がよだつ・戦慄する・怯える・竦む・肌が粟立つ'],
+    ['美しい', 'うつくしい', '麗しい・綺麗な・端麗な・秀麗な・艶やかな・可憐な・優美な・流麗な・典雅な・凛とした・見目麗しい'],
+    ['静か', 'しずか', '静寂・閑静な・ひっそり・しんと・森閑とした・物音ひとつしない・粛々と・静謐な'],
+    ['暗い', 'くらい', '薄暗い・ほの暗い・仄暗い・真っ暗・闇に包まれた・漆黒の・暗澹とした・陰鬱な'],
+    ['明るい', 'あかるい', '眩い・煌々と・燦々と・まばゆい・晴れやかな・光に満ちた'],
+    ['速い', 'はやい', '素早い・迅速な・俊敏な・疾風のような・瞬く間に・あっという間に・目にも留まらぬ'],
+    ['大きい', 'おおきい', '巨大な・雄大な・広大な・壮大な・巨躯の・堂々たる・途方もない・見上げるほどの'],
+    ['小さい', 'ちいさい', '些細な・微小な・小ぶりな・ささやかな・華奢な・小柄な・豆粒ほどの'],
+    ['強い', 'つよい', '逞しい・屈強な・剛健な・頑強な・強靭な・猛々しい・不屈の'],
+    ['優しい', 'やさしい', '穏やかな・温かい・柔和な・慈しみ深い・思いやりのある・情け深い・温厚な'],
+    ['緊張する', 'きんちょうする', '喉が鳴る・手のひらに汗がにじむ・鼓動が早まる・唾を飲み込む・指先が冷える・肩が強張る・息を詰める'],
+    ['恥ずかしい', 'はずかしい', '頬が熱くなる・耳まで赤くなる・目を伏せる・視線が泳ぐ・顔から火が出る・身の置き所がない'],
+    ['不安', 'ふあん', '胸がざわつく・落ち着かない・爪を噛む・眉根を寄せる・心許ない・胸騒ぎがする'],
+    ['安心する', 'あんしんする', '肩の力が抜ける・息をつく・胸をなで下ろす・表情が和らぐ・人心地がつく・張り詰めた糸が切れる'],
+    ['疲れる', 'つかれる', '疲弊する・くたびれる・へとへと・消耗する・足が棒になる・肩で息をする・精根尽き果てる'],
+    ['考え込む', 'かんがえこむ', '腕を組む・顎に手を当てる・眉間に皺を寄せる・沈思する・黙考する・思案に暮れる'],
+  ].map(([w, r, s]) => ({ w, r, m: '言い換え：' + s.split('・').join('、'), s: s.split('・') }));
+
+  const COUNTERS = [
+    ['匹', 'ひき', '小さな動物・魚・虫'], ['頭', 'とう', '牛・馬・象など大きな動物'], ['羽', 'わ', '鳥（うさぎにも使う）'],
+    ['本', 'ほん', '細長いもの（剣・矢・木・瓶）'], ['枚', 'まい', '平たいもの（紙・皿・硬貨）'], ['冊', 'さつ', '本・帳面'],
+    ['台', 'だい', '機械・車両・馬車'], ['軒', 'けん', '家・店'], ['棟', 'とう／むね', '建物'],
+    ['隻', 'せき', '大きな船'], ['艘', 'そう', '小舟'], ['機', 'き', '飛行機・機械'],
+    ['挺', 'ちょう', '銃・槍・櫂・駕籠（「丁」とも）'], ['振り', 'ふり', '刀'], ['口', 'ふり', '刀剣（一口＝ひとふり）'],
+    ['柱', 'はしら', '神・遺骨'], ['騎', 'き', '馬に乗った兵'], ['基', 'き', '墓石・塔・灯籠・据え付けの物'],
+    ['張', 'はり／ちょう', '弓・幕・天幕・琴'], ['領', 'りょう', '鎧・装束'], ['着', 'ちゃく', '衣服'],
+    ['足', 'そく', '靴・靴下・足袋'], ['膳', 'ぜん', '箸・ご飯・食事'], ['脚', 'きゃく', '椅子・机'],
+    ['面', 'めん', '鏡・琴・碁盤・能面'], ['首', 'しゅ', '和歌・漢詩'], ['句', 'く', '俳句'],
+    ['通', 'つう', '手紙・書類'], ['杯', 'はい', '飲み物・イカ・タコ・船'], ['尾', 'び', '魚'],
+    ['輪', 'りん', '花・車輪'], ['株', 'かぶ', '根のある植物'], ['幅', 'ふく', '掛け軸'],
+    ['体', 'たい', '仏像・人形・遺体'], ['名', 'めい', '人（改まった言い方）'], ['座', 'ざ', '山・星座・劇場'],
+    ['筋', 'すじ', '道・川・煙・光'], ['棹', 'さお', '箪笥・羊羹・旗'], ['反', 'たん', '布'],
+    ['巻', 'かん', '巻物・書物の巻'], ['部', 'ぶ', '書類・新聞'], ['竿', 'さお', '旗・箪笥'],
+  ].map(([w, r, m]) => ({ w, r, m: '数え方：' + m }));
+
+  const UNITS = [
+    ['寸', 'すん', '約3.03cm'], ['尺', 'しゃく', '約30.3cm（10寸）'], ['間', 'けん', '約1.82m（6尺）'], ['丈', 'じょう', '約3.03m（10尺）'],
+    ['町', 'ちょう', '約109m（60間）'], ['里', 'り', '約3.93km（36町）。徒歩で約1時間'], ['歩', 'ほ', '一歩の幅。約70〜80cm（作中の単位として便利）'],
+    ['合', 'ごう', '約180ml'], ['升', 'しょう', '約1.8L（10合）'], ['斗', 'と', '約18L（10升）'], ['石', 'こく', '約180L。米1石＝大人ひとりの1年分'],
+    ['匁', 'もんめ', '3.75g'], ['斤', 'きん', '約600g'], ['貫', 'かん', '3.75kg（1000匁）'],
+    ['坪', 'つぼ', '約3.3㎡（畳2枚ほど）'], ['畳', 'じょう', '畳1枚。約1.62㎡'], ['反', 'たん', '約991㎡（田畑の広さ）'], ['町歩', 'ちょうぶ', '約9917㎡（10反）'],
+    ['一刻', 'いっこく', '約2時間（十二時辰の1つ）'], ['半刻', 'はんとき', '約1時間'], ['四半刻', 'しはんとき', '約30分'],
+    ['リーグ', 'りーぐ', '約4.8km。人が1時間に歩く距離とされた'], ['マイル', 'まいる', '約1.6km'], ['ヤード', 'やーど', '約91cm'],
+    ['フィート', 'ふぃーと', '約30.5cm'], ['インチ', 'いんち', '2.54cm'], ['ポンド', 'ぽんど', '約454g'], ['オンス', 'おんす', '約28g'],
+    ['ガロン', 'がろん', '約3.8L'], ['ノット', 'のっと', '船の速さ。時速約1.85km'], ['海里', 'かいり', '約1.85km（海上の距離）'],
+  ].map(([w, r, m]) => ({ w, r, m }));
+
+  const TIMES = [
+    ['子の刻', 'ねのこく', '午後11時〜午前1時ごろ。真夜中'], ['丑の刻', 'うしのこく', '午前1時〜3時ごろ。「丑三つ時」は午前2時〜2時半'],
+    ['寅の刻', 'とらのこく', '午前3時〜5時ごろ'], ['卯の刻', 'うのこく', '午前5時〜7時ごろ。夜明け'], ['辰の刻', 'たつのこく', '午前7時〜9時ごろ'],
+    ['巳の刻', 'みのこく', '午前9時〜11時ごろ'], ['午の刻', 'うまのこく', '午前11時〜午後1時ごろ。「正午」の語源'],
+    ['未の刻', 'ひつじのこく', '午後1時〜3時ごろ'], ['申の刻', 'さるのこく', '午後3時〜5時ごろ'], ['酉の刻', 'とりのこく', '午後5時〜7時ごろ。日暮れ'],
+    ['戌の刻', 'いぬのこく', '午後7時〜9時ごろ'], ['亥の刻', 'いのこく', '午後9時〜11時ごろ'],
+    ['暁', 'あかつき', '夜明け前のまだ暗いころ'], ['東雲', 'しののめ', '東の空が明るくなるころ'], ['曙', 'あけぼの', '夜がほのぼのと明けるころ'],
+    ['黎明', 'れいめい', '夜明け。物事の始まりの比喩にも'], ['払暁', 'ふつぎょう', '明け方'], ['朝ぼらけ', 'あさぼらけ', '夜がほのかに明けるころ'],
+    ['昼下がり', 'ひるさがり', '正午を少し過ぎたころ'], ['夕間暮れ', 'ゆうまぐれ', '夕方の薄暗いころ'], ['黄昏', 'たそがれ', '日が沈んで薄暗いころ'],
+    ['逢魔が時', 'おうまがとき', '夕暮れ時。魔物に出会うとされた時刻'], ['宵', 'よい', '日が暮れて間もないころ'], ['夜半', 'よわ', '夜中'],
+    ['睦月', 'むつき', '陰暦1月'], ['如月', 'きさらぎ', '陰暦2月'], ['弥生', 'やよい', '陰暦3月'], ['卯月', 'うづき', '陰暦4月'],
+    ['皐月', 'さつき', '陰暦5月'], ['水無月', 'みなづき', '陰暦6月'], ['文月', 'ふみづき', '陰暦7月'], ['葉月', 'はづき', '陰暦8月'],
+    ['長月', 'ながつき', '陰暦9月'], ['神無月', 'かんなづき', '陰暦10月（出雲では神在月）'], ['霜月', 'しもつき', '陰暦11月'], ['師走', 'しわす', '陰暦12月'],
+    ['立春', 'りっしゅん', '2月4日ごろ。春の始まり'], ['雨水', 'うすい', '2月19日ごろ'], ['啓蟄', 'けいちつ', '3月6日ごろ。虫が目覚める'],
+    ['春分', 'しゅんぶん', '3月21日ごろ'], ['清明', 'せいめい', '4月5日ごろ'], ['穀雨', 'こくう', '4月20日ごろ'], ['立夏', 'りっか', '5月6日ごろ'],
+    ['小満', 'しょうまん', '5月21日ごろ'], ['芒種', 'ぼうしゅ', '6月6日ごろ'], ['夏至', 'げし', '6月21日ごろ。昼が最も長い'],
+    ['小暑', 'しょうしょ', '7月7日ごろ'], ['大暑', 'たいしょ', '7月23日ごろ'], ['立秋', 'りっしゅう', '8月8日ごろ'], ['処暑', 'しょしょ', '8月23日ごろ'],
+    ['白露', 'はくろ', '9月8日ごろ'], ['秋分', 'しゅうぶん', '9月23日ごろ'], ['寒露', 'かんろ', '10月8日ごろ'], ['霜降', 'そうこう', '10月23日ごろ'],
+    ['立冬', 'りっとう', '11月7日ごろ'], ['小雪', 'しょうせつ', '11月22日ごろ'], ['大雪', 'たいせつ', '12月7日ごろ'], ['冬至', 'とうじ', '12月22日ごろ。昼が最も短い'],
+    ['小寒', 'しょうかん', '1月6日ごろ'], ['大寒', 'だいかん', '1月20日ごろ。最も寒い'],
+  ].map(([w, r, m]) => ({ w, r, m }));
+
+  const NATURE = [
+    ['時雨', 'しぐれ', '秋の終わりから冬にかけて降ったりやんだりする雨'], ['五月雨', 'さみだれ', '陰暦5月ごろの長雨（梅雨）'],
+    ['霧雨', 'きりさめ', '霧のように細かい雨'], ['小糠雨', 'こぬかあめ', '糠のように細かい雨'], ['驟雨', 'しゅうう', '急に降り出してすぐやむ雨'],
+    ['夕立', 'ゆうだち', '夏の午後に降る激しいにわか雨'], ['村雨', 'むらさめ', 'ひとしきり強く降って過ぎる雨'],
+    ['狐の嫁入り', 'きつねのよめいり', '日が照っているのに降る雨（天気雨）'], ['氷雨', 'ひさめ', '冷たい雨。雹やみぞれ'],
+    ['篠突く雨', 'しのつくあめ', '激しく降る雨'], ['春雨', 'はるさめ', '春にしとしと降る雨'], ['涙雨', 'なみだあめ', '悲しみの涙のような雨'],
+    ['そよ風', 'そよかぜ', '静かに吹く心地よい風'], ['疾風', 'はやて', '急に激しく吹く風'], ['旋風', 'つむじかぜ', '渦を巻いて吹く風'],
+    ['木枯らし', 'こがらし', '晩秋から初冬に吹く冷たい北風'], ['野分', 'のわき', '秋の暴風（台風）'], ['東風', 'こち', '春に東から吹く風'],
+    ['薫風', 'くんぷう', '初夏の若葉の香りを運ぶ風'], ['春一番', 'はるいちばん', '立春後に初めて吹く強い南風'],
+    ['朧月', 'おぼろづき', '春の夜のかすんだ月'], ['十六夜', 'いざよい', '陰暦16日の夜の月'], ['有明の月', 'ありあけのつき', '夜明けの空に残る月'],
+    ['星月夜', 'ほしづきよ', '星が月のように明るい夜'], ['天の川', 'あまのがわ', '夜空に帯のように見える星の集まり'],
+    ['陽炎', 'かげろう', '熱で地面近くの景色が揺らめいて見えること'], ['逃げ水', 'にげみず', '道の先に水があるように見える蜃気楼'],
+    ['細雪', 'ささめゆき', '細かく降る雪'], ['風花', 'かざはな', '晴れた日に風に舞う雪'], ['六花', 'りっか', '雪の異名（結晶の形から）'],
+    ['曇天', 'どんてん', '曇った空'], ['茜空', 'あかねぞら', '夕焼けで赤く染まった空'], ['薄明', 'はくめい', '日の出前・日没後のほのかな明るさ'],
+  ].map(([w, r, m]) => ({ w, r, m }));
+
+  const CATEGORIES = [
+    { id: 'thesaurus', label: '言い換え・仕草', items: THESAURUS },
+    { id: 'colors', label: '日本の伝統色', items: COLORS },
+    { id: 'nature', label: '天気・自然', items: NATURE },
+    { id: 'times', label: '時刻・暦', items: TIMES },
+    { id: 'counters', label: '数え方（助数詞）', items: COUNTERS },
+    { id: 'units', label: '昔の単位・外国の単位', items: UNITS },
+  ];
+
+  function kata2hira(s) {
+    return String(s || '').replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  }
+
+  /** 創作辞典を検索する */
+  function search(q) {
+    q = String(q || '').trim();
+    if (!q) return [];
+    const nq = kata2hira(q);
+    const out = [];
+    CATEGORIES.forEach((cat) => {
+      const hits = cat.items.filter((it) => it.w.indexOf(q) >= 0 || kata2hira(it.r).indexOf(nq) >= 0 || (it.s && it.s.some((x) => x.indexOf(q) >= 0)) || (q.length >= 2 && it.m.indexOf(q) >= 0));
+      if (hits.length) out.push({ cat, items: hits.slice(0, 40) });
+    });
+    return out;
+  }
+
+  NS.DictData = { CATEGORIES, search, kata2hira };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
 
 </script>
@@ -4599,7 +4872,7 @@ ruby rt { font-size: 0.5em; }
         const v = props[k];
         if (v == null || v === false) continue;
         if (k === 'class') el.className = v;
-        else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+        else if (k === 'style' && typeof v === 'object') Object.keys(v).forEach((sk) => { if (sk.startsWith('--')) el.style.setProperty(sk, v[sk]); else el.style[sk] = v[sk]; });
         else if (k === 'dataset') Object.assign(el.dataset, v);
         else if (k === 'html') el.innerHTML = v;
         else if (k === 'value') el.value = v;
@@ -5313,7 +5586,7 @@ ruby rt { font-size: 0.5em; }
   App.navigate = function (route, params) {
     const hash = '#/' + route + (params && params.id ? '/' + encodeURIComponent(params.id) : '');
     if (location.hash !== hash) {
-      history.pushState(null, '', hash);
+      try { history.pushState(null, '', hash); } catch (e) { /* サンドボックスなどで使えない環境 */ }
     }
     render(route, params || {});
   };
@@ -5384,12 +5657,21 @@ ruby rt { font-size: 0.5em; }
     const actions = document.getElementById('top-actions');
     clear(actions);
     actions.appendChild(h('span', { id: 'save-state', class: 'save-state', dataset: { state: App.saveState } }, App.project ? '保存済み' : ''));
+    actions.appendChild(btn('', { icon: 'dict', ghost: true, title: '辞書で調べる', onClick: () => {
+      if (App.route === 'write' && NS.Views.write.openDict) NS.Views.write.openDict();
+      else NS.Dict.openModal('');
+    } }));
     if (App.project) {
+      actions.appendChild(btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で読む）', onClick: () => {
+        const c = App.currentChapter();
+        NS.Preview.open({ chapterId: App.route === 'write' && c ? c.id : (App.project.lastChapterId || null) });
+      } }));
       const exportBtn = btn('', { icon: 'download', ghost: true, title: '書き出し・バックアップ' });
       exportBtn.addEventListener('click', () => UI.menu(exportBtn, [
         { label: '表示中の話をテキストで書き出す', icon: 'file', onClick: () => App.exportChapterTxt() },
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
+        { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,
         { label: '作品のバックアップ（.json）', icon: 'save', onClick: () => App.exportBackup() },
       ]));
@@ -5744,7 +6026,8 @@ ruby rt { font-size: 0.5em; }
         tbtn('傍点', '傍点（《《強調》》）', () => wrapOrInsert('《《', '》》'))),
       h('div', { class: 'toolbar-group' },
         btn('', { icon: 'search', ghost: true, title: '検索・置換（Ctrl+F）', onClick: () => openFind() }),
-        S.previewBtn = btn('', { icon: 'vertical', ghost: true, title: '縦書きプレビュー', onClick: togglePreview }),
+        btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で表示）', onClick: () => { syncBody(); NS.Preview.open({ chapterId: S.ch.id }); } }),
+        btn('', { icon: 'dict', ghost: true, title: '辞書で調べる（選んだ語）', onClick: () => openDict() }),
         btn('', { icon: 'history', ghost: true, title: '版の保存と履歴', onClick: openHistory }),
         btn('', { icon: 'panel', ghost: true, title: '添削パネルを表示/隠す', onClick: () => togglePanel() })));
 
@@ -5757,15 +6040,14 @@ ruby rt { font-size: 0.5em; }
     S.textarea.value = S.ch.body;
     S.sheet = h('div', { class: 'editor-sheet' }, S.backdrop, S.textarea);
     S.scroll = h('div', { class: 'editor-scroll' }, S.sheet);
-    S.previewEl = h('div', { class: 'preview-vertical', hidden: true, tabindex: 0, 'aria-label': '縦書きプレビュー' });
     S.issueBar = h('div', { class: 'issue-bar', hidden: true });
     S.status = h('div', { class: 'editor-status' });
 
-    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.previewEl, S.issueBar, S.status);
+    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.issueBar, S.status);
 
     // パネル
     S.panelTabs = h('div', { class: 'tabs panel-tabs', role: 'tablist' });
-    [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
+    [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['dict', '辞書'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
       S.panelTabs.appendChild(h('button', {
         type: 'button', role: 'tab', class: 'tab', dataset: { tab: id },
         onclick: () => { S.panelTab = id; PREF.panelTab = id; savePref(); renderPanel(); },
@@ -5784,7 +6066,9 @@ ruby rt { font-size: 0.5em; }
     S.textarea.addEventListener('input', onInput);
     S.textarea.addEventListener('scroll', () => { S.backdrop.scrollTop = S.textarea.scrollTop; });
     S.textarea.addEventListener('click', onCaret);
-    S.textarea.addEventListener('keyup', (e) => { if (/Arrow|Home|End|Page/.test(e.key)) onCaret(); });
+    S.textarea.addEventListener('keyup', (e) => { if (/Arrow|Home|End|Page|Shift/.test(e.key)) onCaret(); });
+    S.textarea.addEventListener('select', updateSelHint);
+    S.textarea.addEventListener('mouseup', () => setTimeout(updateSelHint, 0));
     S.onKey = (e) => {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); App().saveNow().then(() => toast('保存しました')); }
@@ -6055,6 +6339,7 @@ ruby rt { font-size: 0.5em; }
   }
 
   function onCaret() {
+    updateSelHint();
     const pos = S.textarea.selectionStart;
     let found = -1;
     let best = 0;
@@ -6076,7 +6361,6 @@ ruby rt { font-size: 0.5em; }
   }
 
   function focusRange(start, end) {
-    if (S.preview) togglePreview();
     S.textarea.focus({ preventScroll: true });
     S.textarea.setSelectionRange(start, end);
     // ハイライトの位置を使ってスクロール
@@ -6286,22 +6570,6 @@ ruby rt { font-size: 0.5em; }
     toast(count + '件を置換しました');
   }
 
-  // ───── 縦書きプレビュー ─────
-  function togglePreview() {
-    S.preview = !S.preview;
-    S.previewBtn.classList.toggle('active', S.preview);
-    S.scroll.hidden = S.preview;
-    S.previewEl.hidden = !S.preview;
-    if (S.preview) {
-      const paras = S.textarea.value.split('\n').map((line) => (line.trim() ? '<p>' + T.rubyToHtml(line) + '</p>' : '<p class="blank">　</p>'));
-      S.previewEl.innerHTML = '<div class="tate"><h1 class="tate-title">' + T.escapeHtml(S.ch.title) + '</h1>' + paras.join('') + '</div>';
-      S.previewEl.onwheel = (e) => {
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { S.previewEl.scrollLeft -= e.deltaY; e.preventDefault(); }
-      };
-      S.previewEl.focus();
-    }
-  }
-
   // ───── 版の保存（履歴） ─────
   function pushSnapshot(c, label, auto) {
     const last = c.snapshots[0];
@@ -6388,7 +6656,16 @@ ruby rt { font-size: 0.5em; }
       h('span', { class: 'status-today', title: '今日書いた文字数 / 1日の目標' },
         '今日 ', h('strong', null, (today >= 0 ? '+' : '') + UI.fmtNum(today)), goal ? ' / ' + UI.fmtNum(goal) : '',
         goal ? h('span', { class: 'meter' }, h('span', { style: { width: pct + '%' } })) : null),
+      S.selHint = h('span', { class: 'status-sel' }),
       h('span', { class: 'status-issues' }, issueSummary()));
+    updateSelHint();
+  }
+
+  function updateSelHint() {
+    if (!S || !S.selHint) return;
+    clear(S.selHint);
+    const w = selectedWord();
+    if (w) S.selHint.appendChild(h('button', { type: 'button', class: 'link-btn', onclick: openDict }, icon('dict', 14), `「${w.length > 10 ? w.slice(0, 10) + '…' : w}」を調べる`));
   }
 
   function issueSummary() {
@@ -6419,7 +6696,7 @@ ruby rt { font-size: 0.5em; }
       t.setAttribute('aria-selected', t.dataset.tab === S.panelTab ? 'true' : 'false');
     });
     clear(S.panelBody);
-    const fn = { proof: panelProof, cons: panelCons, ai: panelAI, ref: panelRef, stats: panelStats }[S.panelTab];
+    const fn = { proof: panelProof, cons: panelCons, ai: panelAI, dict: panelDict, ref: panelRef, stats: panelStats }[S.panelTab] || panelProof;
     S.panelBody.appendChild(fn());
     renderBadges();
   }
@@ -6585,6 +6862,43 @@ ruby rt { font-size: 0.5em; }
       rerender: () => { if (S && S.panelTab === 'ai') renderPanel(); },
     });
   }
+
+  /** 辞書タブ（選んでいる語をそのまま調べる） */
+  function panelDict() {
+    const q = S.dictQuery || '';
+    S.dictQuery = '';
+    return NS.Dict.render({
+      query: q,
+      compact: true,
+      onInsert: (text) => {
+        const ta = S.textarea;
+        replaceRange(ta.selectionStart, ta.selectionEnd, text);
+        toast(`「${text}」を入れました`);
+      },
+      onJump: (chapterId, start, end) => {
+        if (chapterId === S.ch.id) { focusRange(start, end); return; }
+        switchChapter(chapterId);
+        setTimeout(() => V.focusRange(start, end), 80);
+      },
+    });
+  }
+
+  function selectedWord() {
+    const sel = V.getSelection();
+    if (!sel) return '';
+    const t = sel.text.trim();
+    return t.length <= 30 && t.indexOf('\n') < 0 ? t : '';
+  }
+
+  function openDict() {
+    S.dictQuery = selectedWord();
+    S.panelTab = 'dict';
+    PREF.panelTab = 'dict';
+    savePref();
+    if (S.hidePanel) togglePanel();
+    renderPanel();
+  }
+  V.openDict = function () { if (S) openDict(); };
 
   function panelRef() {
     const p = P();
@@ -10292,6 +10606,533 @@ ruby rt { font-size: 0.5em; }
 
 </script>
 <script>
+// js/views/preview.js
+/*
+ * 綴り — プレビュー（読者目線での表示）
+ * 縦書き：本のようにページをめくる（広い画面では見開き）。横書き：Web小説風。
+ * 目次、文字サイズ、書体、配色、印刷（PDF 保存）に対応。
+ */
+(function (NS) {
+  'use strict';
+  const UI = NS.UI;
+  const { h, icon, btn, clear, toast } = UI;
+  const T = NS.Text;
+
+  const PREF = Object.assign({ mode: 'tate', size: 18, font: 'serif', theme: 'paper', blank: false }, UI.lsGet('tsuzuri.previewPref', {}));
+  const savePref = () => UI.lsSet('tsuzuri.previewPref', PREF);
+  const THEMES = { paper: '生成り', white: '白', dark: '黒' };
+
+  let V = null;
+
+  function P() { return NS.App.project; }
+
+  function chapterHtml(c, opts) {
+    const vertical = opts.vertical;
+    const blank = opts.blank;
+    const lines = (c.body || '').split('\n');
+    const paras = lines.map((line) => (line.trim() ? '<p>' + T.rubyToHtml(line, { vertical }) + '</p>' : '<p class="pv-blank">　</p>'));
+    const body = blank && !vertical ? paras.join('<p class="pv-blank">　</p>') : paras.join('');
+    return '<h1 class="pv-title">' + T.escapeHtml(c.title || '') + '</h1>' + body;
+  }
+
+  /** プレビューを開く */
+  function open(opts) {
+    opts = opts || {};
+    const p = P();
+    if (!p) return;
+    if (V) close();
+    if (NS.Views.write && NS.Views.write.chapter && NS.Views.write.chapter()) {
+      const cur = NS.Views.write.chapter();
+      const text = NS.Views.write.getText();
+      if (cur && text !== cur.body) { cur.body = text; NS.App.touch(); }
+    }
+    let idx = p.chapters.findIndex((c) => c.id === opts.chapterId);
+    if (idx < 0) idx = 0;
+    V = { idx, page: 0, pages: 1, spread: false };
+    V.root = h('div', { class: 'pv-overlay pv-theme-' + PREF.theme, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'プレビュー', tabindex: -1 });
+    document.body.appendChild(V.root);
+    V.onKey = onKey;
+    V.onResize = UI.debounce(() => { if (V) layout(true); }, 120);
+    document.addEventListener('keydown', V.onKey, true);
+    window.addEventListener('resize', V.onResize);
+    build();
+    V.root.focus();
+  }
+
+  function close() {
+    if (!V) return;
+    document.removeEventListener('keydown', V.onKey, true);
+    window.removeEventListener('resize', V.onResize);
+    V.root.remove();
+    V = null;
+  }
+
+  function build() {
+    const p = P();
+    const c = p.chapters[V.idx];
+    clear(V.root);
+    V.root.className = 'pv-overlay pv-theme-' + PREF.theme + ' pv-mode-' + PREF.mode;
+    V.root.style.setProperty('--pv-size', PREF.size + 'px');
+    V.root.style.setProperty('--pv-font', PREF.font === 'sans' ? 'var(--font-sans)' : 'var(--font-serif)');
+    const toc = btn('目次', { icon: 'list', small: true, ghost: true });
+    toc.addEventListener('click', () => UI.menu(toc, p.chapters.map((ch, i) => ({
+      label: `${i + 1}. ${ch.title || '無題'}`, icon: i === V.idx ? 'check' : null, onClick: () => goChapter(i, 0),
+    }))));
+    const seg = (key, options) => h('div', { class: 'pv-seg' }, options.map(([v, l]) => h('button', {
+      type: 'button', class: 'pv-seg-btn' + (PREF[key] === v ? ' active' : ''),
+      onclick: () => { PREF[key] = v; savePref(); build(); },
+    }, l)));
+    const bar = h('div', { class: 'pv-bar' },
+      btn('', { icon: 'x', ghost: true, title: '閉じる（Esc）', onClick: close }),
+      h('div', { class: 'pv-heading' }, h('span', { class: 'pv-work' }, p.title), h('span', { class: 'pv-chapter' }, c.title || '')),
+      h('div', { class: 'pv-tools' },
+        toc,
+        seg('mode', [['tate', '縦書き'], ['yoko', '横書き']]),
+        h('div', { class: 'pv-seg' },
+          h('button', { type: 'button', class: 'pv-seg-btn', title: '文字を小さく', 'aria-label': '文字を小さく', onclick: () => { PREF.size = Math.max(12, PREF.size - 1); savePref(); build(); } }, 'A−'),
+          h('button', { type: 'button', class: 'pv-seg-btn', title: '文字を大きく', 'aria-label': '文字を大きく', onclick: () => { PREF.size = Math.min(32, PREF.size + 1); savePref(); build(); } }, 'A＋')),
+        seg('font', [['serif', '明朝'], ['sans', 'ゴシック']]),
+        seg('theme', Object.keys(THEMES).map((k) => [k, THEMES[k]])),
+        PREF.mode === 'yoko' ? h('label', { class: 'check small pv-check' }, h('input', { type: 'checkbox', checked: PREF.blank, onchange: (e) => { PREF.blank = e.target.checked; savePref(); build(); } }), '段落の間を空ける') : null,
+        btn('印刷・PDF', { icon: 'printer', small: true, ghost: true, onClick: printWork })));
+    V.main = h('div', { class: 'pv-main' });
+    V.foot = h('div', { class: 'pv-foot' });
+    V.root.append(bar, V.main, V.foot);
+    if (PREF.mode === 'tate') buildTate(c);
+    else buildYoko(c);
+  }
+
+  // ───── 縦書き（ページ送り） ─────
+  function buildTate(c) {
+    V.book = h('div', { class: 'pv-book' });
+    V.main.appendChild(V.book);
+    V.main.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      const r = V.main.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width;
+      if (x < 0.4) step(1);
+      else if (x > 0.6) step(-1);
+    });
+    let sx = null;
+    V.main.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+    V.main.addEventListener('touchend', (e) => {
+      if (sx == null) return;
+      const dx = e.changedTouches[0].clientX - sx;
+      sx = null;
+      if (Math.abs(dx) > 40) step(dx > 0 ? 1 : -1);
+    });
+    V.html = chapterHtml(c, { vertical: true });
+    layout(false);
+  }
+
+  /** ページの大きさを決めて組む */
+  function layout(keep) {
+    if (!V || PREF.mode !== 'tate') return;
+    const size = PREF.size;
+    const lh = size * 2;
+    const r = V.main.getBoundingClientRect();
+    const availH = Math.max(200, r.height - 70);
+    const availW = Math.max(200, r.width - 40);
+    const pageH = Math.min(availH, size * 42 + 40);
+    const linesFor = (w) => Math.max(5, Math.min(20, Math.floor((w - 56) / lh)));
+    V.spread = availW >= 2 * (12 * lh + 56) + 24;
+    const lines = V.spread ? linesFor((availW - 24) / 2) : linesFor(availW);
+    const contentW = lines * lh;
+    const firstChar = keep && V.pages > 1 ? V.page / V.pages : 0;
+    clear(V.book);
+    V.book.classList.toggle('spread', V.spread);
+    V.pageEls = [];
+    const count = V.spread ? 2 : 1;
+    for (let i = 0; i < count; i++) {
+      const content = h('div', { class: 'pv-content', html: V.html, style: { width: contentW + 'px', height: (pageH - 64) + 'px', lineHeight: lh + 'px', '--pv-lh': lh + 'px' } });
+      const page = h('div', { class: 'pv-page', style: { height: pageH + 'px' } },
+        h('div', { class: 'pv-running' }, P().chapters[V.idx].title || ''),
+        content,
+        h('div', { class: 'pv-nombre' }));
+      V.pageEls.push({ page, content });
+    }
+    // 見開きは右ページが先
+    V.pageEls.slice().reverse().forEach((x) => V.book.appendChild(x.page));
+    const c0 = V.pageEls[0].content;
+    V.pageW = contentW;
+    V.pages = Math.max(1, Math.ceil(c0.scrollWidth / contentW - 0.02));
+    // 最後のページも1ページ分ずらして表示できるよう、末尾に余白を足す
+    V.pageEls.forEach((x) => x.content.appendChild(h('div', { class: 'pv-pad', style: { width: contentW * (V.spread ? 2 : 1) + 'px' } })));
+    if (keep) V.page = Math.min(V.pages - 1, Math.floor(firstChar * V.pages));
+    if (V.page < 0) V.page = Math.max(0, V.pages - (V.spread ? 2 - (V.pages % 2 ? 1 : 0) : 1));
+    if (V.page >= V.pages) V.page = V.pages - 1;
+    if (V.spread) V.page -= V.page % 2;
+    showPage();
+  }
+
+  function showPage() {
+    V.pageEls.forEach((x, i) => {
+      const n = V.page + i;
+      x.content.scrollLeft = -n * V.pageW;
+      // 古いブラウザ（scrollLeft が正の値）にも対応
+      if (Math.abs(x.content.scrollLeft + n * V.pageW) > 2) x.content.scrollLeft = x.content.scrollWidth - x.content.clientWidth - n * V.pageW;
+      x.page.classList.toggle('pv-empty', n >= V.pages);
+      x.page.querySelector('.pv-nombre').textContent = n < V.pages ? String(n + 1) : '';
+    });
+    clear(V.foot);
+    const p = P();
+    V.foot.append(
+      btn('', { icon: 'left', ghost: true, title: '次のページ（←）', onClick: () => step(1) }),
+      h('span', { class: 'small' }, `${V.page + 1}${V.spread && V.page + 1 < V.pages ? '–' + (V.page + 2) : ''} / ${V.pages} ページ　（第${V.idx + 1}話／全${p.chapters.length}話）`),
+      btn('', { icon: 'right', ghost: true, title: '前のページ（→）', onClick: () => step(-1) }));
+  }
+
+  function step(d) {
+    const by = V.spread ? 2 : 1;
+    const next = V.page + d * by;
+    const p = P();
+    if (next >= V.pages) {
+      if (V.idx < p.chapters.length - 1) goChapter(V.idx + 1, 0);
+      else toast('最後のページです');
+      return;
+    }
+    if (next < 0) {
+      if (V.idx > 0) goChapter(V.idx - 1, -1);
+      return;
+    }
+    V.page = next;
+    showPage();
+  }
+
+  function goChapter(i, page) {
+    V.idx = i;
+    V.page = page;
+    build();
+  }
+
+  // ───── 横書き（Web小説風） ─────
+  function buildYoko(c) {
+    const p = P();
+    const article = h('article', { class: 'pv-article', html: chapterHtml(c, { vertical: false, blank: PREF.blank }) });
+    const nav = h('div', { class: 'pv-chapter-nav' },
+      V.idx > 0 ? btn('前の話', { icon: 'left', onClick: () => goChapter(V.idx - 1, 0) }) : h('span'),
+      h('span', { class: 'muted small' }, `${T.stats(c.body).charsNoSpace.toLocaleString('ja-JP')}字`),
+      V.idx < p.chapters.length - 1 ? btn('次の話', { icon: 'right', onClick: () => goChapter(V.idx + 1, 0) }) : h('span'));
+    const scroll = h('div', { class: 'pv-scroll' }, article, nav);
+    V.main.appendChild(scroll);
+    V.scroll = scroll;
+    clear(V.foot);
+    V.foot.appendChild(h('span', { class: 'small' }, `第${V.idx + 1}話／全${p.chapters.length}話`));
+  }
+
+  function onKey(e) {
+    if (!V) return;
+    if (document.querySelector('.popmenu') && e.key === 'Escape') return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (PREF.mode === 'tate') {
+      if (['ArrowLeft', 'PageDown', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); step(1); }
+      else if (['ArrowRight', 'PageUp', 'ArrowUp'].includes(e.key)) { e.preventDefault(); step(-1); }
+    }
+  }
+
+  // ───── 印刷 ─────
+  function printWork() {
+    const p = P();
+    if (p.chapters.length < 2) { doPrint([p.chapters[V.idx]]); return; }
+    UI.modal({
+      title: '印刷・PDF保存',
+      body: h('p', null, '印刷する範囲を選んでください。印刷画面で「PDFに保存」を選ぶとPDFになります。'),
+      actions: [
+        { label: '表示中の話', onClick: () => { setTimeout(() => doPrint([p.chapters[V.idx]]), 80); } },
+        { label: '全話', primary: true, onClick: () => { setTimeout(() => doPrint(p.chapters), 80); } },
+      ],
+    });
+  }
+
+  function doPrint(chapters) {
+    const p = P();
+    const vertical = PREF.mode === 'tate';
+    const root = h('div', { class: 'pv-print ' + (vertical ? 'pv-print-tate' : 'pv-print-yoko') });
+    root.style.setProperty('--pv-size', PREF.size + 'px');
+    root.style.setProperty('--pv-font', PREF.font === 'sans' ? 'var(--font-sans)' : 'var(--font-serif)');
+    root.appendChild(h('section', { class: 'pv-print-cover' }, h('h1', null, p.title), p.author ? h('p', null, p.author) : null));
+    chapters.forEach((c) => root.appendChild(h('section', { class: 'pv-print-chapter', html: chapterHtml(c, { vertical, blank: PREF.blank && !vertical }) })));
+    document.body.appendChild(root);
+    document.body.classList.add('printing');
+    const done = () => {
+      document.body.classList.remove('printing');
+      root.remove();
+      window.removeEventListener('afterprint', done);
+    };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => { window.print(); setTimeout(() => { if (document.body.classList.contains('printing')) done(); }, 1000); }, 50);
+  }
+
+  NS.Preview = { open, close, isOpen: () => !!V };
+})(window.Tsuzuri = window.Tsuzuri || {});
+
+</script>
+<script>
+// js/views/dict.js
+/*
+ * 綴り — 辞書（調べたいことをすぐ調べる）
+ * 作品の中（設定資料・読み方・アイデア・本文）、創作辞典（オフライン）、
+ * ネット辞書（Wikipedia の要約・ウィクショナリーの語義）、外部サイト、AI に聞く。
+ */
+(function (NS) {
+  'use strict';
+  const UI = NS.UI;
+  const { h, icon, btn, clear, toast } = UI;
+  const D = NS.DictData;
+
+  const cache = new Map();
+  const enc = encodeURIComponent;
+
+  function P() { return NS.App && NS.App.project; }
+
+  // ───── ネット辞書 ─────
+  async function fetchJSON(url, signal) {
+    const r = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+
+  async function wikipedia(q, signal) {
+    const s = await fetchJSON(`https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(q)}&srlimit=3&format=json&origin=*`, signal);
+    const hits = (s.query && s.query.search) || [];
+    if (!hits.length) return null;
+    const exact = hits.find((x) => x.title === q) || hits[0];
+    const sum = await fetchJSON(`https://ja.wikipedia.org/api/rest_v1/page/summary/${enc(exact.title)}`, signal);
+    return {
+      title: sum.title, extract: sum.extract || '', url: (sum.content_urls && sum.content_urls.desktop && sum.content_urls.desktop.page) || `https://ja.wikipedia.org/wiki/${enc(sum.title)}`,
+      thumb: sum.thumbnail && sum.thumbnail.source, others: hits.filter((x) => x.title !== exact.title).map((x) => x.title),
+    };
+  }
+
+  /** ウィクショナリーの HTML から日本語の語義を取り出す */
+  function parseWiktionary(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const h2s = Array.from(doc.querySelectorAll('h2'));
+    const jp = h2s.find((x) => /^\s*日本語/.test(x.textContent));
+    if (!jp) return [];
+    let node = jp.closest('.mw-heading') || jp;
+    const out = [];
+    let pos = '';
+    for (let n = node.nextElementSibling; n; n = n.nextElementSibling) {
+      if (n.matches('h2') || n.matches('.mw-heading2') || n.querySelector(':scope > h2')) break;
+      const heading = n.matches('h3,h4,h5') ? n : n.matches('.mw-heading') ? n.querySelector('h3,h4,h5') : null;
+      if (heading) { pos = heading.textContent.replace(/\[編集\]/g, '').trim(); continue; }
+      if (n.tagName === 'OL') {
+        Array.from(n.children).forEach((li) => {
+          const c = li.cloneNode(true);
+          c.querySelectorAll('ul, dl, ol, sup, .mw-editsection, style').forEach((x) => x.remove());
+          const t = c.textContent.replace(/\s+/g, ' ').trim();
+          if (t && !/^(発音|語源|翻訳)/.test(pos)) out.push({ pos, text: t });
+        });
+      }
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  async function wiktionary(q, signal) {
+    const r = await fetchJSON(`https://ja.wiktionary.org/w/api.php?action=parse&page=${enc(q)}&prop=text&format=json&origin=*&redirects=1`, signal);
+    if (!r.parse || !r.parse.text) return null;
+    const defs = parseWiktionary(r.parse.text['*'] || '');
+    return defs.length ? { title: r.parse.title, defs, url: `https://ja.wiktionary.org/wiki/${enc(r.parse.title)}` } : null;
+  }
+
+  const LINKS = [
+    ['Weblio辞書', (q) => `https://www.weblio.jp/content/${enc(q)}`],
+    ['類語辞典', (q) => `https://thesaurus.weblio.jp/content/${enc(q)}`],
+    ['コトバンク', (q) => `https://kotobank.jp/search?q=${enc(q)}`],
+    ['Wikipedia', (q) => `https://ja.wikipedia.org/wiki/Special:Search?search=${enc(q)}`],
+    ['Google', (q) => `https://www.google.com/search?q=${enc(q)}`],
+    ['画像', (q) => `https://www.google.com/search?tbm=isch&q=${enc(q)}`],
+  ];
+
+  // ───── 作品の中 ─────
+  function inWork(q, p) {
+    if (!p || !q) return null;
+    const entries = p.entries.filter((e) => e.name.indexOf(q) >= 0 || (e.reading || '').indexOf(q) >= 0 || e.aliases.some((a) => a.indexOf(q) >= 0) || (q.length >= 2 && e.name.indexOf(q) < 0 && Object.values(e.fields || {}).some((v) => typeof v === 'string' && v.indexOf(q) >= 0)));
+    const readings = NS.Readings ? NS.Readings.collect(p).filter((r) => r.base.indexOf(q) >= 0 || NS.Readings.normReading(r.reading).indexOf(NS.Readings.normReading(q)) >= 0) : [];
+    const ideas = p.ideas.filter((i) => (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0).slice(0, 6);
+    const chapters = [];
+    p.chapters.forEach((c, i) => {
+      const text = c.body || '';
+      let n = 0;
+      let k = text.indexOf(q);
+      const first = k;
+      while (k >= 0) { n++; k = text.indexOf(q, k + q.length); }
+      if (n) chapters.push({ c, i, n, first });
+    });
+    return { entries, readings, ideas, chapters };
+  }
+
+  /**
+   * 辞書の画面を作る。
+   * opts: { query, onInsert(text), onJump(chapterId, start, end), compact }
+   */
+  function render(opts) {
+    opts = opts || {};
+    const root = h('div', { class: 'dict' + (opts.compact ? ' dict-compact' : '') });
+    let controller = null;
+    let browseCat = D.CATEGORIES[0].id;
+    const input = h('input', { class: 'input', type: 'search', value: opts.query || '', placeholder: '調べたい言葉', 'aria-label': '調べたい言葉' });
+    const out = h('div', { class: 'dict-results' });
+    const go = () => run(input.value.trim());
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(); } });
+    root.append(h('div', { class: 'row dict-search' }, input, btn('調べる', { icon: 'search', primary: true, small: true, onClick: go })), out);
+
+    const section = (title, ...children) => h('section', { class: 'dict-section' }, h('h3', { class: 'panel-h' }, title), ...children);
+
+    function insertBtn(text) {
+      if (!opts.onInsert) return null;
+      return btn('', { icon: 'pen', ghost: true, small: true, title: `「${text}」を本文に入れる`, onClick: () => opts.onInsert(text) });
+    }
+
+    function itemView(it, cat) {
+      const chips = it.s ? h('div', { class: 'chips' }, it.s.map((x) => h('button', {
+        type: 'button', class: 'chip', title: opts.onInsert ? '本文に入れる（選択中の語と置き換え）' : '', onclick: () => { if (opts.onInsert) opts.onInsert(x); else run(x); },
+      }, x))) : null;
+      return h('div', { class: 'dict-item' },
+        h('div', { class: 'dict-item-head' },
+          it.c ? h('span', { class: 'dict-swatch', style: { background: it.c }, title: it.c }) : null,
+          h('strong', null, it.w), h('span', { class: 'muted small' }, it.r), it.c ? h('span', { class: 'muted small mono' }, it.c) : null,
+          h('span', { class: 'dict-spacer' }), insertBtn(it.w)),
+        it.s ? h('div', { class: 'small muted' }, '言い換えの候補') : h('div', { class: 'small' }, it.m),
+        chips);
+    }
+
+    function browse() {
+      clear(out);
+      const cat = D.CATEGORIES.find((c) => c.id === browseCat) || D.CATEGORIES[0];
+      out.append(
+        h('p', { class: 'small muted' }, '言葉を入れて「調べる」を押すと、作品の中・創作辞典・ネット辞書をまとめて調べます。下は創作辞典の一覧です。'),
+        h('div', { class: 'chips' }, D.CATEGORIES.map((c) => h('button', {
+          type: 'button', class: 'chip' + (c.id === cat.id ? ' active' : ''), onclick: () => { browseCat = c.id; browse(); },
+        }, c.label))),
+        h('div', { class: 'dict-list' }, cat.items.map((it) => itemView(it, cat))));
+    }
+
+    function run(q) {
+      if (controller) controller.abort();
+      controller = null;
+      input.value = q;
+      if (!q) { browse(); return; }
+      clear(out);
+      const p = P();
+      // 作品の中
+      const w = inWork(q, p);
+      if (w && (w.entries.length || w.readings.length || w.ideas.length || w.chapters.length)) {
+        const parts = [];
+        w.entries.forEach((e) => parts.push(h('details', { class: 'ref-item', open: w.entries.length === 1 },
+          h('summary', null, h('span', { class: 'type-badge t-' + e.type }, NS.Lore.TYPE_LABEL[e.type]), h('strong', null, e.name), e.reading ? h('span', { class: 'muted small' }, ' ' + e.reading) : null),
+          h('div', { class: 'ref-body' }, NS.Lore.summaryList(e, p), btn('設定資料を開く', { small: true, ghost: true, onClick: () => NS.App.navigate('lore', { id: e.id }) })))));
+        if (w.readings.length) {
+          parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, '登録した読み方'),
+            h('div', { class: 'reading-list' }, w.readings.map((r) => h('div', { class: 'reading-row static', html: NS.Text.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) })))));
+        }
+        w.ideas.forEach((i) => parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, 'アイデア帳・' + (i.kind || 'アイデア')), h('div', { class: 'small' }, (i.word ? i.word + '《' + i.reading + '》 ' : '') + i.body.split('\n')[0]))));
+        if (w.chapters.length) {
+          parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, `本文での使用（全${w.chapters.reduce((a, x) => a + x.n, 0)}回）`),
+            h('div', { class: 'chips' }, w.chapters.slice(0, 30).map((x) => h('button', {
+              type: 'button', class: 'chip', onclick: () => { if (opts.onJump) opts.onJump(x.c.id, x.first, x.first + q.length); },
+            }, `第${x.i + 1}話 ${x.n}回`)))));
+        }
+        out.appendChild(section('作品の中', ...parts));
+      }
+      // 創作辞典
+      const local = D.search(q);
+      if (local.length) {
+        out.appendChild(section('創作辞典', ...local.map(({ cat, items }) => h('div', { class: 'dict-cat' },
+          h('div', { class: 'small muted' }, cat.label), items.slice(0, 12).map((it) => itemView(it, cat))))));
+      }
+      // ネット辞書
+      const netBox = h('div', { class: 'dict-net' });
+      out.appendChild(section('ネット辞書', netBox,
+        h('p', { class: 'small muted' }, '入力した言葉だけが Wikipedia／ウィクショナリー（ウィキメディア財団）に送られます。')));
+      loadNet(q, netBox);
+      // 外部サイト
+      out.appendChild(section('ほかのサイトで調べる', h('div', { class: 'row wrap' }, LINKS.map(([label, url]) => h('a', {
+        class: 'btn btn-sm', href: url(q), target: '_blank', rel: 'noopener noreferrer',
+      }, label)))));
+      // AI
+      const aiBox = h('div', { class: 'dict-ai' });
+      const hasKey = NS.AI && NS.AI.getKey && NS.AI.getKey();
+      out.appendChild(section('AIに聞く', hasKey
+        ? h('div', { class: 'stack-sm' }, btn(`「${q}」の意味・例文・言い換えを聞く`, { icon: 'sparkles', small: true, onClick: () => askAI(q, aiBox) }), aiBox)
+        : h('p', { class: 'small muted' }, '設定 → AI で APIキーを入れると、Claude に意味や例文、言い換えを聞けます。')));
+    }
+
+    function loadNet(q, box) {
+      clear(box);
+      const key = q;
+      const show = (res) => {
+        clear(box);
+        const { wp, wk, error } = res;
+        if (wk) {
+          box.appendChild(h('div', { class: 'dict-card' },
+            h('div', { class: 'dict-card-head' }, h('strong', null, wk.title), h('span', { class: 'muted small' }, 'ウィクショナリー'), h('a', { href: wk.url, target: '_blank', rel: 'noopener noreferrer', class: 'small' }, '開く')),
+            h('ol', { class: 'dict-defs' }, wk.defs.map((d) => h('li', null, d.pos ? h('span', { class: 'dict-pos' }, d.pos) : null, d.text)))));
+        }
+        if (wp) {
+          box.appendChild(h('div', { class: 'dict-card' },
+            h('div', { class: 'dict-card-head' }, h('strong', null, wp.title), h('span', { class: 'muted small' }, 'Wikipedia'), h('a', { href: wp.url, target: '_blank', rel: 'noopener noreferrer', class: 'small' }, '開く')),
+            h('div', { class: 'dict-wp' }, wp.thumb ? h('img', { src: wp.thumb, alt: '', loading: 'lazy' }) : null, h('p', null, wp.extract)),
+            wp.others && wp.others.length ? h('div', { class: 'chips' }, h('span', { class: 'small muted' }, 'ほかの候補：'), wp.others.map((t) => h('button', { type: 'button', class: 'chip', onclick: () => run(t) }, t))) : null));
+        }
+        if (!wk && !wp) box.appendChild(h('p', { class: 'small muted' }, error ? 'ネット辞書に接続できませんでした（オフラインか、通信が制限されています）。' : '見つかりませんでした。'));
+      };
+      if (cache.has(key)) { show(cache.get(key)); return; }
+      box.appendChild(h('div', { class: 'row small muted' }, h('span', { class: 'spinner' }), '調べています…'));
+      controller = new AbortController();
+      const signal = controller.signal;
+      Promise.allSettled([wikipedia(q, signal), wiktionary(q, signal)]).then(([a, b]) => {
+        if (signal.aborted) return;
+        const res = {
+          wp: a.status === 'fulfilled' ? a.value : null,
+          wk: b.status === 'fulfilled' ? b.value : null,
+          error: a.status === 'rejected' && b.status === 'rejected',
+        };
+        if (!res.error) cache.set(key, res);
+        show(res);
+      });
+    }
+
+    async function askAI(q, box) {
+      clear(box);
+      const ans = h('div', { class: 'ai-answer' });
+      box.append(h('div', { class: 'row small muted' }, h('span', { class: 'spinner' }), '考えています…'), ans);
+      try {
+        const text = await NS.AI.askWord(P(), q, null, (snap) => { ans.textContent = snap; });
+        clear(box);
+        ans.textContent = text;
+        box.appendChild(ans);
+      } catch (e) {
+        clear(box);
+        box.appendChild(h('p', { class: 'small', style: { color: 'var(--danger)' } }, e.message));
+      }
+    }
+
+    run(opts.query ? String(opts.query).trim() : '');
+    setTimeout(() => { if (!opts.query) input.focus(); }, 30);
+    root.search = run;
+    return root;
+  }
+
+  function openModal(q) {
+    const view = render({
+      query: q,
+      onJump: (chapterId, start, end) => {
+        close();
+        NS.App.navigate('write', { id: chapterId });
+        setTimeout(() => NS.Views.write.focusRange && NS.Views.write.focusRange(start, end), 80);
+      },
+    });
+    const close = UI.modal({ title: '辞書', body: view, wide: true });
+  }
+
+  NS.Dict = { render, openModal, parseWiktionary, wikipedia, wiktionary };
+})(window.Tsuzuri = window.Tsuzuri || {});
+
+</script>
+<script>
 // js/ai.js
 /*
  * 綴り — AI 機能（Claude API）
@@ -10567,6 +11408,22 @@ ruby rt { font-size: 0.5em; }
     return { kind: 'cons', summary: data.summary || '', items, at: Date.now() };
   }
 
+  const WORD_SYSTEM = [
+    'あなたは国語辞典と類語辞典を兼ねた、小説を書く人のための辞書です。調べたい語について、次の見出しで簡潔に答えてください。',
+    '【読み】',
+    '【意味】（複数あれば番号を付ける）',
+    '【例文】小説の文章らしい例を2つ',
+    '【言い換え・類語】',
+    '【使うときの注意】誤用しやすい点、時代や場面に合うかなど（なければ省く）',
+    '固有名詞や専門用語なら、概要を3〜5文で説明してください。確かでないことは「〜とされる」「不確か」と明記してください。',
+  ].join('\n');
+
+  async function askWord(project, word, signal, onText) {
+    const params = baseParams(WORD_SYSTEM, '調べたい語：' + word, 4000);
+    params.output_config.effort = 'low';
+    return run(params, { signal, onText });
+  }
+
   async function ask(ctx, question, scope, signal, onText) {
     const sel = scope === 'selection' ? ctx.getSelection() : null;
     const text = sel ? sel.text : ctx.getText();
@@ -10736,7 +11593,7 @@ ruby rt { font-size: 0.5em; }
       } }), testOut));
   };
 
-  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, locate, MODELS };
+  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, MODELS };
   NS.AIPanel = Panel;
 })(window.Tsuzuri = window.Tsuzuri || {});
 

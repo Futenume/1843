@@ -73,6 +73,15 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  �
   await page.waitForTimeout(500);
   assert((await page.locator('.ai-answer').textContent()).includes('ラスト案'), 'AIに相談の回答を表示');
   await page.screenshot({ path: OUT + 'ai-cons.png' });
+  await page.route(/wik(ipedia|tionary)\.org/, (r) => r.abort());
+  await page.locator('.panel-tabs .tab[data-tab="dict"]').click();
+  await page.locator('.dict-search input').fill('黄昏');
+  await page.locator('.dict-search button').click();
+  await page.getByRole('button', { name: /の意味・例文・言い換えを聞く/ }).click();
+  await page.waitForTimeout(500);
+  const c3 = (await page.evaluate(() => window.__aiCalls)).slice(-1)[0].params;
+  assert(c3.system.includes('国語辞典') && c3.messages[0].content.includes('黄昏') && c3.output_config.effort === 'low', '辞書から語の意味をAIに聞ける');
+  assert((await page.locator('.dict-ai .ai-answer').textContent()).length > 5, '辞書にAIの回答を表示');
   assert(errs.length === 0, 'エラーなし ' + errs.join('/'));
   await browser.close();
 })().catch((e) => { console.error(e); process.exit(1); });

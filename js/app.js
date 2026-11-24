@@ -128,7 +128,7 @@
   App.navigate = function (route, params) {
     const hash = '#/' + route + (params && params.id ? '/' + encodeURIComponent(params.id) : '');
     if (location.hash !== hash) {
-      history.pushState(null, '', hash);
+      try { history.pushState(null, '', hash); } catch (e) { /* サンドボックスなどで使えない環境 */ }
     }
     render(route, params || {});
   };
@@ -199,12 +199,21 @@
     const actions = document.getElementById('top-actions');
     clear(actions);
     actions.appendChild(h('span', { id: 'save-state', class: 'save-state', dataset: { state: App.saveState } }, App.project ? '保存済み' : ''));
+    actions.appendChild(btn('', { icon: 'dict', ghost: true, title: '辞書で調べる', onClick: () => {
+      if (App.route === 'write' && NS.Views.write.openDict) NS.Views.write.openDict();
+      else NS.Dict.openModal('');
+    } }));
     if (App.project) {
+      actions.appendChild(btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で読む）', onClick: () => {
+        const c = App.currentChapter();
+        NS.Preview.open({ chapterId: App.route === 'write' && c ? c.id : (App.project.lastChapterId || null) });
+      } }));
       const exportBtn = btn('', { icon: 'download', ghost: true, title: '書き出し・バックアップ' });
       exportBtn.addEventListener('click', () => UI.menu(exportBtn, [
         { label: '表示中の話をテキストで書き出す', icon: 'file', onClick: () => App.exportChapterTxt() },
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
+        { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,
         { label: '作品のバックアップ（.json）', icon: 'save', onClick: () => App.exportBackup() },
       ]));

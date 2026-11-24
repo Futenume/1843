@@ -109,7 +109,8 @@
         tbtn('傍点', '傍点（《《強調》》）', () => wrapOrInsert('《《', '》》'))),
       h('div', { class: 'toolbar-group' },
         btn('', { icon: 'search', ghost: true, title: '検索・置換（Ctrl+F）', onClick: () => openFind() }),
-        S.previewBtn = btn('', { icon: 'vertical', ghost: true, title: '縦書きプレビュー', onClick: togglePreview }),
+        btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で表示）', onClick: () => { syncBody(); NS.Preview.open({ chapterId: S.ch.id }); } }),
+        btn('', { icon: 'dict', ghost: true, title: '辞書で調べる（選んだ語）', onClick: () => openDict() }),
         btn('', { icon: 'history', ghost: true, title: '版の保存と履歴', onClick: openHistory }),
         btn('', { icon: 'panel', ghost: true, title: '添削パネルを表示/隠す', onClick: () => togglePanel() })));
 
@@ -122,15 +123,14 @@
     S.textarea.value = S.ch.body;
     S.sheet = h('div', { class: 'editor-sheet' }, S.backdrop, S.textarea);
     S.scroll = h('div', { class: 'editor-scroll' }, S.sheet);
-    S.previewEl = h('div', { class: 'preview-vertical', hidden: true, tabindex: 0, 'aria-label': '縦書きプレビュー' });
     S.issueBar = h('div', { class: 'issue-bar', hidden: true });
     S.status = h('div', { class: 'editor-status' });
 
-    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.previewEl, S.issueBar, S.status);
+    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.issueBar, S.status);
 
     // パネル
     S.panelTabs = h('div', { class: 'tabs panel-tabs', role: 'tablist' });
-    [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
+    [['proof', '添削'], ['cons', '設定チェック'], ['ai', 'AI'], ['dict', '辞書'], ['ref', '資料'], ['stats', '統計']].forEach(([id, label]) => {
       S.panelTabs.appendChild(h('button', {
         type: 'button', role: 'tab', class: 'tab', dataset: { tab: id },
         onclick: () => { S.panelTab = id; PREF.panelTab = id; savePref(); renderPanel(); },
@@ -149,7 +149,9 @@
     S.textarea.addEventListener('input', onInput);
     S.textarea.addEventListener('scroll', () => { S.backdrop.scrollTop = S.textarea.scrollTop; });
     S.textarea.addEventListener('click', onCaret);
-    S.textarea.addEventListener('keyup', (e) => { if (/Arrow|Home|End|Page/.test(e.key)) onCaret(); });
+    S.textarea.addEventListener('keyup', (e) => { if (/Arrow|Home|End|Page|Shift/.test(e.key)) onCaret(); });
+    S.textarea.addEventListener('select', updateSelHint);
+    S.textarea.addEventListener('mouseup', () => setTimeout(updateSelHint, 0));
     S.onKey = (e) => {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); App().saveNow().then(() => toast('保存しました')); }
@@ -420,6 +422,7 @@
   }
 
   function onCaret() {
+    updateSelHint();
     const pos = S.textarea.selectionStart;
     let found = -1;
     let best = 0;
@@ -441,7 +444,6 @@
   }
 
   function focusRange(start, end) {
-    if (S.preview) togglePreview();
     S.textarea.focus({ preventScroll: true });
     S.textarea.setSelectionRange(start, end);
     // ハイライトの位置を使ってスクロール
@@ -651,22 +653,6 @@
     toast(count + '件を置換しました');
   }
 
-  // ───── 縦書きプレビュー ─────
-  function togglePreview() {
-    S.preview = !S.preview;
-    S.previewBtn.classList.toggle('active', S.preview);
-    S.scroll.hidden = S.preview;
-    S.previewEl.hidden = !S.preview;
-    if (S.preview) {
-      const paras = S.textarea.value.split('\n').map((line) => (line.trim() ? '<p>' + T.rubyToHtml(line) + '</p>' : '<p class="blank">　</p>'));
-      S.previewEl.innerHTML = '<div class="tate"><h1 class="tate-title">' + T.escapeHtml(S.ch.title) + '</h1>' + paras.join('') + '</div>';
-      S.previewEl.onwheel = (e) => {
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { S.previewEl.scrollLeft -= e.deltaY; e.preventDefault(); }
-      };
-      S.previewEl.focus();
-    }
-  }
-
   // ───── 版の保存（履歴） ─────
   function pushSnapshot(c, label, auto) {
     const last = c.snapshots[0];
@@ -753,7 +739,16 @@
       h('span', { class: 'status-today', title: '今日書いた文字数 / 1日の目標' },
         '今日 ', h('strong', null, (today >= 0 ? '+' : '') + UI.fmtNum(today)), goal ? ' / ' + UI.fmtNum(goal) : '',
         goal ? h('span', { class: 'meter' }, h('span', { style: { width: pct + '%' } })) : null),
+      S.selHint = h('span', { class: 'status-sel' }),
       h('span', { class: 'status-issues' }, issueSummary()));
+    updateSelHint();
+  }
+
+  function updateSelHint() {
+    if (!S || !S.selHint) return;
+    clear(S.selHint);
+    const w = selectedWord();
+    if (w) S.selHint.appendChild(h('button', { type: 'button', class: 'link-btn', onclick: openDict }, icon('dict', 14), `「${w.length > 10 ? w.slice(0, 10) + '…' : w}」を調べる`));
   }
 
   function issueSummary() {
@@ -784,7 +779,7 @@
       t.setAttribute('aria-selected', t.dataset.tab === S.panelTab ? 'true' : 'false');
     });
     clear(S.panelBody);
-    const fn = { proof: panelProof, cons: panelCons, ai: panelAI, ref: panelRef, stats: panelStats }[S.panelTab];
+    const fn = { proof: panelProof, cons: panelCons, ai: panelAI, dict: panelDict, ref: panelRef, stats: panelStats }[S.panelTab] || panelProof;
     S.panelBody.appendChild(fn());
     renderBadges();
   }
@@ -950,6 +945,43 @@
       rerender: () => { if (S && S.panelTab === 'ai') renderPanel(); },
     });
   }
+
+  /** 辞書タブ（選んでいる語をそのまま調べる） */
+  function panelDict() {
+    const q = S.dictQuery || '';
+    S.dictQuery = '';
+    return NS.Dict.render({
+      query: q,
+      compact: true,
+      onInsert: (text) => {
+        const ta = S.textarea;
+        replaceRange(ta.selectionStart, ta.selectionEnd, text);
+        toast(`「${text}」を入れました`);
+      },
+      onJump: (chapterId, start, end) => {
+        if (chapterId === S.ch.id) { focusRange(start, end); return; }
+        switchChapter(chapterId);
+        setTimeout(() => V.focusRange(start, end), 80);
+      },
+    });
+  }
+
+  function selectedWord() {
+    const sel = V.getSelection();
+    if (!sel) return '';
+    const t = sel.text.trim();
+    return t.length <= 30 && t.indexOf('\n') < 0 ? t : '';
+  }
+
+  function openDict() {
+    S.dictQuery = selectedWord();
+    S.panelTab = 'dict';
+    PREF.panelTab = 'dict';
+    savePref();
+    if (S.hidePanel) togglePanel();
+    renderPanel();
+  }
+  V.openDict = function () { if (S) openDict(); };
 
   function panelRef() {
     const p = P();

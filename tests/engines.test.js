@@ -1,4 +1,4 @@
-// 添削・設定チェックエンジンのテスト（node --test tests/）
+// 添削・設定チェックエンジンのテスト（npm test または node --test tests/engines.test.js）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 require('../js/textstats.js');
@@ -260,4 +260,18 @@ test('登録と違う読み・空のルビ・ルビの揺れ', () => {
   const corpus = ['刹那《せつな》と刹那《せつな》', '刹那《いっしゅん》'];
   const r2 = rules(corpus[1], { corpus });
   assert.ok(r2.some((i) => i.ruleId === 'ruby' && i.suggestion === 'せつな'));
+});
+
+require('../js/dictdata.js');
+const { DictData } = globalThis.Tsuzuri;
+
+test('創作辞典：語・読み（カタカナも可）・言い換えで引ける', () => {
+  const byWord = DictData.search('茜色');
+  assert.ok(byWord.some((g) => g.items.some((it) => it.w === '茜色' && /^#[0-9a-f]{6}$/i.test(it.c))));
+  const byReading = DictData.search('アカネ');
+  assert.ok(byReading.some((g) => g.items.some((it) => it.w === '茜色')), 'カタカナの読みでも引ける');
+  const syn = DictData.search('見る');
+  assert.ok(syn.some((g) => g.cat.id === 'thesaurus' && g.items.some((it) => it.s && it.s.length > 3)), '言い換えの候補が出る');
+  assert.deepEqual(DictData.search('  '), []);
+  assert.equal(DictData.kata2hira('アルファ'), 'あるふぁ');
 });
