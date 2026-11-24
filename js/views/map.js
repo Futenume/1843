@@ -180,7 +180,8 @@
             M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd) : new Uint8Array(m.gw * m.gh);
             m.seed = sd;
             const natural = new Set(['山・丘', '木・植物']);
-            m.stamps = m.stamps.filter((st) => !(AS.BY_ID[st.a] && natural.has(AS.BY_ID[st.a].cat) && !st.name));
+            // 自然の素材と、自動で置いた波は、新しい地形に合わせて置き直す
+            m.stamps = m.stamps.filter((st) => !(AS.BY_ID[st.a] && (natural.has(AS.BY_ID[st.a].cat) || st.a === 'wave') && !st.name));
             if (autoR.checked) {
               // 名前のない川は新しい地形に合わせて引き直す
               m.lines = m.lines.filter((ln) => !((ln.kind === 'river' || ln.kind === 'stream') && !ln.name)).concat(E.autoRivers(m, M.H, sd));
@@ -314,9 +315,19 @@
     draw();
   }
 
+  // 指で操作する端末向けの説明（キー操作の話をしない）
+  const TOUCH_HINTS = {
+    select: 'タップで選択、ドラッグで移動。選んだものは角の四角で大きさ、上の丸で向きを変えられます。2本指で地図を動かす・拡大',
+    pan: '指でなぞって地図を動かします。2本指で拡大・縮小',
+    stamp: 'タップした所に素材を置きます。大きさ・向きは下の設定で変えられます',
+    path: '指でなぞって線を描くか、タップで点を打って「確定」',
+    area: '指で囲むか、タップで頂点を打って「確定」',
+    label: 'タップした所に文字を置きます',
+  };
   function updateHint() {
     const t = TOOLS.find((x) => x.id === PREF.tool);
-    M.hint.textContent = t ? t.hint : '';
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    M.hint.textContent = t ? ((coarse && TOUCH_HINTS[t.id]) || t.hint) : '';
     clear(M.draftBar);
     M.draftBar.hidden = !M.draft;
     if (M.draft) {
@@ -2188,7 +2199,8 @@
 
   function toolPane() {
     const t = TOOLS.find((x) => x.id === PREF.tool) || TOOLS[0];
-    const parts = [h('p', { class: 'muted small' }, t.hint)];
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    const parts = [h('p', { class: 'muted small' }, (coarse && TOUCH_HINTS[t.id]) || t.hint)];
     const brushSize = () => UI.field('ブラシの大きさ（[ ]）', range(PREF.brush.size, 1, 40, 1, (v) => { PREF.brush.size = v; savePref(); draw(); }));
     const strength = () => UI.field('強さ', range(PREF.brush.strength, 0.1, 1, 0.05, (v) => { PREF.brush.strength = v; savePref(); }, (v) => Math.round(v * 100) + '%'));
     if (t.id === 'land' || t.id === 'water') parts.push(brushSize(), strength());

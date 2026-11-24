@@ -3848,6 +3848,27 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
         else if (b === 0 && rnd() < 0.012) put('tree-round', jx, jy, 0.9);
       }
     }
+    // 海の飾り：沖にまばらな波の印と、船を1〜2隻
+    const deepEnough = (x, y, r) => [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]].every(([dx, dy]) => sampleH(H, gw, gh, cell, x + dx, y + dy) < -0.12);
+    const ws = 105;
+    for (let y = ws * 0.6; y < Hpx - 20; y += ws * 0.75) {
+      for (let x = ws * 0.5; x < W - 30; x += ws) {
+        const jx = x + (rnd() - 0.5) * ws * 0.7;
+        const jy = y + (rnd() - 0.5) * ws * 0.5;
+        if (jy < 70 && jx > W * 0.3 && jx < W * 0.7) continue; // 題名の帯のあたりは空ける
+        if (rnd() < 0.5 && deepEnough(jx, jy, 34)) put('wave', jx, jy, 0.9 + rnd() * 0.35);
+      }
+    }
+    let ships = 0;
+    for (let i = 0; i < 60 && ships < 2; i++) {
+      const x = 60 + rnd() * (W - 120);
+      const y = 90 + rnd() * (Hpx - 160);
+      const h = sampleH(H, gw, gh, cell, x, y);
+      if (h < -0.1 && h > -0.55 && deepEnough(x, y, 22) && !out.some((q) => q.a === 'ship' && Math.hypot(q.x - x, q.y - y) < W * 0.3)) {
+        put('ship', x, y, 1.1 + rnd() * 0.2);
+        ships++;
+      }
+    }
     out.sort((a, b) => a.y - b.y);
     return out;
   }
@@ -5244,17 +5265,32 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     line(ctx, 3, 1.2, 9, 1.2);
   }
 
+  /** 海の波の印：2〜3本の波頭を少しずらして重ねる（古地図風） */
   function wave(ctx, rnd, C) {
-    ctx.strokeStyle = C.ink;
-    ctx.lineWidth = 0.7;
-    for (let k = 0; k < 2; k++) {
-      const x = k * 7 - 6;
+    const n = 2 + Math.floor(rnd() * 2);
+    ctx.lineCap = 'round';
+    for (let k = 0; k < n; k++) {
+      const x = (k - (n - 1) / 2) * 9 + jit(rnd, 1.5);
+      const y = (k % 2 ? 3.2 : 0) + jit(rnd, 0.8);
+      const w = 6.5 + rnd() * 2.5;
+      // 波頭（くるりと巻く）
+      ctx.strokeStyle = C.water || C.ink;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 0.9;
       ctx.beginPath();
-      ctx.moveTo(x - 5, 0);
-      ctx.quadraticCurveTo(x - 2, -3.5, x + 1, -1.6);
-      ctx.quadraticCurveTo(x - 1, -0.6, x, 0.6);
+      ctx.moveTo(x - w, y + 1.2);
+      ctx.bezierCurveTo(x - w * 0.55, y - 2.6, x + w * 0.1, y - 3.6, x + w * 0.45, y - 1.4);
+      ctx.bezierCurveTo(x + w * 0.62, y - 0.3, x + w * 0.4, y + 0.9, x + w * 0.15, y + 0.2);
+      ctx.stroke();
+      // 波の下の細い線
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.8, y + 2.6);
+      ctx.quadraticCurveTo(x, y + 1.4, x + w * 0.8, y + 2.6);
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
   }
 
   // ───── 装飾 ─────
@@ -5460,7 +5496,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
   def('serpent', '海', '海竜', [-14, -14, 16, 2], serpent, { variants: 1, size: 12, water: true });
   def('whirlpool', '海', '渦潮', [-12, -8, 12, 8], whirlpool, { variants: 1, size: 8, water: true, anchor: 'center' });
   def('sea-rock', '海', '岩礁', [-10, -9, 10, 2], seaRock, { variants: 1, size: 7, water: true });
-  def('wave', '海', '波', [-12, -5, 6, 2], wave, { variants: 1, size: 4, water: true });
+  def('wave', '海', '波', [-26, -7, 26, 6], wave, { variants: 6, size: 6, water: true, labelPos: 'none' });
 
   def('compass', '装飾', '方位記号（飾り）', [-34, -42, 34, 34], (c, r, C) => compass(c, r, C, true), { variants: 1, size: 60, anchor: 'center', labelPos: 'none' });
   def('compass-simple', '装飾', '方位記号', [-23, -29, 23, 23], (c, r, C) => compass(c, r, C, false), { variants: 1, size: 40, anchor: 'center', labelPos: 'none' });
@@ -9780,7 +9816,8 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
             M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd) : new Uint8Array(m.gw * m.gh);
             m.seed = sd;
             const natural = new Set(['山・丘', '木・植物']);
-            m.stamps = m.stamps.filter((st) => !(AS.BY_ID[st.a] && natural.has(AS.BY_ID[st.a].cat) && !st.name));
+            // 自然の素材と、自動で置いた波は、新しい地形に合わせて置き直す
+            m.stamps = m.stamps.filter((st) => !(AS.BY_ID[st.a] && (natural.has(AS.BY_ID[st.a].cat) || st.a === 'wave') && !st.name));
             if (autoR.checked) {
               // 名前のない川は新しい地形に合わせて引き直す
               m.lines = m.lines.filter((ln) => !((ln.kind === 'river' || ln.kind === 'stream') && !ln.name)).concat(E.autoRivers(m, M.H, sd));
@@ -9914,9 +9951,19 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     draw();
   }
 
+  // 指で操作する端末向けの説明（キー操作の話をしない）
+  const TOUCH_HINTS = {
+    select: 'タップで選択、ドラッグで移動。選んだものは角の四角で大きさ、上の丸で向きを変えられます。2本指で地図を動かす・拡大',
+    pan: '指でなぞって地図を動かします。2本指で拡大・縮小',
+    stamp: 'タップした所に素材を置きます。大きさ・向きは下の設定で変えられます',
+    path: '指でなぞって線を描くか、タップで点を打って「確定」',
+    area: '指で囲むか、タップで頂点を打って「確定」',
+    label: 'タップした所に文字を置きます',
+  };
   function updateHint() {
     const t = TOOLS.find((x) => x.id === PREF.tool);
-    M.hint.textContent = t ? t.hint : '';
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    M.hint.textContent = t ? ((coarse && TOUCH_HINTS[t.id]) || t.hint) : '';
     clear(M.draftBar);
     M.draftBar.hidden = !M.draft;
     if (M.draft) {
@@ -11788,7 +11835,8 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
 
   function toolPane() {
     const t = TOOLS.find((x) => x.id === PREF.tool) || TOOLS[0];
-    const parts = [h('p', { class: 'muted small' }, t.hint)];
+    const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    const parts = [h('p', { class: 'muted small' }, (coarse && TOUCH_HINTS[t.id]) || t.hint)];
     const brushSize = () => UI.field('ブラシの大きさ（[ ]）', range(PREF.brush.size, 1, 40, 1, (v) => { PREF.brush.size = v; savePref(); draw(); }));
     const strength = () => UI.field('強さ', range(PREF.brush.strength, 0.1, 1, 0.05, (v) => { PREF.brush.strength = v; savePref(); }, (v) => Math.round(v * 100) + '%'));
     if (t.id === 'land' || t.id === 'water') parts.push(brushSize(), strength());

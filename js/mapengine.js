@@ -521,6 +521,27 @@
         else if (b === 0 && rnd() < 0.012) put('tree-round', jx, jy, 0.9);
       }
     }
+    // 海の飾り：沖にまばらな波の印と、船を1〜2隻
+    const deepEnough = (x, y, r) => [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]].every(([dx, dy]) => sampleH(H, gw, gh, cell, x + dx, y + dy) < -0.12);
+    const ws = 105;
+    for (let y = ws * 0.6; y < Hpx - 20; y += ws * 0.75) {
+      for (let x = ws * 0.5; x < W - 30; x += ws) {
+        const jx = x + (rnd() - 0.5) * ws * 0.7;
+        const jy = y + (rnd() - 0.5) * ws * 0.5;
+        if (jy < 70 && jx > W * 0.3 && jx < W * 0.7) continue; // 題名の帯のあたりは空ける
+        if (rnd() < 0.5 && deepEnough(jx, jy, 34)) put('wave', jx, jy, 0.9 + rnd() * 0.35);
+      }
+    }
+    let ships = 0;
+    for (let i = 0; i < 60 && ships < 2; i++) {
+      const x = 60 + rnd() * (W - 120);
+      const y = 90 + rnd() * (Hpx - 160);
+      const h = sampleH(H, gw, gh, cell, x, y);
+      if (h < -0.1 && h > -0.55 && deepEnough(x, y, 22) && !out.some((q) => q.a === 'ship' && Math.hypot(q.x - x, q.y - y) < W * 0.3)) {
+        put('ship', x, y, 1.1 + rnd() * 0.2);
+        ships++;
+      }
+    }
     out.sort((a, b) => a.y - b.y);
     return out;
   }

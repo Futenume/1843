@@ -1115,17 +1115,32 @@
     line(ctx, 3, 1.2, 9, 1.2);
   }
 
+  /** 海の波の印：2〜3本の波頭を少しずらして重ねる（古地図風） */
   function wave(ctx, rnd, C) {
-    ctx.strokeStyle = C.ink;
-    ctx.lineWidth = 0.7;
-    for (let k = 0; k < 2; k++) {
-      const x = k * 7 - 6;
+    const n = 2 + Math.floor(rnd() * 2);
+    ctx.lineCap = 'round';
+    for (let k = 0; k < n; k++) {
+      const x = (k - (n - 1) / 2) * 9 + jit(rnd, 1.5);
+      const y = (k % 2 ? 3.2 : 0) + jit(rnd, 0.8);
+      const w = 6.5 + rnd() * 2.5;
+      // 波頭（くるりと巻く）
+      ctx.strokeStyle = C.water || C.ink;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 0.9;
       ctx.beginPath();
-      ctx.moveTo(x - 5, 0);
-      ctx.quadraticCurveTo(x - 2, -3.5, x + 1, -1.6);
-      ctx.quadraticCurveTo(x - 1, -0.6, x, 0.6);
+      ctx.moveTo(x - w, y + 1.2);
+      ctx.bezierCurveTo(x - w * 0.55, y - 2.6, x + w * 0.1, y - 3.6, x + w * 0.45, y - 1.4);
+      ctx.bezierCurveTo(x + w * 0.62, y - 0.3, x + w * 0.4, y + 0.9, x + w * 0.15, y + 0.2);
+      ctx.stroke();
+      // 波の下の細い線
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x - w * 0.8, y + 2.6);
+      ctx.quadraticCurveTo(x, y + 1.4, x + w * 0.8, y + 2.6);
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
   }
 
   // ───── 装飾 ─────
@@ -1331,7 +1346,7 @@
   def('serpent', '海', '海竜', [-14, -14, 16, 2], serpent, { variants: 1, size: 12, water: true });
   def('whirlpool', '海', '渦潮', [-12, -8, 12, 8], whirlpool, { variants: 1, size: 8, water: true, anchor: 'center' });
   def('sea-rock', '海', '岩礁', [-10, -9, 10, 2], seaRock, { variants: 1, size: 7, water: true });
-  def('wave', '海', '波', [-12, -5, 6, 2], wave, { variants: 1, size: 4, water: true });
+  def('wave', '海', '波', [-26, -7, 26, 6], wave, { variants: 6, size: 6, water: true, labelPos: 'none' });
 
   def('compass', '装飾', '方位記号（飾り）', [-34, -42, 34, 34], (c, r, C) => compass(c, r, C, true), { variants: 1, size: 60, anchor: 'center', labelPos: 'none' });
   def('compass-simple', '装飾', '方位記号', [-23, -29, 23, 23], (c, r, C) => compass(c, r, C, false), { variants: 1, size: 40, anchor: 'center', labelPos: 'none' });
