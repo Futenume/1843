@@ -35,8 +35,18 @@
         mode = 'mem';
       }
     }
+    // ブラウザの空き容量が少ないときに、作品データが自動で消されないよう頼む
+    // （Firefox では確認が出るので、返事を待たずに起動を続ける）
+    try {
+      if (mode !== 'mem' && navigator.storage && navigator.storage.persist) {
+        const ask = () => navigator.storage.persist().then((v) => { persisted = !!v; }, () => {});
+        if (navigator.storage.persisted) navigator.storage.persisted().then((v) => { persisted = !!v; if (!v) ask(); }, () => {});
+        else ask();
+      }
+    } catch (e) { persisted = false; }
     return mode;
   }
+  let persisted = false;
 
   function tx(kind, fn) {
     return new Promise((resolve, reject) => {
@@ -177,7 +187,7 @@
   }
 
   NS.Store = {
-    init, get, set, del, get mode() { return mode; },
+    init, get, set, del, get mode() { return mode; }, get persisted() { return persisted; },
     newProject, newChapter, normalize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});

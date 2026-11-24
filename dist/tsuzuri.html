@@ -906,6 +906,40 @@ ruby rt { font-size: 0.5em; }
   .editor-status { gap: 10px; }
 }
 
+/* ───── 投稿サイト用の書き出し ───── */
+.publish { display: flex; flex-direction: column; gap: 10px; }
+.publish .chips .chip.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.publish-opts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.publish-out { font-family: var(--font-sans); font-size: 13px; line-height: 1.7; min-height: 220px; resize: vertical; white-space: pre-wrap; }
+.publish-info { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.publish-info .warn { color: var(--danger); }
+@media (max-width: 759px) { .publish-opts { grid-template-columns: minmax(0, 1fr); } }
+
+/* ───── 読み上げ ───── */
+.editor-backdrop mark.mk-speak { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 3px; text-decoration: none; }
+.speak-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--surface); }
+.speak-bar[hidden] { display: none; }
+.speak-state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.speak-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: speakPulse 1.2s ease-in-out infinite; }
+.speak-dot.paused { animation: none; opacity: 0.4; }
+@keyframes speakPulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+@media (prefers-reduced-motion: reduce) { .speak-dot { animation: none; } }
+.speak-opt { display: inline-flex; align-items: center; gap: 6px; }
+.speak-opt .input { width: auto; padding-top: 3px; padding-bottom: 3px; }
+
+/* ───── 伏線 ───── */
+.fs-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fs-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--warn, #c98a1b) 18%, transparent); color: var(--ink); }
+.fs-badge.done { background: color-mix(in srgb, #4c8a4c 20%, transparent); }
+.fs-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.fs-item:last-child { border-bottom: 0; }
+.fs-done { text-decoration: line-through; color: var(--muted); }
+
+/* ───── バックアップのお知らせ ───── */
+.backup-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 12px 16px; margin: 4px 0 8px; border-radius: 10px;
+  background: color-mix(in srgb, #d9a441 16%, var(--surface)); border: 1px solid color-mix(in srgb, #d9a441 45%, transparent); font-size: 13.5px; }
+.backup-notice > span { flex: 1 1 280px; }
+
 </style>
 </head>
 <body>
@@ -1522,6 +1556,152 @@ ruby rt { font-size: 0.5em; }
 
 </script>
 <script>
+// js/publish.js
+/*
+ * 綴り — 投稿サイト用の書き出し
+ * ルビ・傍点の記法を、各サイトの書き方に変換する。
+ *   なろう：|漢字《かんじ》（傍点は「・」のルビで代用。漢字（かな）の意図しないルビ化を防ぐ）
+ *   カクヨム：|漢字《かんじ》・《《傍点》》（そのまま）
+ *   pixiv：[[rb:漢字 > かんじ]]・[chapter:題]・[newpage]
+ *   （）書き・ルビなし
+ * ブラウザでも Node でも動く純粋関数のみ。
+ */
+(function (NS) {
+  'use strict';
+
+  const KANJI = '一-鿿㐀-䶿々〆ヵヶ';
+  // 傍点 → |ルビ → 漢字《ルビ》 の順に見る（textstats.js の記法と同じ）
+  const RE_TOKEN = new RegExp('《《([^《》\\n]*)》》|[|｜]([^|｜《》\\n]{1,20})《([^《》\\n]{1,30})》|([' + KANJI + ']+)《([^《》\\n]{1,30})》', 'g');
+
+  const FORMATS = {
+    narou: { label: '小説家になろう', note: 'ルビは |漢字《かんじ》、傍点はルビの「・」で代用します。「漢字（かな）」が勝手にルビになるのを防ぎます。' },
+    kakuyomu: { label: 'カクヨム', note: 'ルビ |漢字《かんじ》 と傍点 《《傍点》》 をそのまま使えます。' },
+    pixiv: { label: 'pixiv', note: 'ルビは [[rb:漢字 > かんじ]]、話の題は [chapter:題]、話の区切りは [newpage] にします。傍点はルビの「・」で代用します。' },
+    paren: { label: 'ルビを（）書き', note: '漢字（かんじ）の形にします。傍点の記号は外します。メールや、ルビが使えない場所向け。' },
+    plain: { label: 'ルビなし', note: 'ルビと傍点の記号を外した本文だけにします。' },
+  };
+
+  /** 1行をテキスト・ルビ・傍点に分ける */
+  function tokenize(line) {
+    const out = [];
+    let last = 0;
+    RE_TOKEN.lastIndex = 0;
+    let m;
+    while ((m = RE_TOKEN.exec(line)) !== null) {
+      if (m.index > last) out.push({ type: 'text', text: line.slice(last, m.index) });
+      if (m[1] != null) out.push({ type: 'em', text: m[1] });
+      else if (m[2] != null) out.push({ type: 'ruby', base: m[2], reading: m[3] });
+      else out.push({ type: 'ruby', base: m[4], reading: m[5] });
+      last = m.index + m[0].length;
+    }
+    if (last < line.length) out.push({ type: 'text', text: line.slice(last) });
+    return out;
+  }
+
+  const isBlankChar = (c) => c === ' ' || c === '　' || c === '\t';
+  const eachChar = (s, fn) => Array.from(s).map((c) => (isBlankChar(c) ? c : fn(c))).join('');
+
+  // なろうは「漢字（かな）」「漢字(かな)」を自動でルビにするので、意図しない場合は「|」で止める
+  const RE_NAROU_PAREN = new RegExp('([' + KANJI + '])([（(])([ぁ-ゖァ-ヺー・]{1,10})([）)])', 'g');
+
+  function renderLine(line, format, st) {
+    const toks = tokenize(line);
+    return toks.map((t) => {
+      if (t.type === 'text') {
+        if (format === 'narou') {
+          return t.text.replace(RE_NAROU_PAREN, (all, k, open, kana, close) => { st.parenGuard++; return k + '|' + open + kana + close; });
+        }
+        return t.text;
+      }
+      if (t.type === 'ruby') {
+        if (format === 'narou') {
+          if (Array.from(t.base).length > 10 || Array.from(t.reading).length > 10) st.longRuby.push(t.base + '《' + t.reading + '》');
+          return '|' + t.base + '《' + t.reading + '》';
+        }
+        if (format === 'kakuyomu') return '|' + t.base + '《' + t.reading + '》';
+        if (format === 'pixiv') return '[[rb:' + t.base + ' > ' + t.reading + ']]';
+        if (format === 'paren') return t.base + '（' + t.reading + '）';
+        return t.base;
+      }
+      // 傍点
+      st.emphasis++;
+      if (format === 'kakuyomu') return '《《' + t.text + '》》';
+      if (format === 'narou') return eachChar(t.text, (c) => '|' + c + '《・》');
+      if (format === 'pixiv') return eachChar(t.text, (c) => '[[rb:' + c + ' > ・]]');
+      return t.text;
+    }).join('');
+  }
+
+  const OPENERS = '「『（(【〈《〔［“‘';
+
+  function applyLineOptions(line, opts) {
+    let s = line;
+    if (opts.fullwidthMarks) {
+      s = s.replace(/!/g, '！').replace(/\?/g, '？');
+    }
+    if (opts.indent === 'remove') s = s.replace(/^[ 　\t]+/, '');
+    else if (opts.indent === 'add') {
+      const body = s.replace(/^[ 　\t]+/, '');
+      if (body && OPENERS.indexOf(body[0]) < 0) s = '　' + body;
+      else s = body;
+    }
+    return s;
+  }
+
+  /**
+   * 本文を変換する。
+   * opts: { indent:'keep'|'add'|'remove', blankLines:bool, fullwidthMarks:bool }
+   * 戻り値：{ text, stats:{ parenGuard, emphasis, longRuby:[] } }
+   */
+  function convert(text, format, opts, st) {
+    opts = opts || {};
+    st = st || { parenGuard: 0, emphasis: 0, longRuby: [] };
+    const fmt = FORMATS[format] ? format : 'plain';
+    const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n').map((ln) => applyLineOptions(renderLine(ln, fmt, st), opts));
+    let out;
+    if (opts.blankLines) {
+      // 段落と段落の間に空行（もともとの空行は1つにまとめる）
+      out = [];
+      lines.forEach((ln) => {
+        if (!ln.trim()) { if (out.length && out[out.length - 1] !== '') out.push(''); return; }
+        if (out.length && out[out.length - 1] !== '') out.push('');
+        out.push(ln);
+      });
+      while (out.length && out[out.length - 1] === '') out.pop();
+      out = out.join('\n');
+    } else {
+      out = lines.join('\n');
+    }
+    return { text: out, stats: st };
+  }
+
+  /** 複数の話をまとめて変換する */
+  function convertChapters(chapters, format, opts) {
+    opts = opts || {};
+    const st = { parenGuard: 0, emphasis: 0, longRuby: [] };
+    const parts = chapters.map((c) => {
+      const body = convert(c.body || '', format, opts, st).text;
+      if (!opts.includeTitle) return body;
+      if (format === 'pixiv') return '[chapter:' + (c.title || '') + ']\n' + body;
+      return (c.title || '') + '\n\n' + body;
+    });
+    const sep = format === 'pixiv' ? '\n[newpage]\n' : '\n\n\n';
+    return { text: parts.join(sep), stats: st };
+  }
+
+  /** 変換後の文字数（記法を除いた、読者に見える文字数の目安） */
+  function visibleLength(text, format) {
+    let s = String(text || '');
+    if (format === 'pixiv') s = s.replace(/\[\[rb:([^>\]]*?) > [^\]]*\]\]/g, '$1').replace(/\[chapter:[^\]]*\]|\[newpage\]/g, '');
+    else if (format === 'narou' || format === 'kakuyomu') s = s.replace(/[|｜]([^|｜《》\n]+)《[^《》\n]*》/g, '$1').replace(/《《([^《》\n]*)》》/g, '$1');
+    return Array.from(s.replace(/[\s　]/g, '')).length;
+  }
+
+  NS.Publish = { FORMATS, tokenize, convert, convertChapters, visibleLength };
+})(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
+
+</script>
+<script>
 // js/proofread.js
 /*
  * 綴り — 添削エンジン（ルールベース）
@@ -1568,6 +1748,8 @@ ruby rt { font-size: 0.5em; }
       desc: '近い位置で同じ接続詞（しかし、そして…）が繰り返される箇所を検出します。' },
     { id: 'no-chain', name: '「の」の連続', category: '読みやすさ', severity: 'info', default: true,
       desc: '「私の父の友人の家」のように「の」が続く箇所を検出します。' },
+    { id: 'word-repeat', name: '同じ語の近い繰り返し', category: '読みやすさ', severity: 'info', default: true,
+      desc: '地の文で、同じ言葉（漢字2字以上・カタカナ3字以上）が同じ文や隣の文ですぐに繰り返される箇所を検出します。人物名など設定資料の名前は除きます。' },
     { id: 'hyouki', name: '表記ゆれ', category: '表記', severity: 'info', default: true, fix: true,
       desc: '「出来る／できる」「子供／子ども」など、作品内で表記が揺れている語を検出します。' },
     { id: 'style-rule', name: '表記統一ルール', category: '表記', severity: 'warning', default: true, fix: true,
@@ -1972,6 +2154,7 @@ ruby rt { font-size: 0.5em; }
       });
     }
 
+    if (enabled('word-repeat')) checkWordRepeat(a, m, add, opts.names);
     if (enabled('hyouki')) checkHyouki(m, add, opts.corpus, text || '');
 
     if (enabled('style-rule') && Array.isArray(opts.styleRules)) {
@@ -2137,6 +2320,34 @@ ruby rt { font-size: 0.5em; }
         }
       }
     }
+  }
+
+  // 数を表す語（一人・二度・三本など）は繰り返しても気にならないので除く
+  const RE_COUNT_WORD = /^[一二三四五六七八九十百千万億何数幾両半]+[人度回つ本枚個匹頭羽年月日時分秒歩里]?$/;
+  const RE_CONTENT_WORD = /[一-龠々〆ヵヶ]{2,}|[ァ-ヴ][ァ-ヴー]{2,}/g;
+
+  /** 地の文で、同じ語が同じ文か隣の文で近くに繰り返される箇所 */
+  function checkWordRepeat(a, m, add, names) {
+    const skip = new Set();
+    (names || []).forEach((n) => String(n || '').split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); }));
+    const last = new Map(); // 語 → { pos, si }
+    a.sentences.forEach((s, si) => {
+      if (s.kind !== 'narration') return;
+      RE_CONTENT_WORD.lastIndex = 0;
+      const seg = m.slice(s.start, s.end);
+      let mm;
+      while ((mm = RE_CONTENT_WORD.exec(seg)) !== null) {
+        const w = mm[0];
+        const pos = s.start + mm.index;
+        if (skip.has(w) || RE_COUNT_WORD.test(w)) continue;
+        const prev = last.get(w);
+        if (prev && si - prev.si <= 1 && pos - prev.pos <= 80) {
+          add('word-repeat', pos, pos + w.length,
+            `「${w}」が${prev.si === si ? '同じ文の中' : 'すぐ前の文'}でも使われています。言い換えるか、片方を省くと読みやすくなります`, null);
+        }
+        last.set(w, { pos, si });
+      }
+    });
   }
 
   /** 文字列ごとの集計結果を覚えておく（長編で毎回全話を数え直さないため） */
@@ -5068,6 +5279,9 @@ ruby rt { font-size: 0.5em; }
     book2: 'M2 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z|M22 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z',
     network: 'M12 5a2 2 0 1 0 0 .01|M5 18a2 2 0 1 0 0 .01|M19 18a2 2 0 1 0 0 .01|M12 7v4|M12 11l-6 5|M12 11l6 5',
     play: 'M6 4l14 8-14 8z',
+    volume: 'M11 5L6 9H2v6h4l5 4z|M15.5 8.5a5 5 0 0 1 0 7|M19 5a10 10 0 0 1 0 14',
+    stop: 'M6 6h12v12H6z',
+    pause: 'M7 5h3v14H7z|M14 5h3v14h-3z',
     printer: 'M6 9V3h12v6|M6 18H4v-7h16v7h-2|M6 14h12v7H6z',
     dict: 'M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z|M4 17a3 3 0 0 1 3-3h11|M9 8h5',
   };
@@ -5405,8 +5619,18 @@ ruby rt { font-size: 0.5em; }
         mode = 'mem';
       }
     }
+    // ブラウザの空き容量が少ないときに、作品データが自動で消されないよう頼む
+    // （Firefox では確認が出るので、返事を待たずに起動を続ける）
+    try {
+      if (mode !== 'mem' && navigator.storage && navigator.storage.persist) {
+        const ask = () => navigator.storage.persist().then((v) => { persisted = !!v; }, () => {});
+        if (navigator.storage.persisted) navigator.storage.persisted().then((v) => { persisted = !!v; if (!v) ask(); }, () => {});
+        else ask();
+      }
+    } catch (e) { persisted = false; }
     return mode;
   }
+  let persisted = false;
 
   function tx(kind, fn) {
     return new Promise((resolve, reject) => {
@@ -5547,7 +5771,7 @@ ruby rt { font-size: 0.5em; }
   }
 
   NS.Store = {
-    init, get, set, del, get mode() { return mode; },
+    init, get, set, del, get mode() { return mode; }, get persisted() { return persisted; },
     newProject, newChapter, normalize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});
@@ -5769,6 +5993,7 @@ ruby rt { font-size: 0.5em; }
       exportBtn.addEventListener('click', () => UI.menu(exportBtn, [
         { label: '表示中の話をテキストで書き出す', icon: 'file', onClick: () => App.exportChapterTxt() },
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
+        { label: '投稿サイト用に書き出す（なろう・カクヨム・pixiv）', icon: 'upload', onClick: () => NS.PublishDialog.open({ chapterId: (App.currentChapter() || {}).id }) },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
         { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,
@@ -5801,7 +6026,27 @@ ruby rt { font-size: 0.5em; }
   App.exportBackup = function () {
     const p = App.project;
     UI.download(UI.safeFilename(p.title) + '_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, project: p }, null, 1), 'application/json');
+    App.markBackup([p.id]);
     toast('バックアップを書き出しました');
+  };
+
+  // ───── バックアップの記録と、しばらくしていないときのお知らせ ─────
+  App.markBackup = function (ids) {
+    const rec = UI.lsGet('tsuzuri.backups', {});
+    const now = Date.now();
+    ids.forEach((id) => { rec[id] = now; });
+    UI.lsSet('tsuzuri.backups', rec);
+  };
+  App.lastBackup = function (id) { return UI.lsGet('tsuzuri.backups', {})[id] || 0; };
+  /** 前回のバックアップから書いた量が多い・日数が経っていたら知らせる */
+  App.backupDue = function (meta) {
+    if (!meta || !meta.updatedAt) return null;
+    const last = App.lastBackup(meta.id);
+    if (last >= meta.updatedAt) return null;
+    const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+    if ((meta.chars || 0) < 3000) return null;
+    if (days == null) return { days: null };
+    return days >= 7 ? { days } : null;
   };
   App.exportLoreMd = function () {
     UI.download(UI.safeFilename(App.project.title) + '_設定資料.md', NS.LoreFormat.toMarkdown(App.project), 'text/markdown;charset=utf-8');
@@ -5867,7 +6112,8 @@ ruby rt { font-size: 0.5em; }
       data: () => {
         const info = h('p', { class: 'muted small' },
           '作品データはこの端末のブラウザ内（' + ({ idb: 'IndexedDB', ls: 'localStorage', mem: 'メモリのみ・再読み込みで消えます' }[Store.mode]) +
-          '）に保存されます。ブラウザのデータ消去で消えるため、定期的にバックアップを書き出してください。');
+          '）に保存されます。ブラウザのデータ消去で消えるため、定期的にバックアップを書き出してください。' +
+          (Store.mode === 'idb' ? (Store.persisted ? '（ブラウザに「消さないで」と頼んであります）' : '（このブラウザでは、容量が少なくなると消される場合があります）') : ''));
         return h('div', { class: 'stack' }, info,
           h('div', { class: 'row wrap' },
             btn('すべての作品をバックアップ', { icon: 'save', onClick: App.exportAll }),
@@ -5887,6 +6133,9 @@ ruby rt { font-size: 0.5em; }
       if (p) projects.push(p);
     }
     UI.download('tsuzuri_all_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, projects }, null, 1), 'application/json');
+    App.markBackup(projects.map((x) => x.id));
+    toast(projects.length + '作品をまとめてバックアップしました');
+    if (App.route === 'home') render('home', {});
   };
 
   App.importBackup = async function () {
@@ -5926,9 +6175,20 @@ ruby rt { font-size: 0.5em; }
           } }),
           btn('バックアップから読み込む', { icon: 'upload', ghost: true, onClick: App.importBackup }))));
       const listEl = h('section', { class: 'project-grid' });
+      const notice = h('div');
+      wrap.appendChild(notice);
       wrap.appendChild(h('h2', { class: 'section-title' }, '作品'));
       wrap.appendChild(listEl);
       const list = await Store.listProjects();
+      const due = list.filter((m) => App.backupDue(m));
+      if (due.length) {
+        const d = App.backupDue(due[0]);
+        notice.appendChild(h('div', { class: 'backup-notice' },
+          h('span', null, due.length === 1
+            ? `「${due[0].title}」は${d.days == null ? 'まだ一度もバックアップしていません' : `最後のバックアップから${d.days}日たっています`}。ブラウザのデータが消えると作品も消えるので、書き出しておきましょう。`
+            : `${due.length}つの作品が、しばらくバックアップされていません。ブラウザのデータが消えると作品も消えるので、書き出しておきましょう。`),
+          btn('すべての作品をバックアップ', { icon: 'save', small: true, primary: true, onClick: App.exportAll })));
+      }
       if (!list.length) {
         listEl.appendChild(h('div', { class: 'empty' }, h('p', null, 'まだ作品がありません。「新しい作品」か「サンプル作品を開く」から始めましょう。')));
       }
@@ -5952,6 +6212,8 @@ ruby rt { font-size: 0.5em; }
             { label: 'バックアップを書き出す', icon: 'save', onClick: async () => {
               const p = await Store.loadProject(m.id);
               UI.download(UI.safeFilename(p.title) + '_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, project: p }, null, 1), 'application/json');
+              App.markBackup([p.id]);
+              render('home', {});
             } },
             null,
             { label: '削除', icon: 'trash', danger: true, onClick: async () => {
@@ -6075,6 +6337,7 @@ ruby rt { font-size: 0.5em; }
 
   V.unmount = function () {
     if (!S) return;
+    stopSpeak(true);
     VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, caret: S.textarea.selectionStart });
     autoSnapshot();
     if (S.analysisTimer) clearTimeout(S.analysisTimer);
@@ -6127,6 +6390,7 @@ ruby rt { font-size: 0.5em; }
         btn('', { icon: 'search', ghost: true, title: '検索・置換（Ctrl+F）', onClick: () => openFind() }),
         btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で表示）', onClick: () => { syncBody(); NS.Preview.open({ chapterId: S.ch.id }); } }),
         btn('', { icon: 'dict', ghost: true, title: '辞書で調べる（選んだ語）', onClick: () => openDict() }),
+        btn('', { icon: 'volume', ghost: true, title: '読み上げ（カーソルの位置から。耳で読み返す）', onClick: () => toggleSpeak() }),
         btn('', { icon: 'history', ghost: true, title: '版の保存と履歴', onClick: openHistory }),
         btn('', { icon: 'panel', ghost: true, title: '添削パネルを表示/隠す', onClick: () => togglePanel() })));
 
@@ -6142,7 +6406,8 @@ ruby rt { font-size: 0.5em; }
     S.issueBar = h('div', { class: 'issue-bar', hidden: true });
     S.status = h('div', { class: 'editor-status' });
 
-    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.issueBar, S.status);
+    S.speakBar = h('div', { class: 'speak-bar', hidden: true, role: 'region', 'aria-label': '読み上げ' });
+    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.speakBar, S.issueBar, S.status);
 
     // パネル
     S.panelTabs = h('div', { class: 'tabs panel-tabs', role: 'tablist' });
@@ -6267,6 +6532,7 @@ ruby rt { font-size: 0.5em; }
         renderChapterList();
       } },
       { label: 'テキストで書き出す', icon: 'download', onClick: () => { syncBody(); UI.download(UI.safeFilename(c.title) + '.txt', c.title + '\n\n' + c.body); } },
+      { label: '投稿サイト用に書き出す', icon: 'upload', onClick: () => { syncBody(); NS.PublishDialog.open({ chapterId: c.id }); } },
       null,
       { label: '削除', icon: 'trash', danger: true, onClick: async () => {
         if (p.chapters.length <= 1) { toast('最後の話は削除できません'); return; }
@@ -6324,8 +6590,121 @@ ruby rt { font-size: 0.5em; }
     }
   }
 
+  // ───── 読み上げ（耳で読み返す） ─────
+  /** 読み上げ用の文：ルビは読みで、傍点・記号は外す */
+  function speakableText(t) {
+    return NS.Publish.tokenize(t).map((x) => (x.type === 'ruby' ? x.reading : x.text)).join('')
+      .replace(/[―─—]{2,}/g, '、').replace(/[|｜]/g, '').trim();
+  }
+
+  function pickVoice() {
+    const voices = window.speechSynthesis.getVoices() || [];
+    const ja = voices.filter((v) => /^ja/i.test(v.lang));
+    if (PREF.speakVoice) {
+      const v = ja.find((x) => x.name === PREF.speakVoice);
+      if (v) return v;
+    }
+    return ja.find((v) => v.localService) || ja[0] || null;
+  }
+
+  function toggleSpeak() {
+    if (S.speak) stopSpeak();
+    else startSpeak();
+  }
+
+  function startSpeak() {
+    if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance !== 'function') {
+      toast('このブラウザは読み上げに対応していません', 'error');
+      return;
+    }
+    const text = S.textarea.value;
+    const from = S.textarea.selectionStart === text.length ? 0 : S.textarea.selectionStart;
+    const to = S.textarea.selectionEnd > S.textarea.selectionStart ? S.textarea.selectionEnd : text.length;
+    const list = T.analyze(text).sentences.filter((s) => s.end > from && s.start < to);
+    if (!list.length) { toast('読み上げる文がありません'); return; }
+    window.speechSynthesis.cancel();
+    S.speak = { list, i: 0, paused: false, cur: null };
+    renderSpeakBar();
+    speakNext();
+  }
+
+  function speakNext() {
+    const sp = S && S.speak;
+    if (!sp) return;
+    if (sp.i >= sp.list.length) { stopSpeak(); toast('読み上げが終わりました'); return; }
+    const s = sp.list[sp.i];
+    sp.cur = { start: s.start, end: s.end };
+    renderBackdrop();
+    renderSpeakBar();
+    const mk = S.backdrop.querySelector('.mk-speak');
+    if (mk) {
+      const r = mk.getBoundingClientRect();
+      const box = S.scroll.getBoundingClientRect();
+      if (r.top < box.top + 40 || r.bottom > box.bottom - 40) S.scroll.scrollTop += r.top - box.top - box.height / 3;
+    }
+    const say = speakableText(S.textarea.value.slice(s.start, s.end));
+    if (!/[^\s　…・「」『』（）()、。！？!?]/.test(say)) { sp.i++; speakNext(); return; }
+    const u = new window.SpeechSynthesisUtterance(say);
+    u.lang = 'ja-JP';
+    u.rate = PREF.speakRate || 1;
+    const v = pickVoice();
+    if (v) u.voice = v;
+    const token = {};
+    sp.token = token;
+    u.onend = () => { if (S && S.speak === sp && sp.token === token) { sp.i++; speakNext(); } };
+    u.onerror = (e) => {
+      if (!S || S.speak !== sp || sp.token !== token) return;
+      if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
+      stopSpeak();
+      toast('読み上げできませんでした' + (e && e.error ? '（' + e.error + '）' : ''), 'error');
+    };
+    window.speechSynthesis.speak(u);
+  }
+
+  function stopSpeak(silent) {
+    if (!S || !S.speak) return;
+    S.speak = null;
+    try { window.speechSynthesis.cancel(); } catch (e) { /* 何もしない */ }
+    if (silent) return;
+    renderBackdrop();
+    renderSpeakBar();
+  }
+
+  function renderSpeakBar() {
+    const bar = S.speakBar;
+    clear(bar);
+    const sp = S.speak;
+    bar.hidden = !sp;
+    if (!sp) return;
+    const rate = h('select', {
+      class: 'input', 'aria-label': '読み上げの速さ',
+      onchange: (e) => { PREF.speakRate = +e.target.value; savePref(); },
+    }, [0.8, 1, 1.2, 1.5, 2].map((r) => h('option', { value: r, selected: (PREF.speakRate || 1) === r }, `${r}倍`)));
+    const voices = (window.speechSynthesis.getVoices() || []).filter((v) => /^ja/i.test(v.lang));
+    const voiceSel = voices.length > 1 ? h('select', {
+      class: 'input', 'aria-label': '声',
+      onchange: (e) => { PREF.speakVoice = e.target.value; savePref(); },
+    }, voices.map((v) => h('option', { value: v.name, selected: (pickVoice() || {}).name === v.name }, v.name))) : null;
+    const pauseBtn = btn(sp.paused ? '再開' : '一時停止', {
+      icon: sp.paused ? 'play' : 'pause', small: true,
+      onClick: () => {
+        if (sp.paused) window.speechSynthesis.resume(); else window.speechSynthesis.pause();
+        sp.paused = !sp.paused;
+        renderSpeakBar();
+      },
+    });
+    bar.append(
+      h('span', { class: 'speak-state' }, h('span', { class: 'speak-dot' + (sp.paused ? ' paused' : '') }), `読み上げ中　${Math.min(sp.i + 1, sp.list.length)} / ${sp.list.length}文`),
+      pauseBtn,
+      btn('止める', { icon: 'stop', small: true, onClick: () => stopSpeak() }),
+      h('label', { class: 'small speak-opt' }, '速さ', rate),
+      voiceSel ? h('label', { class: 'small speak-opt' }, '声', voiceSel) : null,
+      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null);
+  }
+
   // ───── 入力とハイライト ─────
   function onInput() {
+    if (S.speak) stopSpeak();
     const text = S.textarea.value;
     const diff = T.diffRange(S.lastText, text);
     S.issues = T.shiftRanges(S.issues, diff);
@@ -6361,6 +6740,7 @@ ruby rt { font-size: 0.5em; }
         rules: st.rules, maxSentenceLength: st.maxSentenceLength, maxCommas: st.maxCommas, endingRepeat: st.endingRepeat,
         styleRules: p.rules.style, corpus, ignore,
         readings: NS.Readings ? NS.Readings.index(NS.Readings.collect(p)) : null,
+        names: p.entries.reduce((a, e) => a.concat([e.name], e.aliases || []), []),
       });
     } catch (e) { console.error(e); }
     let cons = { issues: [], speakers: [], candidates: [] };
@@ -6412,6 +6792,7 @@ ruby rt { font-size: 0.5em; }
     if (S.find.open) {
       S.find.matches.forEach((m, i) => marks.push({ s: m.start, e: m.end, cls: 'mk-find' + (i === S.find.cur ? ' cur' : ''), i: -1, pri: 100 }));
     }
+    if (S.speak && S.speak.cur) marks.push({ s: S.speak.cur.start, e: S.speak.cur.end, cls: 'mk-speak', i: -1, pri: 200 });
     const bounds = new Set([0, text.length]);
     marks.forEach((m) => { bounds.add(Math.max(0, Math.min(text.length, m.s))); bounds.add(Math.max(0, Math.min(text.length, m.e))); });
     const pts = Array.from(bounds).sort((a, b) => a - b);
@@ -7062,7 +7443,23 @@ ruby rt { font-size: 0.5em; }
         type: 'button', class: 'reading-row', title: '本文に挿入', onclick: () => insertText('|' + r.base + '《' + r.reading + '》'),
       }, h('span', { html: T.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) }), h('span', { class: 'muted small' }, r.source === 'lore' ? '設定資料' : 'アイデア帳')))) : null,
       btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
-    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
+    // 伏線（アイデア帳の種類「伏線」）
+    const fs = p.ideas.filter((i) => i.kind === '伏線');
+    const here = fs.filter((i) => i.plantedIn === S.ch.id || i.payoffIn === S.ch.id);
+    const open = fs.filter((i) => !i.resolved);
+    const chNo = (id) => { const k = p.chapters.findIndex((c) => c.id === id); return k < 0 ? '' : `第${k + 1}話`; };
+    const fsRow = (i) => h('div', { class: 'fs-item' },
+      h('label', { class: 'check small', title: '回収済みにする' }, h('input', {
+        type: 'checkbox', checked: !!i.resolved, onchange: (e) => { i.resolved = e.target.checked; i.updatedAt = Date.now(); App().touch(); renderPanel(); },
+      }), h('span', { class: i.resolved ? 'fs-done' : '' }, (i.body || '').split('\n')[0] || '（無題）')),
+      h('span', { class: 'muted small' }, [i.plantedIn ? '張：' + chNo(i.plantedIn) : '', i.payoffIn ? '回収：' + chNo(i.payoffIn) : ''].filter(Boolean).join('　')));
+    const fsBox = h('details', { class: 'sub-section', open: here.length > 0 },
+      h('summary', null, `伏線　この話 ${here.length}・未回収 ${open.length}`),
+      here.length ? h('div', { class: 'stack-sm' }, h('div', { class: 'small muted' }, 'この話で張る・回収する伏線'), here.map(fsRow)) : null,
+      open.filter((i) => here.indexOf(i) < 0).length ? h('div', { class: 'stack-sm' }, h('div', { class: 'small muted' }, 'ほかの未回収の伏線'), open.filter((i) => here.indexOf(i) < 0).slice(0, 20).map(fsRow)) : null,
+      !fs.length ? h('p', { class: 'small muted' }, 'アイデア帳で種類「伏線」としてメモし、張った話・回収する話を選ぶと、ここで確認できます。') : null,
+      btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
+    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, fsBox, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
   }
 
   function panelStats() {
@@ -8293,6 +8690,27 @@ ruby rt { font-size: 0.5em; }
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
 
+  // ───── 伏線 ─────
+  function chapterLabel(p, id) {
+    if (!id) return '';
+    const i = p.chapters.findIndex((c) => c.id === id);
+    return i < 0 ? '（削除された話）' : `第${i + 1}話`;
+  }
+  function chapterSelect(p, value, label, allowEmpty) {
+    return h('select', { class: 'input', 'aria-label': label },
+      allowEmpty !== false ? h('option', { value: '' }, '（未定）') : null,
+      p.chapters.map((c, i) => h('option', { value: c.id, selected: c.id === value }, `${i + 1}. ${c.title || '無題'}`)));
+  }
+  /** 伏線の状態の表示（張った話 → 回収する話） */
+  function foreshadowLine(p, it) {
+    const planted = chapterLabel(p, it.plantedIn);
+    const payoff = chapterLabel(p, it.payoffIn);
+    return h('div', { class: 'fs-line' },
+      h('span', { class: 'fs-badge' + (it.resolved ? ' done' : '') }, it.resolved ? '回収済み' : '未回収'),
+      h('span', { class: 'small muted' }, `${planted ? '張った：' + planted : '張った話：未設定'}${payoff ? '　→　' + (it.resolved ? '回収：' : '回収予定：') + payoff : ''}`));
+  }
+  const unresolvedCount = (p) => p.ideas.filter((i) => i.kind === '伏線' && !i.resolved).length;
+
   // ───────────── アイデア帳 ─────────────
   const Ideas = {};
   let IS = null;
@@ -8318,8 +8736,15 @@ ruby rt { font-size: 0.5em; }
     const readingRow = h('div', { class: 'reading-inputs', hidden: true },
       h('span', { class: 'small muted' }, '普段とは違う読み方を登録すると、そのルビは添削で指摘しなくなります。'),
       h('div', { class: 'row' }, word, h('span', { class: 'muted' }, '《'), reading, h('span', { class: 'muted' }, '》')));
+    const cur = NS.App.currentChapter && NS.App.currentChapter();
+    const plantSel = chapterSelect(P(), cur ? cur.id : '', '伏線を張った話');
+    const payoffSel = chapterSelect(P(), '', '回収する話');
+    const fsRow = h('div', { class: 'reading-inputs', hidden: true },
+      h('span', { class: 'small muted' }, '伏線は「張った話」と「回収する話」を記録しておくと、未回収のものを一覧できます。'),
+      h('div', { class: 'row wrap' }, h('label', { class: 'small speak-opt' }, '張った話', plantSel), h('label', { class: 'small speak-opt' }, '回収する話', payoffSel)));
     kindSel.addEventListener('change', () => {
       const isReading = kindSel.value === '読み方';
+      fsRow.hidden = kindSel.value !== '伏線';
       readingRow.hidden = !isReading;
       body.placeholder = isReading ? 'メモ（任意）：使う場面、由来など' : '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった';
       if (isReading) word.focus();
@@ -8332,7 +8757,8 @@ ruby rt { font-size: 0.5em; }
       P().ideas.unshift(Object.assign({
         id: UI.uid('i'), body: v, kind: kindSel.value, tags: splitTags(tags.value), color: '', pinned: false,
         createdAt: Date.now(), updatedAt: Date.now(),
-      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {}));
+      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {},
+      kindSel.value === '伏線' ? { plantedIn: plantSel.value, payoffIn: payoffSel.value, resolved: false } : {}));
       touch();
       body.value = '';
       word.value = '';
@@ -8346,6 +8772,7 @@ ruby rt { font-size: 0.5em; }
     [word, reading].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } }));
     wrap.appendChild(h('section', { class: 'quick-add card' },
       readingRow,
+      fsRow,
       body,
       h('div', { class: 'row wrap' }, kindSel, tags, btn('メモする', { icon: 'plus', primary: true, onClick: add }))));
 
@@ -8373,8 +8800,9 @@ ruby rt { font-size: 0.5em; }
     IS.filters.append(
       search,
       h('div', { class: 'chips' },
-        chip('すべて', !IS.kind && !IS.tag && !IS.pinnedOnly, () => { IS.kind = ''; IS.tag = ''; IS.pinnedOnly = false; renderFilters(); renderGrid(); }),
+        chip('すべて', !IS.kind && !IS.tag && !IS.pinnedOnly && !IS.unresolved, () => { IS.kind = ''; IS.tag = ''; IS.pinnedOnly = false; IS.unresolved = false; renderFilters(); renderGrid(); }),
         chip('ピン留め', IS.pinnedOnly, () => { IS.pinnedOnly = !IS.pinnedOnly; renderFilters(); renderGrid(); }),
+        unresolvedCount(p) ? chip(`未回収の伏線 ${unresolvedCount(p)}`, IS.unresolved, () => { IS.unresolved = !IS.unresolved; renderFilters(); renderGrid(); }) : null,
         KINDS.filter((k) => p.ideas.some((i) => i.kind === k)).map((k) => chip(k, IS.kind === k, () => { IS.kind = IS.kind === k ? '' : k; renderFilters(); renderGrid(); })),
         Object.keys(allTags).sort().map((t) => chip('#' + t, IS.tag === t, () => { IS.tag = IS.tag === t ? '' : t; renderFilters(); renderGrid(); }))));
   }
@@ -8384,7 +8812,7 @@ ruby rt { font-size: 0.5em; }
     clear(IS.grid);
     const q = IS.q.trim();
     const list = p.ideas
-      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
+      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned) && (!IS.unresolved || (i.kind === '伏線' && !i.resolved)))
       .sort((a, b) => (b.pinned - a.pinned) || (b.updatedAt - a.updatedAt));
     if (!list.length) {
       IS.grid.appendChild(h('div', { class: 'empty' }, p.ideas.length ? '条件に合うメモはありません' : 'まだメモがありません。思いついたことは何でも上の欄に書き留めておきましょう。'));
@@ -8402,6 +8830,7 @@ ruby rt { font-size: 0.5em; }
       UI.menu(more, [
         { label: '編集', icon: 'pen', onClick: () => editIdea(it) },
         { label: it.pinned ? 'ピン留めを外す' : 'ピン留め', icon: 'pin', onClick: () => { it.pinned = !it.pinned; touch(); renderGrid(); } },
+        it.kind === '伏線' ? { label: it.resolved ? '未回収に戻す' : '回収済みにする', icon: 'check', onClick: () => { it.resolved = !it.resolved; it.updatedAt = Date.now(); touch(); renderFilters(); renderGrid(); } } : null,
         { label: 'プロットボードに送る', icon: 'columns', onClick: () => {
           p.plot.cards.push({ id: UI.uid('c'), columnId: p.plot.columns[0].id, title: lines[0].slice(0, 40), body: lines.slice(1).join('\n'), chapterId: '', color: it.color });
           touch();
@@ -8437,6 +8866,7 @@ ruby rt { font-size: 0.5em; }
     it.word && it.reading
       ? h('div', { class: 'idea-body' }, h('div', { class: 'reading-big', html: NS.Text.rubyToHtml('|' + it.word + '《' + it.reading + '》', { vertical: false }) }), it.body ? h('p', null, it.body) : null)
       : h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
+    it.kind === '伏線' ? foreshadowLine(p, it) : null,
     it.tags.length ? h('div', { class: 'idea-tags' }, it.tags.map((t) => h('span', { class: 'tag' }, '#' + t))) : null);
   }
 
@@ -8446,6 +8876,13 @@ ruby rt { font-size: 0.5em; }
     const reading = h('input', { class: 'input', type: 'text', value: it.reading || '', placeholder: '読み' });
     const kindSel = h('select', { class: 'input' }, KINDS.map((k) => h('option', { value: k, selected: it.kind === k }, k)));
     const tags = h('input', { class: 'input', type: 'text', value: it.tags.join('、') });
+    const p = P();
+    const plantSel = chapterSelect(p, it.plantedIn || '', '伏線を張った話');
+    const payoffSel = chapterSelect(p, it.payoffIn || '', '回収する話');
+    const resolved = h('input', { type: 'checkbox', checked: !!it.resolved });
+    const fsBox = h('div', { class: 'grid-2' }, UI.field('張った話', plantSel), UI.field('回収する話', payoffSel), h('label', { class: 'check' }, resolved, '回収済み'));
+    fsBox.hidden = it.kind !== '伏線';
+    kindSel.addEventListener('change', () => { fsBox.hidden = kindSel.value !== '伏線'; });
     let color = it.color || '';
     const sw = h('div', { class: 'swatches' }, [''].concat(UI.SWATCHES).map((c) => h('button', {
       type: 'button', class: 'swatch' + (color === c ? ' active' : ''), style: { background: c || 'transparent' }, 'aria-label': c || '色なし',
@@ -8455,13 +8892,14 @@ ruby rt { font-size: 0.5em; }
       title: 'メモを編集', wide: true,
       body: h('div', { class: 'stack' },
         it.kind === '読み方' || it.word ? h('div', { class: 'grid-2' }, UI.field('表記', word), UI.field('読み', reading)) : null,
-        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
+        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), fsBox, UI.field('色', sw)),
       actions: [
         { label: 'キャンセル', ghost: true },
         { label: '保存', primary: true, onClick: () => {
           it.body = body.value.trim() || (it.word ? '' : it.body);
           if (it.kind === '読み方' || it.word) { it.word = word.value.trim(); it.reading = reading.value.trim(); }
           it.kind = kindSel.value;
+          if (it.kind === '伏線') { it.plantedIn = plantSel.value; it.payoffIn = payoffSel.value; it.resolved = resolved.checked; }
           it.tags = splitTags(tags.value);
           it.color = color;
           it.updatedAt = Date.now();
@@ -11347,6 +11785,125 @@ ruby rt { font-size: 0.5em; }
 
 </script>
 <script>
+// js/views/publish-dialog.js
+/*
+ * 綴り — 投稿サイト用の書き出し（画面）
+ */
+(function (NS) {
+  'use strict';
+  const UI = NS.UI;
+  const { h, btn, clear, toast } = UI;
+  const PB = NS.Publish;
+
+  const PREF = Object.assign({ format: 'narou', indent: 'keep', blankLines: false, fullwidthMarks: true, includeTitle: false }, UI.lsGet('tsuzuri.publishPref', {}));
+  const savePref = () => UI.lsSet('tsuzuri.publishPref', PREF);
+
+  async function copyText(text, ta) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // クリップボード API が使えない環境（file:// など）では選択してコピー
+      try {
+        ta.focus();
+        ta.select();
+        return document.execCommand('copy');
+      } catch (e2) { return false; }
+    }
+  }
+
+  /** 投稿サイト用に書き出す窓を開く。opts: { chapterId } */
+  function open(opts) {
+    opts = opts || {};
+    const p = NS.App.project;
+    if (!p) return;
+    if (NS.Views.write && NS.Views.write.chapter && NS.Views.write.chapter()) {
+      const cur = NS.Views.write.chapter();
+      const text = NS.Views.write.getText();
+      if (cur && text !== cur.body) { cur.body = text; NS.App.touch(); }
+    }
+    let target = opts.chapterId && p.chapters.some((c) => c.id === opts.chapterId) ? opts.chapterId : (p.chapters[0] && p.chapters[0].id);
+
+    const body = h('div', { class: 'publish' });
+    const out = h('textarea', { class: 'input publish-out', readonly: true, rows: 14, 'aria-label': '書き出した本文', spellcheck: false });
+    const info = h('div', { class: 'publish-info small' });
+    const fmtBox = h('div', { class: 'chips' });
+    const note = h('p', { class: 'small muted' });
+
+    const chapterSel = h('select', { class: 'input', 'aria-label': '書き出す話', onchange: (e) => { target = e.target.value; update(); } },
+      p.chapters.map((c, i) => h('option', { value: c.id, selected: c.id === target }, `${i + 1}. ${c.title || '無題'}`)),
+      h('option', { value: '*' }, '全話'));
+    const indentSel = h('select', { class: 'input', 'aria-label': '段落頭の字下げ', onchange: (e) => { PREF.indent = e.target.value; savePref(); update(); } },
+      [['keep', '字下げはそのまま'], ['add', '地の文に字下げを付ける'], ['remove', '字下げを外す']].map(([v, l]) => h('option', { value: v, selected: PREF.indent === v }, l)));
+    const check = (key, label) => h('label', { class: 'check small' },
+      h('input', { type: 'checkbox', checked: !!PREF[key], onchange: (e) => { PREF[key] = e.target.checked; savePref(); update(); } }), label);
+
+    function renderFormats() {
+      clear(fmtBox);
+      Object.keys(PB.FORMATS).forEach((k) => fmtBox.appendChild(h('button', {
+        type: 'button', class: 'chip' + (PREF.format === k ? ' active' : ''), 'aria-pressed': PREF.format === k ? 'true' : 'false',
+        onclick: () => { PREF.format = k; savePref(); renderFormats(); update(); },
+      }, PB.FORMATS[k].label)));
+      note.textContent = PB.FORMATS[PREF.format].note;
+    }
+
+    function chaptersFor() {
+      return target === '*' ? p.chapters : p.chapters.filter((c) => c.id === target);
+    }
+
+    function update() {
+      const res = PB.convertChapters(chaptersFor(), PREF.format, PREF);
+      out.value = res.text;
+      clear(info);
+      const st = res.stats;
+      info.appendChild(h('span', null, `${PB.visibleLength(res.text, PREF.format).toLocaleString('ja-JP')}字（記号・空白を除く）`));
+      if (st.emphasis && (PREF.format === 'narou' || PREF.format === 'pixiv')) info.appendChild(h('span', { class: 'muted' }, `傍点 ${st.emphasis}か所をルビの「・」に変換`));
+      if (st.parenGuard) info.appendChild(h('span', { class: 'muted' }, `「漢字（かな）」${st.parenGuard}か所がルビにならないよう「|」を追加`));
+      if (st.longRuby.length) {
+        info.appendChild(h('span', { class: 'warn' }, `なろうでは10文字を超えるルビは表示されません：${st.longRuby.slice(0, 3).join('、')}${st.longRuby.length > 3 ? ' ほか' : ''}`));
+      }
+    }
+
+    body.append(
+      h('div', { class: 'small muted' }, '書き出し先'),
+      fmtBox,
+      note,
+      h('div', { class: 'publish-opts' },
+        UI.field('書き出す話', chapterSel),
+        UI.field('段落頭', indentSel)),
+      h('div', { class: 'row wrap' },
+        check('includeTitle', '話の題を入れる'),
+        check('blankLines', '段落の間に空行を入れる（Web向け）'),
+        check('fullwidthMarks', '半角の ! ? を全角に')),
+      out,
+      info);
+    renderFormats();
+    update();
+
+    UI.modal({
+      title: '投稿サイト用に書き出す',
+      body,
+      wide: true,
+      actions: [
+        { label: '.txt で保存', ghost: true, onClick: () => {
+          const name = target === '*' ? p.title : p.title + '_' + ((p.chapters.find((c) => c.id === target) || {}).title || '');
+          UI.download(UI.safeFilename(name + '_' + PB.FORMATS[PREF.format].label) + '.txt', out.value);
+          return false;
+        } },
+        { label: 'コピー', primary: true, onClick: async () => {
+          const ok = await copyText(out.value, out);
+          toast(ok ? 'コピーしました。投稿サイトの本文欄に貼り付けてください' : 'コピーできませんでした。本文を選んでコピーしてください', ok ? undefined : 'error');
+          return false;
+        } },
+      ],
+    });
+  }
+
+  NS.PublishDialog = { open };
+})(window.Tsuzuri = window.Tsuzuri || {});
+
+</script>
+<script>
 // js/ai.js
 /*
  * 綴り — AI 機能（Claude API）
@@ -11929,7 +12486,8 @@ ruby rt { font-size: 0.5em; }
     const now = Date.now();
     p.ideas = [
       { id: UI.uid('i'), body: '星晶石は持ち主の感情に反応して光る\nリオの剣の柄にも小さな星晶石がはまっている（師匠の形見）', kind: '設定', tags: ['星晶石', '伏線'], color: '#3d7ea6', pinned: true, createdAt: now, updatedAt: now },
-      { id: UI.uid('i'), body: 'セレナは実は王家の血を引いている？', kind: '伏線', tags: ['セレナ'], color: '#5f4b8b', pinned: false, createdAt: now - 3600e3, updatedAt: now - 3600e3 },
+      { id: UI.uid('i'), body: 'セレナは実は王家の血を引いている？', kind: '伏線', tags: ['セレナ'], color: '#5f4b8b', pinned: false, plantedIn: c1.id, payoffIn: '', resolved: false, createdAt: now - 3600e3, updatedAt: now - 3600e3 },
+      { id: UI.uid('i'), body: '黒い空の正体\n第一話で空が黒く染まる。第三話で黒霧の主が原因と分かる', kind: '伏線', tags: ['黒霧'], color: '', pinned: false, plantedIn: c1.id, payoffIn: c3.id, resolved: false, createdAt: now - 7200e3, updatedAt: now - 7200e3 },
       { id: UI.uid('i'), body: '世界を変えた大災厄。人々はこう呼ぶ', word: '星降りの夜', reading: 'スターフォール', kind: '読み方', tags: ['読み方'], color: '#d9a441', pinned: false, createdAt: now - 1800e3, updatedAt: now - 1800e3 },
       { id: UI.uid('i'), body: '「泣くのは、全部終わってからにしなさい」', kind: '台詞', tags: ['セレナ'], color: '', pinned: false, createdAt: now - 7200e3, updatedAt: now - 7200e3 },
       { id: UI.uid('i'), body: 'ラストシーン\n星降りの丘で、二人が流星を見上げる', kind: 'シーン', tags: ['終盤'], color: '#d9a441', pinned: false, createdAt: now - 86400e3, updatedAt: now - 86400e3 },

@@ -305,3 +305,39 @@ test('語り手の自動判定（地の文の一人称）', () => {
   assert.equal(r.kind, 'first');
   assert.equal(r.pronoun, 'わたし');
 });
+
+require('../js/publish.js');
+const { Publish } = globalThis.Tsuzuri;
+
+test('投稿サイト用の書き出し：ルビと傍点の変換', () => {
+  const src = '　|星晶石《せいしょうせき》と魔法《まほう》と《《傍点》》。\n「笑顔（えがお）だ」';
+  assert.equal(Publish.convert(src, 'kakuyomu').text, '　|星晶石《せいしょうせき》と|魔法《まほう》と《《傍点》》。\n「笑顔（えがお）だ」');
+  const n = Publish.convert(src, 'narou');
+  assert.equal(n.text, '　|星晶石《せいしょうせき》と|魔法《まほう》と|傍《・》|点《・》。\n「笑顔|（えがお）だ」');
+  assert.equal(n.stats.parenGuard, 1, '「漢字（かな）」が勝手にルビにならないよう | を入れる');
+  assert.equal(Publish.convert(src, 'pixiv').text, '　[[rb:星晶石 > せいしょうせき]]と[[rb:魔法 > まほう]]と[[rb:傍 > ・]][[rb:点 > ・]]。\n「笑顔（えがお）だ」');
+  assert.equal(Publish.convert(src, 'paren').text, '　星晶石（せいしょうせき）と魔法（まほう）と傍点。\n「笑顔（えがお）だ」');
+  assert.equal(Publish.convert(src, 'plain').text, '　星晶石と魔法と傍点。\n「笑顔（えがお）だ」');
+});
+
+test('投稿サイト用の書き出し：字下げ・空行・記号・複数話', () => {
+  const src = '地の文。\n「台詞!?」\n\n\n　続き。';
+  assert.equal(Publish.convert(src, 'plain', { indent: 'add', fullwidthMarks: true }).text, '　地の文。\n「台詞！？」\n\n\n　続き。');
+  assert.equal(Publish.convert(src, 'plain', { indent: 'remove', blankLines: true }).text, '地の文。\n\n「台詞!?」\n\n続き。');
+  const long = Publish.convert('|超長い名前の古代魔法陣《とてもながいなまえのこだいまほうじん》', 'narou');
+  assert.equal(long.stats.longRuby.length, 1, 'なろうの文字数制限を超えるルビを知らせる');
+  const chs = [{ title: '第一話', body: '本文1' }, { title: '第二話', body: '本文2' }];
+  assert.equal(Publish.convertChapters(chs, 'pixiv', { includeTitle: true }).text, '[chapter:第一話]\n本文1\n[newpage]\n[chapter:第二話]\n本文2');
+  assert.equal(Publish.visibleLength('[[rb:魔法 > まほう]]と[chapter:x]', 'pixiv'), 3);
+});
+
+test('同じ語の近い繰り返し（地の文だけ・名前と数の語は除く）', () => {
+  const t = '　魔法陣が光り、魔法陣から炎が出た。\n「魔法陣だ、魔法陣！」\n　一人、また一人と倒れた。\n　アルベインは走った。アルベインは止まらない。';
+  const hits = rules(t, { names: ['リオ・アルベイン'] }).filter((i) => i.ruleId === 'word-repeat');
+  assert.deepEqual(hits.map((i) => i.text), ['魔法陣']);
+  assert.equal(t.slice(hits[0].start, hits[0].end), '魔法陣');
+  assert.ok(hits[0].start > t.indexOf('魔法陣'), '2回目の方を指摘する');
+  // 離れていれば指摘しない
+  const far = '　魔法陣が光った。' + '彼は長い長い通路を歩き続けた。'.repeat(3) + '魔法陣は消えていた。';
+  assert.equal(rules(far).filter((i) => i.ruleId === 'word-repeat' && i.text === '魔法陣').length, 0);
+});

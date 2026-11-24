@@ -84,6 +84,12 @@ function assert(cond, msg) {
   await page.locator('.dict-search button').click();
   await page.waitForTimeout(300);
   assert((await page.locator('.panel-body').textContent()).includes('作品の中'), '辞書で作品内の設定を引ける');
+  await page.locator('#top-actions button[title="書き出し・バックアップ"]').click();
+  await page.getByText('投稿サイト用に書き出す（なろう・カクヨム・pixiv）').click();
+  assert((await page.locator('.publish-out').inputValue()).includes('|星晶石《せいしょうせき》'), '投稿サイト用に書き出せる');
+  await page.keyboard.press('Escape');
+  await page.locator('.panel-tabs .tab[data-tab="cons"]').click();
+  assert(await page.locator('.narrator-box').count() === 1, '設定チェックに語り手（視点）の設定が出る');
   await page.locator('.panel-tabs .tab[data-tab="stats"]').click();
   assert(await page.locator('.stat').count() >= 8, '統計が表示される');
 

@@ -892,3 +892,37 @@ ruby rt { font-size: 0.5em; }
   .modal { max-height: calc(100dvh - 16px); }
   .editor-status { gap: 10px; }
 }
+
+/* ───── 投稿サイト用の書き出し ───── */
+.publish { display: flex; flex-direction: column; gap: 10px; }
+.publish .chips .chip.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.publish-opts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.publish-out { font-family: var(--font-sans); font-size: 13px; line-height: 1.7; min-height: 220px; resize: vertical; white-space: pre-wrap; }
+.publish-info { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.publish-info .warn { color: var(--danger); }
+@media (max-width: 759px) { .publish-opts { grid-template-columns: minmax(0, 1fr); } }
+
+/* ───── 読み上げ ───── */
+.editor-backdrop mark.mk-speak { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 3px; text-decoration: none; }
+.speak-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--surface); }
+.speak-bar[hidden] { display: none; }
+.speak-state { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.speak-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: speakPulse 1.2s ease-in-out infinite; }
+.speak-dot.paused { animation: none; opacity: 0.4; }
+@keyframes speakPulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+@media (prefers-reduced-motion: reduce) { .speak-dot { animation: none; } }
+.speak-opt { display: inline-flex; align-items: center; gap: 6px; }
+.speak-opt .input { width: auto; padding-top: 3px; padding-bottom: 3px; }
+
+/* ───── 伏線 ───── */
+.fs-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fs-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--warn, #c98a1b) 18%, transparent); color: var(--ink); }
+.fs-badge.done { background: color-mix(in srgb, #4c8a4c 20%, transparent); }
+.fs-item { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.fs-item:last-child { border-bottom: 0; }
+.fs-done { text-decoration: line-through; color: var(--muted); }
+
+/* ───── バックアップのお知らせ ───── */
+.backup-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 12px 16px; margin: 4px 0 8px; border-radius: 10px;
+  background: color-mix(in srgb, #d9a441 16%, var(--surface)); border: 1px solid color-mix(in srgb, #d9a441 45%, transparent); font-size: 13.5px; }
+.backup-notice > span { flex: 1 1 280px; }

@@ -43,6 +43,8 @@
       desc: '近い位置で同じ接続詞（しかし、そして…）が繰り返される箇所を検出します。' },
     { id: 'no-chain', name: '「の」の連続', category: '読みやすさ', severity: 'info', default: true,
       desc: '「私の父の友人の家」のように「の」が続く箇所を検出します。' },
+    { id: 'word-repeat', name: '同じ語の近い繰り返し', category: '読みやすさ', severity: 'info', default: true,
+      desc: '地の文で、同じ言葉（漢字2字以上・カタカナ3字以上）が同じ文や隣の文ですぐに繰り返される箇所を検出します。人物名など設定資料の名前は除きます。' },
     { id: 'hyouki', name: '表記ゆれ', category: '表記', severity: 'info', default: true, fix: true,
       desc: '「出来る／できる」「子供／子ども」など、作品内で表記が揺れている語を検出します。' },
     { id: 'style-rule', name: '表記統一ルール', category: '表記', severity: 'warning', default: true, fix: true,
@@ -447,6 +449,7 @@
       });
     }
 
+    if (enabled('word-repeat')) checkWordRepeat(a, m, add, opts.names);
     if (enabled('hyouki')) checkHyouki(m, add, opts.corpus, text || '');
 
     if (enabled('style-rule') && Array.isArray(opts.styleRules)) {
@@ -612,6 +615,34 @@
         }
       }
     }
+  }
+
+  // 数を表す語（一人・二度・三本など）は繰り返しても気にならないので除く
+  const RE_COUNT_WORD = /^[一二三四五六七八九十百千万億何数幾両半]+[人度回つ本枚個匹頭羽年月日時分秒歩里]?$/;
+  const RE_CONTENT_WORD = /[一-龠々〆ヵヶ]{2,}|[ァ-ヴ][ァ-ヴー]{2,}/g;
+
+  /** 地の文で、同じ語が同じ文か隣の文で近くに繰り返される箇所 */
+  function checkWordRepeat(a, m, add, names) {
+    const skip = new Set();
+    (names || []).forEach((n) => String(n || '').split(/[・\s　=＝]+/).forEach((part) => { if (part) skip.add(part); }));
+    const last = new Map(); // 語 → { pos, si }
+    a.sentences.forEach((s, si) => {
+      if (s.kind !== 'narration') return;
+      RE_CONTENT_WORD.lastIndex = 0;
+      const seg = m.slice(s.start, s.end);
+      let mm;
+      while ((mm = RE_CONTENT_WORD.exec(seg)) !== null) {
+        const w = mm[0];
+        const pos = s.start + mm.index;
+        if (skip.has(w) || RE_COUNT_WORD.test(w)) continue;
+        const prev = last.get(w);
+        if (prev && si - prev.si <= 1 && pos - prev.pos <= 80) {
+          add('word-repeat', pos, pos + w.length,
+            `「${w}」が${prev.si === si ? '同じ文の中' : 'すぐ前の文'}でも使われています。言い換えるか、片方を省くと読みやすくなります`, null);
+        }
+        last.set(w, { pos, si });
+      }
+    });
   }
 
   /** 文字列ごとの集計結果を覚えておく（長編で毎回全話を数え直さないため） */

@@ -212,6 +212,7 @@
       exportBtn.addEventListener('click', () => UI.menu(exportBtn, [
         { label: '表示中の話をテキストで書き出す', icon: 'file', onClick: () => App.exportChapterTxt() },
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
+        { label: '投稿サイト用に書き出す（なろう・カクヨム・pixiv）', icon: 'upload', onClick: () => NS.PublishDialog.open({ chapterId: (App.currentChapter() || {}).id }) },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
         { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,
@@ -244,7 +245,27 @@
   App.exportBackup = function () {
     const p = App.project;
     UI.download(UI.safeFilename(p.title) + '_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, project: p }, null, 1), 'application/json');
+    App.markBackup([p.id]);
     toast('バックアップを書き出しました');
+  };
+
+  // ───── バックアップの記録と、しばらくしていないときのお知らせ ─────
+  App.markBackup = function (ids) {
+    const rec = UI.lsGet('tsuzuri.backups', {});
+    const now = Date.now();
+    ids.forEach((id) => { rec[id] = now; });
+    UI.lsSet('tsuzuri.backups', rec);
+  };
+  App.lastBackup = function (id) { return UI.lsGet('tsuzuri.backups', {})[id] || 0; };
+  /** 前回のバックアップから書いた量が多い・日数が経っていたら知らせる */
+  App.backupDue = function (meta) {
+    if (!meta || !meta.updatedAt) return null;
+    const last = App.lastBackup(meta.id);
+    if (last >= meta.updatedAt) return null;
+    const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+    if ((meta.chars || 0) < 3000) return null;
+    if (days == null) return { days: null };
+    return days >= 7 ? { days } : null;
   };
   App.exportLoreMd = function () {
     UI.download(UI.safeFilename(App.project.title) + '_設定資料.md', NS.LoreFormat.toMarkdown(App.project), 'text/markdown;charset=utf-8');
@@ -310,7 +331,8 @@
       data: () => {
         const info = h('p', { class: 'muted small' },
           '作品データはこの端末のブラウザ内（' + ({ idb: 'IndexedDB', ls: 'localStorage', mem: 'メモリのみ・再読み込みで消えます' }[Store.mode]) +
-          '）に保存されます。ブラウザのデータ消去で消えるため、定期的にバックアップを書き出してください。');
+          '）に保存されます。ブラウザのデータ消去で消えるため、定期的にバックアップを書き出してください。' +
+          (Store.mode === 'idb' ? (Store.persisted ? '（ブラウザに「消さないで」と頼んであります）' : '（このブラウザでは、容量が少なくなると消される場合があります）') : ''));
         return h('div', { class: 'stack' }, info,
           h('div', { class: 'row wrap' },
             btn('すべての作品をバックアップ', { icon: 'save', onClick: App.exportAll }),
@@ -330,6 +352,9 @@
       if (p) projects.push(p);
     }
     UI.download('tsuzuri_all_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, projects }, null, 1), 'application/json');
+    App.markBackup(projects.map((x) => x.id));
+    toast(projects.length + '作品をまとめてバックアップしました');
+    if (App.route === 'home') render('home', {});
   };
 
   App.importBackup = async function () {
@@ -369,9 +394,20 @@
           } }),
           btn('バックアップから読み込む', { icon: 'upload', ghost: true, onClick: App.importBackup }))));
       const listEl = h('section', { class: 'project-grid' });
+      const notice = h('div');
+      wrap.appendChild(notice);
       wrap.appendChild(h('h2', { class: 'section-title' }, '作品'));
       wrap.appendChild(listEl);
       const list = await Store.listProjects();
+      const due = list.filter((m) => App.backupDue(m));
+      if (due.length) {
+        const d = App.backupDue(due[0]);
+        notice.appendChild(h('div', { class: 'backup-notice' },
+          h('span', null, due.length === 1
+            ? `「${due[0].title}」は${d.days == null ? 'まだ一度もバックアップしていません' : `最後のバックアップから${d.days}日たっています`}。ブラウザのデータが消えると作品も消えるので、書き出しておきましょう。`
+            : `${due.length}つの作品が、しばらくバックアップされていません。ブラウザのデータが消えると作品も消えるので、書き出しておきましょう。`),
+          btn('すべての作品をバックアップ', { icon: 'save', small: true, primary: true, onClick: App.exportAll })));
+      }
       if (!list.length) {
         listEl.appendChild(h('div', { class: 'empty' }, h('p', null, 'まだ作品がありません。「新しい作品」か「サンプル作品を開く」から始めましょう。')));
       }
@@ -395,6 +431,8 @@
             { label: 'バックアップを書き出す', icon: 'save', onClick: async () => {
               const p = await Store.loadProject(m.id);
               UI.download(UI.safeFilename(p.title) + '_' + UI.today() + '.tsuzuri.json', JSON.stringify({ app: 'tsuzuri', version: 1, project: p }, null, 1), 'application/json');
+              App.markBackup([p.id]);
+              render('home', {});
             } },
             null,
             { label: '削除', icon: 'trash', danger: true, onClick: async () => {

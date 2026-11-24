@@ -59,6 +59,7 @@
 
   V.unmount = function () {
     if (!S) return;
+    stopSpeak(true);
     VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, caret: S.textarea.selectionStart });
     autoSnapshot();
     if (S.analysisTimer) clearTimeout(S.analysisTimer);
@@ -111,6 +112,7 @@
         btn('', { icon: 'search', ghost: true, title: '検索・置換（Ctrl+F）', onClick: () => openFind() }),
         btn('', { icon: 'book2', ghost: true, title: 'プレビュー（読者の見え方で表示）', onClick: () => { syncBody(); NS.Preview.open({ chapterId: S.ch.id }); } }),
         btn('', { icon: 'dict', ghost: true, title: '辞書で調べる（選んだ語）', onClick: () => openDict() }),
+        btn('', { icon: 'volume', ghost: true, title: '読み上げ（カーソルの位置から。耳で読み返す）', onClick: () => toggleSpeak() }),
         btn('', { icon: 'history', ghost: true, title: '版の保存と履歴', onClick: openHistory }),
         btn('', { icon: 'panel', ghost: true, title: '添削パネルを表示/隠す', onClick: () => togglePanel() })));
 
@@ -126,7 +128,8 @@
     S.issueBar = h('div', { class: 'issue-bar', hidden: true });
     S.status = h('div', { class: 'editor-status' });
 
-    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.issueBar, S.status);
+    S.speakBar = h('div', { class: 'speak-bar', hidden: true, role: 'region', 'aria-label': '読み上げ' });
+    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.speakBar, S.issueBar, S.status);
 
     // パネル
     S.panelTabs = h('div', { class: 'tabs panel-tabs', role: 'tablist' });
@@ -251,6 +254,7 @@
         renderChapterList();
       } },
       { label: 'テキストで書き出す', icon: 'download', onClick: () => { syncBody(); UI.download(UI.safeFilename(c.title) + '.txt', c.title + '\n\n' + c.body); } },
+      { label: '投稿サイト用に書き出す', icon: 'upload', onClick: () => { syncBody(); NS.PublishDialog.open({ chapterId: c.id }); } },
       null,
       { label: '削除', icon: 'trash', danger: true, onClick: async () => {
         if (p.chapters.length <= 1) { toast('最後の話は削除できません'); return; }
@@ -308,8 +312,121 @@
     }
   }
 
+  // ───── 読み上げ（耳で読み返す） ─────
+  /** 読み上げ用の文：ルビは読みで、傍点・記号は外す */
+  function speakableText(t) {
+    return NS.Publish.tokenize(t).map((x) => (x.type === 'ruby' ? x.reading : x.text)).join('')
+      .replace(/[―─—]{2,}/g, '、').replace(/[|｜]/g, '').trim();
+  }
+
+  function pickVoice() {
+    const voices = window.speechSynthesis.getVoices() || [];
+    const ja = voices.filter((v) => /^ja/i.test(v.lang));
+    if (PREF.speakVoice) {
+      const v = ja.find((x) => x.name === PREF.speakVoice);
+      if (v) return v;
+    }
+    return ja.find((v) => v.localService) || ja[0] || null;
+  }
+
+  function toggleSpeak() {
+    if (S.speak) stopSpeak();
+    else startSpeak();
+  }
+
+  function startSpeak() {
+    if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance !== 'function') {
+      toast('このブラウザは読み上げに対応していません', 'error');
+      return;
+    }
+    const text = S.textarea.value;
+    const from = S.textarea.selectionStart === text.length ? 0 : S.textarea.selectionStart;
+    const to = S.textarea.selectionEnd > S.textarea.selectionStart ? S.textarea.selectionEnd : text.length;
+    const list = T.analyze(text).sentences.filter((s) => s.end > from && s.start < to);
+    if (!list.length) { toast('読み上げる文がありません'); return; }
+    window.speechSynthesis.cancel();
+    S.speak = { list, i: 0, paused: false, cur: null };
+    renderSpeakBar();
+    speakNext();
+  }
+
+  function speakNext() {
+    const sp = S && S.speak;
+    if (!sp) return;
+    if (sp.i >= sp.list.length) { stopSpeak(); toast('読み上げが終わりました'); return; }
+    const s = sp.list[sp.i];
+    sp.cur = { start: s.start, end: s.end };
+    renderBackdrop();
+    renderSpeakBar();
+    const mk = S.backdrop.querySelector('.mk-speak');
+    if (mk) {
+      const r = mk.getBoundingClientRect();
+      const box = S.scroll.getBoundingClientRect();
+      if (r.top < box.top + 40 || r.bottom > box.bottom - 40) S.scroll.scrollTop += r.top - box.top - box.height / 3;
+    }
+    const say = speakableText(S.textarea.value.slice(s.start, s.end));
+    if (!/[^\s　…・「」『』（）()、。！？!?]/.test(say)) { sp.i++; speakNext(); return; }
+    const u = new window.SpeechSynthesisUtterance(say);
+    u.lang = 'ja-JP';
+    u.rate = PREF.speakRate || 1;
+    const v = pickVoice();
+    if (v) u.voice = v;
+    const token = {};
+    sp.token = token;
+    u.onend = () => { if (S && S.speak === sp && sp.token === token) { sp.i++; speakNext(); } };
+    u.onerror = (e) => {
+      if (!S || S.speak !== sp || sp.token !== token) return;
+      if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
+      stopSpeak();
+      toast('読み上げできませんでした' + (e && e.error ? '（' + e.error + '）' : ''), 'error');
+    };
+    window.speechSynthesis.speak(u);
+  }
+
+  function stopSpeak(silent) {
+    if (!S || !S.speak) return;
+    S.speak = null;
+    try { window.speechSynthesis.cancel(); } catch (e) { /* 何もしない */ }
+    if (silent) return;
+    renderBackdrop();
+    renderSpeakBar();
+  }
+
+  function renderSpeakBar() {
+    const bar = S.speakBar;
+    clear(bar);
+    const sp = S.speak;
+    bar.hidden = !sp;
+    if (!sp) return;
+    const rate = h('select', {
+      class: 'input', 'aria-label': '読み上げの速さ',
+      onchange: (e) => { PREF.speakRate = +e.target.value; savePref(); },
+    }, [0.8, 1, 1.2, 1.5, 2].map((r) => h('option', { value: r, selected: (PREF.speakRate || 1) === r }, `${r}倍`)));
+    const voices = (window.speechSynthesis.getVoices() || []).filter((v) => /^ja/i.test(v.lang));
+    const voiceSel = voices.length > 1 ? h('select', {
+      class: 'input', 'aria-label': '声',
+      onchange: (e) => { PREF.speakVoice = e.target.value; savePref(); },
+    }, voices.map((v) => h('option', { value: v.name, selected: (pickVoice() || {}).name === v.name }, v.name))) : null;
+    const pauseBtn = btn(sp.paused ? '再開' : '一時停止', {
+      icon: sp.paused ? 'play' : 'pause', small: true,
+      onClick: () => {
+        if (sp.paused) window.speechSynthesis.resume(); else window.speechSynthesis.pause();
+        sp.paused = !sp.paused;
+        renderSpeakBar();
+      },
+    });
+    bar.append(
+      h('span', { class: 'speak-state' }, h('span', { class: 'speak-dot' + (sp.paused ? ' paused' : '') }), `読み上げ中　${Math.min(sp.i + 1, sp.list.length)} / ${sp.list.length}文`),
+      pauseBtn,
+      btn('止める', { icon: 'stop', small: true, onClick: () => stopSpeak() }),
+      h('label', { class: 'small speak-opt' }, '速さ', rate),
+      voiceSel ? h('label', { class: 'small speak-opt' }, '声', voiceSel) : null,
+      !voices.length ? h('span', { class: 'small muted' }, '日本語の声が見つからないため、端末の標準の声で読みます') : null);
+  }
+
   // ───── 入力とハイライト ─────
   function onInput() {
+    if (S.speak) stopSpeak();
     const text = S.textarea.value;
     const diff = T.diffRange(S.lastText, text);
     S.issues = T.shiftRanges(S.issues, diff);
@@ -345,6 +462,7 @@
         rules: st.rules, maxSentenceLength: st.maxSentenceLength, maxCommas: st.maxCommas, endingRepeat: st.endingRepeat,
         styleRules: p.rules.style, corpus, ignore,
         readings: NS.Readings ? NS.Readings.index(NS.Readings.collect(p)) : null,
+        names: p.entries.reduce((a, e) => a.concat([e.name], e.aliases || []), []),
       });
     } catch (e) { console.error(e); }
     let cons = { issues: [], speakers: [], candidates: [] };
@@ -396,6 +514,7 @@
     if (S.find.open) {
       S.find.matches.forEach((m, i) => marks.push({ s: m.start, e: m.end, cls: 'mk-find' + (i === S.find.cur ? ' cur' : ''), i: -1, pri: 100 }));
     }
+    if (S.speak && S.speak.cur) marks.push({ s: S.speak.cur.start, e: S.speak.cur.end, cls: 'mk-speak', i: -1, pri: 200 });
     const bounds = new Set([0, text.length]);
     marks.forEach((m) => { bounds.add(Math.max(0, Math.min(text.length, m.s))); bounds.add(Math.max(0, Math.min(text.length, m.e))); });
     const pts = Array.from(bounds).sort((a, b) => a - b);
@@ -1046,7 +1165,23 @@
         type: 'button', class: 'reading-row', title: '本文に挿入', onclick: () => insertText('|' + r.base + '《' + r.reading + '》'),
       }, h('span', { html: T.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) }), h('span', { class: 'muted small' }, r.source === 'lore' ? '設定資料' : 'アイデア帳')))) : null,
       btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
-    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
+    // 伏線（アイデア帳の種類「伏線」）
+    const fs = p.ideas.filter((i) => i.kind === '伏線');
+    const here = fs.filter((i) => i.plantedIn === S.ch.id || i.payoffIn === S.ch.id);
+    const open = fs.filter((i) => !i.resolved);
+    const chNo = (id) => { const k = p.chapters.findIndex((c) => c.id === id); return k < 0 ? '' : `第${k + 1}話`; };
+    const fsRow = (i) => h('div', { class: 'fs-item' },
+      h('label', { class: 'check small', title: '回収済みにする' }, h('input', {
+        type: 'checkbox', checked: !!i.resolved, onchange: (e) => { i.resolved = e.target.checked; i.updatedAt = Date.now(); App().touch(); renderPanel(); },
+      }), h('span', { class: i.resolved ? 'fs-done' : '' }, (i.body || '').split('\n')[0] || '（無題）')),
+      h('span', { class: 'muted small' }, [i.plantedIn ? '張：' + chNo(i.plantedIn) : '', i.payoffIn ? '回収：' + chNo(i.payoffIn) : ''].filter(Boolean).join('　')));
+    const fsBox = h('details', { class: 'sub-section', open: here.length > 0 },
+      h('summary', null, `伏線　この話 ${here.length}・未回収 ${open.length}`),
+      here.length ? h('div', { class: 'stack-sm' }, h('div', { class: 'small muted' }, 'この話で張る・回収する伏線'), here.map(fsRow)) : null,
+      open.filter((i) => here.indexOf(i) < 0).length ? h('div', { class: 'stack-sm' }, h('div', { class: 'small muted' }, 'ほかの未回収の伏線'), open.filter((i) => here.indexOf(i) < 0).slice(0, 20).map(fsRow)) : null,
+      !fs.length ? h('p', { class: 'small muted' }, 'アイデア帳で種類「伏線」としてメモし、張った話・回収する話を選ぶと、ここで確認できます。') : null,
+      btn('アイデア帳を開く', { small: true, ghost: true, icon: 'bulb', onClick: () => App().navigate('ideas') }));
+    return h('div', { class: 'stack-sm' }, h('h3', { class: 'panel-h' }, 'この話のメモ'), memo, fsBox, h('h3', { class: 'panel-h' }, '設定資料'), search, results, readingBox);
   }
 
   function panelStats() {

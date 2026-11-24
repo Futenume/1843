@@ -10,6 +10,27 @@
   function P() { return NS.App.project; }
   function touch() { NS.App.touch(); }
 
+  // ───── 伏線 ─────
+  function chapterLabel(p, id) {
+    if (!id) return '';
+    const i = p.chapters.findIndex((c) => c.id === id);
+    return i < 0 ? '（削除された話）' : `第${i + 1}話`;
+  }
+  function chapterSelect(p, value, label, allowEmpty) {
+    return h('select', { class: 'input', 'aria-label': label },
+      allowEmpty !== false ? h('option', { value: '' }, '（未定）') : null,
+      p.chapters.map((c, i) => h('option', { value: c.id, selected: c.id === value }, `${i + 1}. ${c.title || '無題'}`)));
+  }
+  /** 伏線の状態の表示（張った話 → 回収する話） */
+  function foreshadowLine(p, it) {
+    const planted = chapterLabel(p, it.plantedIn);
+    const payoff = chapterLabel(p, it.payoffIn);
+    return h('div', { class: 'fs-line' },
+      h('span', { class: 'fs-badge' + (it.resolved ? ' done' : '') }, it.resolved ? '回収済み' : '未回収'),
+      h('span', { class: 'small muted' }, `${planted ? '張った：' + planted : '張った話：未設定'}${payoff ? '　→　' + (it.resolved ? '回収：' : '回収予定：') + payoff : ''}`));
+  }
+  const unresolvedCount = (p) => p.ideas.filter((i) => i.kind === '伏線' && !i.resolved).length;
+
   // ───────────── アイデア帳 ─────────────
   const Ideas = {};
   let IS = null;
@@ -35,8 +56,15 @@
     const readingRow = h('div', { class: 'reading-inputs', hidden: true },
       h('span', { class: 'small muted' }, '普段とは違う読み方を登録すると、そのルビは添削で指摘しなくなります。'),
       h('div', { class: 'row' }, word, h('span', { class: 'muted' }, '《'), reading, h('span', { class: 'muted' }, '》')));
+    const cur = NS.App.currentChapter && NS.App.currentChapter();
+    const plantSel = chapterSelect(P(), cur ? cur.id : '', '伏線を張った話');
+    const payoffSel = chapterSelect(P(), '', '回収する話');
+    const fsRow = h('div', { class: 'reading-inputs', hidden: true },
+      h('span', { class: 'small muted' }, '伏線は「張った話」と「回収する話」を記録しておくと、未回収のものを一覧できます。'),
+      h('div', { class: 'row wrap' }, h('label', { class: 'small speak-opt' }, '張った話', plantSel), h('label', { class: 'small speak-opt' }, '回収する話', payoffSel)));
     kindSel.addEventListener('change', () => {
       const isReading = kindSel.value === '読み方';
+      fsRow.hidden = kindSel.value !== '伏線';
       readingRow.hidden = !isReading;
       body.placeholder = isReading ? 'メモ（任意）：使う場面、由来など' : '思いついたことをすぐメモ（Ctrl+Enterで追加）\n例：主人公の剣は、実は亡き師匠の形見だった';
       if (isReading) word.focus();
@@ -49,7 +77,8 @@
       P().ideas.unshift(Object.assign({
         id: UI.uid('i'), body: v, kind: kindSel.value, tags: splitTags(tags.value), color: '', pinned: false,
         createdAt: Date.now(), updatedAt: Date.now(),
-      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {}));
+      }, isReading ? { word: word.value.trim().replace(/^[|｜]/, ''), reading: reading.value.trim() } : {},
+      kindSel.value === '伏線' ? { plantedIn: plantSel.value, payoffIn: payoffSel.value, resolved: false } : {}));
       touch();
       body.value = '';
       word.value = '';
@@ -63,6 +92,7 @@
     [word, reading].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add(); } }));
     wrap.appendChild(h('section', { class: 'quick-add card' },
       readingRow,
+      fsRow,
       body,
       h('div', { class: 'row wrap' }, kindSel, tags, btn('メモする', { icon: 'plus', primary: true, onClick: add }))));
 
@@ -90,8 +120,9 @@
     IS.filters.append(
       search,
       h('div', { class: 'chips' },
-        chip('すべて', !IS.kind && !IS.tag && !IS.pinnedOnly, () => { IS.kind = ''; IS.tag = ''; IS.pinnedOnly = false; renderFilters(); renderGrid(); }),
+        chip('すべて', !IS.kind && !IS.tag && !IS.pinnedOnly && !IS.unresolved, () => { IS.kind = ''; IS.tag = ''; IS.pinnedOnly = false; IS.unresolved = false; renderFilters(); renderGrid(); }),
         chip('ピン留め', IS.pinnedOnly, () => { IS.pinnedOnly = !IS.pinnedOnly; renderFilters(); renderGrid(); }),
+        unresolvedCount(p) ? chip(`未回収の伏線 ${unresolvedCount(p)}`, IS.unresolved, () => { IS.unresolved = !IS.unresolved; renderFilters(); renderGrid(); }) : null,
         KINDS.filter((k) => p.ideas.some((i) => i.kind === k)).map((k) => chip(k, IS.kind === k, () => { IS.kind = IS.kind === k ? '' : k; renderFilters(); renderGrid(); })),
         Object.keys(allTags).sort().map((t) => chip('#' + t, IS.tag === t, () => { IS.tag = IS.tag === t ? '' : t; renderFilters(); renderGrid(); }))));
   }
@@ -101,7 +132,7 @@
     clear(IS.grid);
     const q = IS.q.trim();
     const list = p.ideas
-      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned))
+      .filter((i) => (!q || (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0 || i.tags.some((t) => t.indexOf(q) >= 0)) && (!IS.kind || i.kind === IS.kind) && (!IS.tag || i.tags.indexOf(IS.tag) >= 0) && (!IS.pinnedOnly || i.pinned) && (!IS.unresolved || (i.kind === '伏線' && !i.resolved)))
       .sort((a, b) => (b.pinned - a.pinned) || (b.updatedAt - a.updatedAt));
     if (!list.length) {
       IS.grid.appendChild(h('div', { class: 'empty' }, p.ideas.length ? '条件に合うメモはありません' : 'まだメモがありません。思いついたことは何でも上の欄に書き留めておきましょう。'));
@@ -119,6 +150,7 @@
       UI.menu(more, [
         { label: '編集', icon: 'pen', onClick: () => editIdea(it) },
         { label: it.pinned ? 'ピン留めを外す' : 'ピン留め', icon: 'pin', onClick: () => { it.pinned = !it.pinned; touch(); renderGrid(); } },
+        it.kind === '伏線' ? { label: it.resolved ? '未回収に戻す' : '回収済みにする', icon: 'check', onClick: () => { it.resolved = !it.resolved; it.updatedAt = Date.now(); touch(); renderFilters(); renderGrid(); } } : null,
         { label: 'プロットボードに送る', icon: 'columns', onClick: () => {
           p.plot.cards.push({ id: UI.uid('c'), columnId: p.plot.columns[0].id, title: lines[0].slice(0, 40), body: lines.slice(1).join('\n'), chapterId: '', color: it.color });
           touch();
@@ -154,6 +186,7 @@
     it.word && it.reading
       ? h('div', { class: 'idea-body' }, h('div', { class: 'reading-big', html: NS.Text.rubyToHtml('|' + it.word + '《' + it.reading + '》', { vertical: false }) }), it.body ? h('p', null, it.body) : null)
       : h('div', { class: 'idea-body' }, h('strong', null, lines[0]), lines.length > 1 ? h('p', null, lines.slice(1).join('\n')) : null),
+    it.kind === '伏線' ? foreshadowLine(p, it) : null,
     it.tags.length ? h('div', { class: 'idea-tags' }, it.tags.map((t) => h('span', { class: 'tag' }, '#' + t))) : null);
   }
 
@@ -163,6 +196,13 @@
     const reading = h('input', { class: 'input', type: 'text', value: it.reading || '', placeholder: '読み' });
     const kindSel = h('select', { class: 'input' }, KINDS.map((k) => h('option', { value: k, selected: it.kind === k }, k)));
     const tags = h('input', { class: 'input', type: 'text', value: it.tags.join('、') });
+    const p = P();
+    const plantSel = chapterSelect(p, it.plantedIn || '', '伏線を張った話');
+    const payoffSel = chapterSelect(p, it.payoffIn || '', '回収する話');
+    const resolved = h('input', { type: 'checkbox', checked: !!it.resolved });
+    const fsBox = h('div', { class: 'grid-2' }, UI.field('張った話', plantSel), UI.field('回収する話', payoffSel), h('label', { class: 'check' }, resolved, '回収済み'));
+    fsBox.hidden = it.kind !== '伏線';
+    kindSel.addEventListener('change', () => { fsBox.hidden = kindSel.value !== '伏線'; });
     let color = it.color || '';
     const sw = h('div', { class: 'swatches' }, [''].concat(UI.SWATCHES).map((c) => h('button', {
       type: 'button', class: 'swatch' + (color === c ? ' active' : ''), style: { background: c || 'transparent' }, 'aria-label': c || '色なし',
@@ -172,13 +212,14 @@
       title: 'メモを編集', wide: true,
       body: h('div', { class: 'stack' },
         it.kind === '読み方' || it.word ? h('div', { class: 'grid-2' }, UI.field('表記', word), UI.field('読み', reading)) : null,
-        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), UI.field('色', sw)),
+        body, h('div', { class: 'grid-2' }, UI.field('種類', kindSel), UI.field('タグ', tags)), fsBox, UI.field('色', sw)),
       actions: [
         { label: 'キャンセル', ghost: true },
         { label: '保存', primary: true, onClick: () => {
           it.body = body.value.trim() || (it.word ? '' : it.body);
           if (it.kind === '読み方' || it.word) { it.word = word.value.trim(); it.reading = reading.value.trim(); }
           it.kind = kindSel.value;
+          if (it.kind === '伏線') { it.plantedIn = plantSel.value; it.payoffIn = payoffSel.value; it.resolved = resolved.checked; }
           it.tags = splitTags(tags.value);
           it.color = color;
           it.updatedAt = Date.now();
