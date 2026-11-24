@@ -341,3 +341,42 @@ test('同じ語の近い繰り返し（地の文だけ・名前と数の語は�
   const far = '　魔法陣が光った。' + '彼は長い長い通路を歩き続けた。'.repeat(3) + '魔法陣は消えていた。';
   assert.equal(rules(far).filter((i) => i.ruleId === 'word-repeat' && i.text === '魔法陣').length, 0);
 });
+
+test('話者推定：間に別の主語があれば名前から推定しない', () => {
+  const entries = [{ id: 't', type: 'character', name: '太郎', aliases: [], fields: { firstPerson: '俺' }, relations: [], appear: {}, custom: [] }];
+  const sp = (text) => Consistency.check(text, { entries, rules: { ng: [] } }).speakers.map((s) => s.name);
+  assert.deepEqual(sp('　太郎が言いかけたとき、彼女が「ねえ」と言った。'), []);
+  assert.deepEqual(sp('「わかった」と彼女が言うと、太郎は頷いた。'), []);
+  assert.deepEqual(sp('　太郎は彼女の手を取った。「行こう」'), ['太郎']);
+  assert.deepEqual(sp('「行くぞ」と太郎は言った。'), ['太郎']);
+  // 誤った推定で一人称の食い違いを出さない
+  const issues = Consistency.check('　太郎が言いかけたとき、彼女が「私も行く」と言った。', { entries, rules: { ng: [] } }).issues;
+  assert.ok(!issues.some((i) => i.ruleId === 'first-person'));
+});
+
+test('同じ語の繰り返し：言い直し（〜というには）は除く', () => {
+  const t = '　彼女は友人だ。いや、友人というには近すぎる。';
+  assert.equal(rules(t).filter((i) => i.ruleId === 'word-repeat').length, 0);
+});
+
+test('話者推定：台詞だけの行（次の行・前の行から）', () => {
+  const entries = [
+    { id: 'k', type: 'character', name: 'カイル', aliases: [], fields: { firstPerson: '俺' }, relations: [], appear: {}, custom: [] },
+    { id: 'e', type: 'character', name: 'エリス', aliases: [], fields: { firstPerson: 'あたし' }, relations: [], appear: {}, custom: [] },
+  ];
+  const check = (t) => Consistency.check(t, { entries, rules: { ng: [] } });
+  // 次の行に「カイルは〜言った」
+  let r = check('「僕が行く」\n　カイルは呆れたように言った。');
+  assert.deepEqual(r.speakers.map((s) => s.method), ['next']);
+  assert.ok(r.issues.some((i) => i.ruleId === 'first-person' && i.severity === 'warning'));
+  // 前の行の主語（確度が低いので参考扱い）
+  r = check('　カイルは振り返った。剣を抜く。\n「僕が行く」');
+  assert.deepEqual(r.speakers.map((s) => s.name + '/' + s.method), ['カイル/context']);
+  assert.ok(r.issues.some((i) => i.ruleId === 'first-person' && i.severity === 'info'));
+  // 前の行で最後に主語になった人物を採る。名前でない主語（彼女が…）が後にあれば推定しない
+  assert.deepEqual(check('　カイルは振り返った。エリスが手を振る。\n「僕が行く」').speakers.map((s) => s.name), ['エリス']);
+  assert.equal(check('　カイルは振り返った。彼女が手を振る。\n「僕が行く」').speakers.length, 0);
+  assert.equal(check('　カイルは振り返り、エリスが手を振るのを見た。\n「僕が行く」').speakers.length, 0);
+  // 次の行が発話の動詞でなければ推定しない
+  assert.equal(check('「いただきます！」\n　エリスは目を輝かせてスプーンを手に取った。').speakers.length, 0);
+});

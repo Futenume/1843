@@ -940,6 +940,12 @@ ruby rt { font-size: 0.5em; }
   background: color-mix(in srgb, #d9a441 16%, var(--surface)); border: 1px solid color-mix(in srgb, #d9a441 45%, transparent); font-size: 13.5px; }
 .backup-notice > span { flex: 1 1 280px; }
 
+/* ───── 別のタブでの更新 ───── */
+.save-state[data-state="conflict"] { color: var(--danger); font-weight: 600; }
+.conflict-bar { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 120; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+  max-width: min(760px, calc(100vw - 24px)); padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--danger); box-shadow: var(--shadow-lg); font-size: 13.5px; }
+.conflict-bar > span { flex: 1 1 260px; }
+
 </style>
 </head>
 <body>
@@ -2341,7 +2347,10 @@ ruby rt { font-size: 0.5em; }
         const pos = s.start + mm.index;
         if (skip.has(w) || RE_COUNT_WORD.test(w)) continue;
         const prev = last.get(w);
-        if (prev && si - prev.si <= 1 && pos - prev.pos <= 80) {
+        // 「友人だ。いや、友人というには」のような言い直し・定義は意図した繰り返しなので除く
+        const follow = m.slice(pos + w.length, pos + w.length + 4);
+        const rephrase = /^(?:という|とは|って|と呼|とい|なんて|なんか)/.test(follow);
+        if (prev && !rephrase && si - prev.si <= 1 && pos - prev.pos <= 80) {
           add('word-repeat', pos, pos + w.length,
             `「${w}」が${prev.si === si ? '同じ文の中' : 'すぐ前の文'}でも使われています。言い換えるか、片方を省くと読みやすくなります`, null);
         }
@@ -2742,6 +2751,9 @@ ruby rt { font-size: 0.5em; }
     return { end: e2, next: masked[e2] || '', honorific: h ? h[0] : '' };
   }
 
+  // 設定資料にない「別の主語」（彼女が・少年は・僕が など）。これが間にあると、話者を名前から推定しない
+  const RE_OTHER_SUBJECT = /(?:彼女|彼|あいつ|こいつ|そいつ|奴|やつ|少女|少年|男|女|老人|老婆|子供|子ども|誰か|皆|みんな|二人|全員|俺|僕|私|わたし|あたし|おれ|ぼく|自分)(?:たち|達|ら)?[はがも]/;
+
   /** 台詞の話者を推定する */
   function attributeSpeakers(a, mentions) {
     const m = a.masked;
@@ -2775,6 +2787,8 @@ ruby rt { font-size: 0.5em; }
         if (/^(?:と|って|、と|とだけ|という)/.test(after)) {
           const cands = narrMentions.filter((x) => x.start >= d.end && x.start < d.end + 24 && x.end <= stop);
           for (const c of cands) {
+            // 「……」と彼女が言うと、太郎は頷いた → 話者は太郎ではない
+            if (RE_OTHER_SUBJECT.test(m.slice(d.end, c.start))) break;
             const an = afterName(m, c.end);
             if (/[はがも]/.test(an.next)) { speaker = c.entryId; method = 'after'; break; }
           }
@@ -2785,13 +2799,50 @@ ruby rt { font-size: 0.5em; }
         const cands = narrMentions.filter((x) => x.start >= Math.max(prevEnd, d.start - 60) && x.end <= d.start);
         for (let k = cands.length - 1; k >= 0; k--) {
           const an = afterName(m, cands[k].end);
-          if (/[はがも]/.test(an.next)) { speaker = cands[k].entryId; method = 'before'; break; }
+          if (/[はがも]/.test(an.next)) {
+            // 太郎が言いかけたとき、彼女が「……」 → 話者は太郎ではない
+            if (!RE_OTHER_SUBJECT.test(m.slice(an.end + 1, d.start))) { speaker = cands[k].entryId; method = 'before'; }
+            break;
+          }
+        }
+      }
+      // (d) 台詞だけの行の次の行：「……」↵　太郎は呆れたように言った。
+      if (!speaker && d.closed && !m.slice(d.end, para.end).replace(/[\s　]/g, '') && d.para + 1 < a.paragraphs.length) {
+        const np = a.paragraphs[d.para + 1];
+        const lead = m.slice(np.start, np.end).match(/^[\s　]*/)[0].length;
+        const c = narrMentions.find((x) => x.start === np.start + lead);
+        if (c) {
+          const an = afterName(m, c.end);
+          const rest = m.slice(an.end + 1, Math.min(np.end, an.end + 24));
+          if (/[はが]/.test(an.next) && !/[「『]/.test(rest.split(/[。]/)[0]) && RE_SPEECH_VERB.test(rest.split(/[。]/)[0])) { speaker = c.entryId; method = 'next'; }
+        }
+      }
+      // (e) 台詞で始まる行の前の行（地の文だけ）の最後の文の主語：太郎は窓の外を見た。↵「……」
+      if (!speaker && !m.slice(para.start, d.start).replace(/[\s　]/g, '') && d.para > 0) {
+        const pp = a.paragraphs[d.para - 1];
+        const hasDialogue = a.dialogues.some((x) => x.para === d.para - 1);
+        if (!hasDialogue && pp.end > pp.start) {
+          // 行の中で最後に「名前は／名前が」で始まる文を探し、その後に別の主語が出てこなければ、その人物を話者とみなす
+          const sents = a.sentences.filter((x) => x.para === d.para - 1);
+          for (let k = sents.length - 1; k >= 0; k--) {
+            const st = sents[k];
+            const lead = m.slice(st.start, st.end).match(/^[\s　]*/)[0].length;
+            const c = narrMentions.find((x) => x.start === st.start + lead);
+            if (!c) continue;
+            const an = afterName(m, c.end);
+            if (!/[はが]/.test(an.next)) break;
+            const rest = m.slice(an.end + 1, pp.end);
+            const otherName = narrMentions.some((x) => x.start > an.end && x.end <= pp.end && x.entryId !== c.entryId && /[はがも]/.test(afterName(m, x.end).next));
+            if (!RE_OTHER_SUBJECT.test(rest) && !otherName) { speaker = c.entryId; method = 'context'; }
+            break;
+          }
         }
       }
       if (speaker) out.push({ start: d.start, end: d.end, innerStart: d.innerStart, innerEnd: d.innerEnd, entryId: speaker, method });
     });
     return out;
   }
+  const RE_SPEECH_VERB = /(?:言[っうい]|答え|応え|叫|呟|つぶや|返し|返す|尋ね|訊|聞き返|怒鳴|囁|ささや|笑っ|微笑|続け|告げ|促し|頷|うなず|ぼやい|漏ら|吐き捨て)/;
 
   function sentenceAt(a, pos) {
     // 二分探索
@@ -2973,6 +3024,8 @@ ruby rt { font-size: 0.5em; }
       const f = e.fields || {};
       const inner = m.slice(sp.innerStart, sp.innerEnd).replace(/『[^』]*』/g, (s) => T.FILLER.repeat(s.length));
       const methodNote = '（推定話者）';
+      // 前の行の主語から推定したもの（確度が低い）は控えめに出す
+      const weakSev = sp.method === 'context' ? { severity: 'info' } : {};
 
       // 一人称
       if (enabled('first-person') && f.firstPerson && f.firstPerson.trim()) {
@@ -3000,7 +3053,7 @@ ruby rt { font-size: 0.5em; }
           if (fam.weak) continue;
           add('first-person', pos, pos + pm[0].length,
             `${e.name}${methodNote}の一人称は設定では「${f.firstPerson}」ですが、「${pm[0]}」が使われています`, null,
-            { entryId: e.id });
+            Object.assign({ entryId: e.id }, weakSev));
         }
       }
 
@@ -3019,7 +3072,7 @@ ruby rt { font-size: 0.5em; }
             if (calls.some((c) => c.length > said.length && m.slice(mt.start, mt.start + c.length) === c)) return;
             add('calls', mt.start, an.end,
               `設定では${e.name}は${nameOf(rel.targetId)}を「${calls.join('／')}」と呼びます（本文：「${said}」）${methodNote}`,
-              calls[0], { entryId: e.id, fixable: false });
+              calls[0], Object.assign({ entryId: e.id, fixable: false }, weakSev));
           });
         });
       }
@@ -5835,14 +5888,21 @@ ruby rt { font-size: 0.5em; }
   };
 
   // ───── 保存 ─────
+  // 同じ作品を別のタブでも開いているとき、黙って上書きし合わないよう知らせ合う
+  const TAB_ID = Math.random().toString(36).slice(2);
+  let editVersion = 0;
   const doSave = async () => {
     if (!App.project) return;
+    if (App.conflict) { App.setSaveState('conflict'); return; }
+    const version = editVersion;
     App.setSaveState('saving');
     try {
       updateLog(App.project);
       await Store.saveProject(App.project);
       UI.lsSet('tsuzuri.current', App.project.id);
-      App.setSaveState('saved');
+      UI.lsSet('tsuzuri.saved', { id: App.project.id, tab: TAB_ID, at: App.project.updatedAt });
+      // 保存中に書き足された分があれば、まだ「編集中」のまま（このあと続けて保存される）
+      App.setSaveState(version === editVersion ? 'saved' : 'dirty');
     } catch (e) {
       console.error(e);
       App.setSaveState('error');
@@ -5851,9 +5911,51 @@ ruby rt { font-size: 0.5em; }
   };
   const saveDebounced = UI.debounce(doSave, 700);
   App.touch = function () {
-    App.setSaveState('dirty');
+    editVersion++;
+    App.setSaveState(App.conflict ? 'conflict' : 'dirty');
     saveDebounced();
   };
+
+  function onOtherTabSaved(info) {
+    if (!info || info.tab === TAB_ID || !App.project || info.id !== App.project.id) return;
+    if (App.conflict) return;
+    App.conflict = true;
+    App.setSaveState('conflict');
+    showConflict();
+  }
+
+  function showConflict() {
+    let bar = document.getElementById('conflict-bar');
+    if (bar) bar.remove();
+    bar = h('div', { id: 'conflict-bar', class: 'conflict-bar', role: 'alert' },
+      h('span', null, 'この作品は別のタブ（またはウィンドウ）で更新されました。このタブの自動保存を止めています。'),
+      btn('最新の内容を読み込む', { small: true, primary: true, onClick: async () => {
+        const id = App.project.id;
+        const p = await Store.loadProject(id);
+        if (!p) { toast('作品が見つかりません', 'error'); return; }
+        // 先に今の画面を閉じる（閉じるときの書き戻しは、保存停止中なので保存されない）
+        if (App.current && App.current.unmount) { try { App.current.unmount(); } catch (e) { console.error(e); } }
+        App.current = null;
+        saveDebounced.cancel();
+        App.conflict = false;
+        bar.remove();
+        {
+          App.project = p;
+          editVersion++;
+          App.setSaveState('saved');
+          const r = parseHash();
+          render(r.route, r.params);
+          toast('最新の内容を読み込みました');
+        }
+      } }),
+      btn('このタブの内容で上書きする', { small: true, ghost: true, onClick: async () => {
+        App.conflict = false;
+        bar.remove();
+        await App.saveNow();
+        toast('このタブの内容で保存しました');
+      } }));
+    document.body.appendChild(bar);
+  }
   App.saveNow = async function () {
     saveDebounced.cancel();
     await doSave();
@@ -5863,7 +5965,7 @@ ruby rt { font-size: 0.5em; }
     const el = document.getElementById('save-state');
     if (!el) return;
     el.dataset.state = s;
-    el.textContent = { saved: '保存済み', saving: '保存中…', dirty: '編集中', error: '保存エラー' }[s] || '';
+    el.textContent = { saved: '保存済み', saving: '保存中…', dirty: '編集中', error: '保存エラー', conflict: '保存を停止中' }[s] || '';
   };
 
   function updateLog(p) {
@@ -5890,6 +5992,12 @@ ruby rt { font-size: 0.5em; }
 
   // ───── 作品の切り替え ─────
   App.openProject = async function (id, route) {
+    if (App.conflict) {
+      if (!(await UI.confirm('別のタブで更新されたため、このタブの変更は保存されていません。このタブの変更を破棄して開きますか？', { danger: true, okLabel: '破棄して開く' }))) return;
+      App.conflict = false;
+      const bar = document.getElementById('conflict-bar');
+      if (bar) bar.remove();
+    }
     if (App.project && App.saveState !== 'saved') await App.saveNow();
     const p = await Store.loadProject(id);
     if (!p) { toast('作品が見つかりません', 'error'); return; }
@@ -6247,8 +6355,13 @@ ruby rt { font-size: 0.5em; }
       const r = parseHash();
       render(r.route, r.params);
     });
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'tsuzuri.saved' && e.newValue) {
+        try { onOtherTabSaved(JSON.parse(e.newValue)); } catch (err) { /* 何もしない */ }
+      }
+    });
     window.addEventListener('beforeunload', (e) => {
-      if (App.saveState === 'dirty' || App.saveState === 'saving') {
+      if (App.saveState === 'dirty' || App.saveState === 'saving' || App.conflict) {
         saveDebounced.flush();
         e.preventDefault();
         e.returnValue = '';
@@ -7037,7 +7150,8 @@ ruby rt { font-size: 0.5em; }
     if (!(await UI.confirm(`${allChapters ? '全話' : 'この話'}の「${q}」${count}件を「${rep}」に置き換えます。`, { okLabel: '置換' }))) return;
     targets.forEach((c) => {
       if (c.body.indexOf(q) < 0) return;
-      if (allChapters) pushSnapshot(c, '置換前（' + q + '→' + rep + '）', true);
+      // 一括置換は Ctrl+Z で戻せないので、置換前の版を残しておく
+      pushSnapshot(c, '置換前（' + q + '→' + rep + '）', true);
       c.body = c.body.split(q).join(rep);
       c.updatedAt = Date.now();
     });
@@ -7047,7 +7161,7 @@ ruby rt { font-size: 0.5em; }
     computeFind();
     runAnalysis();
     renderChapterList();
-    toast(count + '件を置換しました');
+    toast(count + '件を置換しました（置換前の版を履歴に残しました）');
   }
 
   // ───── 版の保存（履歴） ─────
@@ -7314,7 +7428,7 @@ ruby rt { font-size: 0.5em; }
       sp.forEach((s) => { counts[s.name] = (counts[s.name] || 0) + 1; });
       wrap.appendChild(h('details', { class: 'sub-section', open: true },
         h('summary', null, `台詞の話者（推定） ${sp.length}/${dCount}`),
-        h('p', { class: 'small muted' }, '「」の直前・直後の「〇〇は」「〇〇が」や「〇〇「…」」の形から推定しています。一人称・呼び方のチェックはこの推定に基づきます。'),
+        h('p', { class: 'small muted' }, '「」の直前・直後の「〇〇は」「〇〇が」や「〇〇「…」」の形、台詞だけの行なら次の行の「〇〇は言った」や前の行の主語から推定しています。一人称・呼び方のチェックはこの推定に基づきます（前の行の主語からの推定は確度が低いため「参考」として出します）。'),
         h('div', { class: 'chips' }, Object.keys(counts).map((n) => h('span', { class: 'chip static' }, `${n} ${counts[n]}`)),
           dCount - sp.length > 0 ? h('span', { class: 'chip static muted' }, `不明 ${dCount - sp.length}`) : null),
         h('div', { class: 'speaker-list' }, sp.slice(0, 60).map((s) => h('button', {

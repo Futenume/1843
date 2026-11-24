@@ -636,7 +636,10 @@
         const pos = s.start + mm.index;
         if (skip.has(w) || RE_COUNT_WORD.test(w)) continue;
         const prev = last.get(w);
-        if (prev && si - prev.si <= 1 && pos - prev.pos <= 80) {
+        // 「友人だ。いや、友人というには」のような言い直し・定義は意図した繰り返しなので除く
+        const follow = m.slice(pos + w.length, pos + w.length + 4);
+        const rephrase = /^(?:という|とは|って|と呼|とい|なんて|なんか)/.test(follow);
+        if (prev && !rephrase && si - prev.si <= 1 && pos - prev.pos <= 80) {
           add('word-repeat', pos, pos + w.length,
             `「${w}」が${prev.si === si ? '同じ文の中' : 'すぐ前の文'}でも使われています。言い換えるか、片方を省くと読みやすくなります`, null);
         }

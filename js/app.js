@@ -54,14 +54,21 @@
   };
 
   // ───── 保存 ─────
+  // 同じ作品を別のタブでも開いているとき、黙って上書きし合わないよう知らせ合う
+  const TAB_ID = Math.random().toString(36).slice(2);
+  let editVersion = 0;
   const doSave = async () => {
     if (!App.project) return;
+    if (App.conflict) { App.setSaveState('conflict'); return; }
+    const version = editVersion;
     App.setSaveState('saving');
     try {
       updateLog(App.project);
       await Store.saveProject(App.project);
       UI.lsSet('tsuzuri.current', App.project.id);
-      App.setSaveState('saved');
+      UI.lsSet('tsuzuri.saved', { id: App.project.id, tab: TAB_ID, at: App.project.updatedAt });
+      // 保存中に書き足された分があれば、まだ「編集中」のまま（このあと続けて保存される）
+      App.setSaveState(version === editVersion ? 'saved' : 'dirty');
     } catch (e) {
       console.error(e);
       App.setSaveState('error');
@@ -70,9 +77,51 @@
   };
   const saveDebounced = UI.debounce(doSave, 700);
   App.touch = function () {
-    App.setSaveState('dirty');
+    editVersion++;
+    App.setSaveState(App.conflict ? 'conflict' : 'dirty');
     saveDebounced();
   };
+
+  function onOtherTabSaved(info) {
+    if (!info || info.tab === TAB_ID || !App.project || info.id !== App.project.id) return;
+    if (App.conflict) return;
+    App.conflict = true;
+    App.setSaveState('conflict');
+    showConflict();
+  }
+
+  function showConflict() {
+    let bar = document.getElementById('conflict-bar');
+    if (bar) bar.remove();
+    bar = h('div', { id: 'conflict-bar', class: 'conflict-bar', role: 'alert' },
+      h('span', null, 'この作品は別のタブ（またはウィンドウ）で更新されました。このタブの自動保存を止めています。'),
+      btn('最新の内容を読み込む', { small: true, primary: true, onClick: async () => {
+        const id = App.project.id;
+        const p = await Store.loadProject(id);
+        if (!p) { toast('作品が見つかりません', 'error'); return; }
+        // 先に今の画面を閉じる（閉じるときの書き戻しは、保存停止中なので保存されない）
+        if (App.current && App.current.unmount) { try { App.current.unmount(); } catch (e) { console.error(e); } }
+        App.current = null;
+        saveDebounced.cancel();
+        App.conflict = false;
+        bar.remove();
+        {
+          App.project = p;
+          editVersion++;
+          App.setSaveState('saved');
+          const r = parseHash();
+          render(r.route, r.params);
+          toast('最新の内容を読み込みました');
+        }
+      } }),
+      btn('このタブの内容で上書きする', { small: true, ghost: true, onClick: async () => {
+        App.conflict = false;
+        bar.remove();
+        await App.saveNow();
+        toast('このタブの内容で保存しました');
+      } }));
+    document.body.appendChild(bar);
+  }
   App.saveNow = async function () {
     saveDebounced.cancel();
     await doSave();
@@ -82,7 +131,7 @@
     const el = document.getElementById('save-state');
     if (!el) return;
     el.dataset.state = s;
-    el.textContent = { saved: '保存済み', saving: '保存中…', dirty: '編集中', error: '保存エラー' }[s] || '';
+    el.textContent = { saved: '保存済み', saving: '保存中…', dirty: '編集中', error: '保存エラー', conflict: '保存を停止中' }[s] || '';
   };
 
   function updateLog(p) {
@@ -109,6 +158,12 @@
 
   // ───── 作品の切り替え ─────
   App.openProject = async function (id, route) {
+    if (App.conflict) {
+      if (!(await UI.confirm('別のタブで更新されたため、このタブの変更は保存されていません。このタブの変更を破棄して開きますか？', { danger: true, okLabel: '破棄して開く' }))) return;
+      App.conflict = false;
+      const bar = document.getElementById('conflict-bar');
+      if (bar) bar.remove();
+    }
     if (App.project && App.saveState !== 'saved') await App.saveNow();
     const p = await Store.loadProject(id);
     if (!p) { toast('作品が見つかりません', 'error'); return; }
@@ -466,8 +521,13 @@
       const r = parseHash();
       render(r.route, r.params);
     });
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'tsuzuri.saved' && e.newValue) {
+        try { onOtherTabSaved(JSON.parse(e.newValue)); } catch (err) { /* 何もしない */ }
+      }
+    });
     window.addEventListener('beforeunload', (e) => {
-      if (App.saveState === 'dirty' || App.saveState === 'saving') {
+      if (App.saveState === 'dirty' || App.saveState === 'saving' || App.conflict) {
         saveDebounced.flush();
         e.preventDefault();
         e.returnValue = '';

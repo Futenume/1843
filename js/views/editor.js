@@ -759,7 +759,8 @@
     if (!(await UI.confirm(`${allChapters ? '全話' : 'この話'}の「${q}」${count}件を「${rep}」に置き換えます。`, { okLabel: '置換' }))) return;
     targets.forEach((c) => {
       if (c.body.indexOf(q) < 0) return;
-      if (allChapters) pushSnapshot(c, '置換前（' + q + '→' + rep + '）', true);
+      // 一括置換は Ctrl+Z で戻せないので、置換前の版を残しておく
+      pushSnapshot(c, '置換前（' + q + '→' + rep + '）', true);
       c.body = c.body.split(q).join(rep);
       c.updatedAt = Date.now();
     });
@@ -769,7 +770,7 @@
     computeFind();
     runAnalysis();
     renderChapterList();
-    toast(count + '件を置換しました');
+    toast(count + '件を置換しました（置換前の版を履歴に残しました）');
   }
 
   // ───── 版の保存（履歴） ─────
@@ -1036,7 +1037,7 @@
       sp.forEach((s) => { counts[s.name] = (counts[s.name] || 0) + 1; });
       wrap.appendChild(h('details', { class: 'sub-section', open: true },
         h('summary', null, `台詞の話者（推定） ${sp.length}/${dCount}`),
-        h('p', { class: 'small muted' }, '「」の直前・直後の「〇〇は」「〇〇が」や「〇〇「…」」の形から推定しています。一人称・呼び方のチェックはこの推定に基づきます。'),
+        h('p', { class: 'small muted' }, '「」の直前・直後の「〇〇は」「〇〇が」や「〇〇「…」」の形、台詞だけの行なら次の行の「〇〇は言った」や前の行の主語から推定しています。一人称・呼び方のチェックはこの推定に基づきます（前の行の主語からの推定は確度が低いため「参考」として出します）。'),
         h('div', { class: 'chips' }, Object.keys(counts).map((n) => h('span', { class: 'chip static' }, `${n} ${counts[n]}`)),
           dCount - sp.length > 0 ? h('span', { class: 'chip static muted' }, `不明 ${dCount - sp.length}`) : null),
         h('div', { class: 'speaker-list' }, sp.slice(0, 60).map((s) => h('button', {

@@ -239,6 +239,9 @@
     return { end: e2, next: masked[e2] || '', honorific: h ? h[0] : '' };
   }
 
+  // 設定資料にない「別の主語」（彼女が・少年は・僕が など）。これが間にあると、話者を名前から推定しない
+  const RE_OTHER_SUBJECT = /(?:彼女|彼|あいつ|こいつ|そいつ|奴|やつ|少女|少年|男|女|老人|老婆|子供|子ども|誰か|皆|みんな|二人|全員|俺|僕|私|わたし|あたし|おれ|ぼく|自分)(?:たち|達|ら)?[はがも]/;
+
   /** 台詞の話者を推定する */
   function attributeSpeakers(a, mentions) {
     const m = a.masked;
@@ -272,6 +275,8 @@
         if (/^(?:と|って|、と|とだけ|という)/.test(after)) {
           const cands = narrMentions.filter((x) => x.start >= d.end && x.start < d.end + 24 && x.end <= stop);
           for (const c of cands) {
+            // 「……」と彼女が言うと、太郎は頷いた → 話者は太郎ではない
+            if (RE_OTHER_SUBJECT.test(m.slice(d.end, c.start))) break;
             const an = afterName(m, c.end);
             if (/[はがも]/.test(an.next)) { speaker = c.entryId; method = 'after'; break; }
           }
@@ -282,13 +287,50 @@
         const cands = narrMentions.filter((x) => x.start >= Math.max(prevEnd, d.start - 60) && x.end <= d.start);
         for (let k = cands.length - 1; k >= 0; k--) {
           const an = afterName(m, cands[k].end);
-          if (/[はがも]/.test(an.next)) { speaker = cands[k].entryId; method = 'before'; break; }
+          if (/[はがも]/.test(an.next)) {
+            // 太郎が言いかけたとき、彼女が「……」 → 話者は太郎ではない
+            if (!RE_OTHER_SUBJECT.test(m.slice(an.end + 1, d.start))) { speaker = cands[k].entryId; method = 'before'; }
+            break;
+          }
+        }
+      }
+      // (d) 台詞だけの行の次の行：「……」↵　太郎は呆れたように言った。
+      if (!speaker && d.closed && !m.slice(d.end, para.end).replace(/[\s　]/g, '') && d.para + 1 < a.paragraphs.length) {
+        const np = a.paragraphs[d.para + 1];
+        const lead = m.slice(np.start, np.end).match(/^[\s　]*/)[0].length;
+        const c = narrMentions.find((x) => x.start === np.start + lead);
+        if (c) {
+          const an = afterName(m, c.end);
+          const rest = m.slice(an.end + 1, Math.min(np.end, an.end + 24));
+          if (/[はが]/.test(an.next) && !/[「『]/.test(rest.split(/[。]/)[0]) && RE_SPEECH_VERB.test(rest.split(/[。]/)[0])) { speaker = c.entryId; method = 'next'; }
+        }
+      }
+      // (e) 台詞で始まる行の前の行（地の文だけ）の最後の文の主語：太郎は窓の外を見た。↵「……」
+      if (!speaker && !m.slice(para.start, d.start).replace(/[\s　]/g, '') && d.para > 0) {
+        const pp = a.paragraphs[d.para - 1];
+        const hasDialogue = a.dialogues.some((x) => x.para === d.para - 1);
+        if (!hasDialogue && pp.end > pp.start) {
+          // 行の中で最後に「名前は／名前が」で始まる文を探し、その後に別の主語が出てこなければ、その人物を話者とみなす
+          const sents = a.sentences.filter((x) => x.para === d.para - 1);
+          for (let k = sents.length - 1; k >= 0; k--) {
+            const st = sents[k];
+            const lead = m.slice(st.start, st.end).match(/^[\s　]*/)[0].length;
+            const c = narrMentions.find((x) => x.start === st.start + lead);
+            if (!c) continue;
+            const an = afterName(m, c.end);
+            if (!/[はが]/.test(an.next)) break;
+            const rest = m.slice(an.end + 1, pp.end);
+            const otherName = narrMentions.some((x) => x.start > an.end && x.end <= pp.end && x.entryId !== c.entryId && /[はがも]/.test(afterName(m, x.end).next));
+            if (!RE_OTHER_SUBJECT.test(rest) && !otherName) { speaker = c.entryId; method = 'context'; }
+            break;
+          }
         }
       }
       if (speaker) out.push({ start: d.start, end: d.end, innerStart: d.innerStart, innerEnd: d.innerEnd, entryId: speaker, method });
     });
     return out;
   }
+  const RE_SPEECH_VERB = /(?:言[っうい]|答え|応え|叫|呟|つぶや|返し|返す|尋ね|訊|聞き返|怒鳴|囁|ささや|笑っ|微笑|続け|告げ|促し|頷|うなず|ぼやい|漏ら|吐き捨て)/;
 
   function sentenceAt(a, pos) {
     // 二分探索
@@ -470,6 +512,8 @@
       const f = e.fields || {};
       const inner = m.slice(sp.innerStart, sp.innerEnd).replace(/『[^』]*』/g, (s) => T.FILLER.repeat(s.length));
       const methodNote = '（推定話者）';
+      // 前の行の主語から推定したもの（確度が低い）は控えめに出す
+      const weakSev = sp.method === 'context' ? { severity: 'info' } : {};
 
       // 一人称
       if (enabled('first-person') && f.firstPerson && f.firstPerson.trim()) {
@@ -497,7 +541,7 @@
           if (fam.weak) continue;
           add('first-person', pos, pos + pm[0].length,
             `${e.name}${methodNote}の一人称は設定では「${f.firstPerson}」ですが、「${pm[0]}」が使われています`, null,
-            { entryId: e.id });
+            Object.assign({ entryId: e.id }, weakSev));
         }
       }
 
@@ -516,7 +560,7 @@
             if (calls.some((c) => c.length > said.length && m.slice(mt.start, mt.start + c.length) === c)) return;
             add('calls', mt.start, an.end,
               `設定では${e.name}は${nameOf(rel.targetId)}を「${calls.join('／')}」と呼びます（本文：「${said}」）${methodNote}`,
-              calls[0], { entryId: e.id, fixable: false });
+              calls[0], Object.assign({ entryId: e.id, fixable: false }, weakSev));
           });
         });
       }
