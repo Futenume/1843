@@ -969,6 +969,14 @@ ruby rt { font-size: 0.5em; }
   .panel-tabs { -webkit-mask-image: linear-gradient(90deg, #000 86%, transparent); mask-image: linear-gradient(90deg, #000 86%, transparent); padding-right: 24px; }
 }
 
+/* ───── 地図：キー操作の一覧 ───── */
+.kbd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px 24px; }
+.kbd-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.kbd-table td { padding: 3px 6px 3px 0; vertical-align: top; }
+.kbd-table td:first-child { width: 46%; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px;
+  background: var(--surface); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; text-align: center; }
+
 </style>
 </head>
 <body>
@@ -9653,6 +9661,7 @@ ruby rt { font-size: 0.5em; }
       h('div', { class: 'toolbar-group' },
         layersBtn,
         btn('書き出し', { icon: 'image', small: true, title: '画像（PNG）として書き出す', onClick: exportDialog }),
+        btn('', { icon: 'info', ghost: true, title: 'キー操作の一覧（?）', onClick: showShortcuts }),
         btn('', { icon: 'panel', ghost: true, title: 'パネルを表示/隠す', onClick: () => setSheet(!M.layout.classList.contains('sheet-open')) })));
 
     M.toolbar = h('div', { class: 'map-tools', role: 'toolbar', 'aria-label': '地図の道具' });
@@ -9929,7 +9938,14 @@ ruby rt { font-size: 0.5em; }
     if (M.map.stamps.length !== before) { M.drag.changed = true; draw(); }
   }
 
-  function sortStamps() { M.map.stamps.sort((a, b) => a.y - b.y); }
+  /** 素材の描く順：前後の指定（z）→ 奥（上）から手前（下）へ */
+  function sortStamps() { M.map.stamps.sort((a, b) => ((a.z || 0) - (b.z || 0)) || (a.y - b.y)); }
+  function setStampZ(obj, where) {
+    const zs = M.map.stamps.map((x) => x.z || 0);
+    obj.z = where === 'front' ? Math.max(0, ...zs) + 1 : where === 'back' ? Math.min(0, ...zs) - 1 : 0;
+    if (!obj.z) delete obj.z;
+    sortStamps();
+  }
 
   // ───── 元に戻す ─────
   function snapshot() {
@@ -9944,8 +9960,9 @@ ruby rt { font-size: 0.5em; }
     M.H = s.H.slice();
     M.B = s.B.slice();
     Object.assign(m, JSON.parse(s.v));
-    M.sel = [];
-    M.vertex = null;
+    // 元に戻した後も、まだあるものは選んだままにする
+    M.sel = M.sel.filter((x) => findObj(x.k, x.id));
+    if (M.sel.length !== 1) M.vertex = null;
     if (terrainChanged || before !== look(m.style)) renderTerrainFull();
     commit(terrainChanged);
     renderInspector();
@@ -10037,6 +10054,27 @@ ruby rt { font-size: 0.5em; }
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
+  /** キー操作の一覧 */
+  function showShortcuts() {
+    const rows = (list) => h('table', { class: 'kbd-table' }, h('tbody', null, list.map(([k, d]) => h('tr', null,
+      h('td', null, k.split(' / ').map((x, i) => [i ? ' / ' : '', h('kbd', null, x)])), h('td', null, d)))));
+    UI.modal({
+      title: '地図のキー操作',
+      wide: true,
+      body: h('div', { class: 'kbd-grid' },
+        h('section', null, h('h3', { class: 'panel-h' }, '道具'), rows(TOOLS.map((t) => [t.key.toUpperCase(), t.label]))),
+        h('section', null, h('h3', { class: 'panel-h' }, '編集'), rows([
+          ['Ctrl+Z', '元に戻す'], ['Ctrl+Shift+Z / Ctrl+Y', 'やり直す'], ['Ctrl+C / Ctrl+V', 'コピー・貼り付け'], ['Ctrl+D', '複製'],
+          ['Ctrl+A', '素材をすべて選ぶ'], ['Delete', '選んだものを消す'], ['矢印', '1ずつ動かす（Shift で10）'], ['Q / E', '15°ずつ回す'],
+          ['[ / ]', 'ブラシ・素材の大きさ'], ['Esc', '選択や描きかけの線を取り消す'], ['Enter', '描いている線・領域を確定'],
+        ])),
+        h('section', null, h('h3', { class: 'panel-h' }, '表示'), rows([
+          ['ホイール / ピンチ', '拡大・縮小'], ['スペース+ドラッグ', '地図を動かす（中ボタン・2本指でも）'], ['+ / -', '拡大・縮小'], ['0', '全体を表示'], ['?', 'この一覧'],
+        ]), h('p', { class: 'small muted' }, '選んだ素材・文字は、角の四角をドラッグで大きさ、上の丸をドラッグで向きを変えられます（Shift で15°刻み）。'))),
+      actions: [{ label: '閉じる', primary: true }],
+    });
+  }
+
   function onKey(e) {
     if (!M || !M.map) return;
     const tag = (e.target && e.target.tagName) || '';
@@ -10071,6 +10109,7 @@ ruby rt { font-size: 0.5em; }
       draw();
       return;
     }
+    if (e.key === '?') { showShortcuts(); return; }
     if (e.key === '+' || e.key === '=') { zoomBy(1.25); return; }
     if (e.key === '-') { zoomBy(0.8); return; }
     if (e.key === '0') { fit(); return; }
@@ -10177,7 +10216,18 @@ ruby rt { font-size: 0.5em; }
       draw();
       return;
     }
-    // 選択
+    // 選択：まず取っ手（大きさ・向き）
+    const hd = handleAt(w, e.pointerType === 'touch');
+    if (hd) {
+      const o = hd.tb.obj;
+      M.drag = {
+        kind: hd.kind, start: w, moved: false, k: hd.tb.k, id: o.id, cx: hd.tb.cx, cy: hd.tb.cy,
+        d0: Math.max(1e-3, Math.hypot(w.x - hd.tb.cx, w.y - hd.tb.cy)), a0: Math.atan2(w.y - hd.tb.cy, w.x - hd.tb.cx),
+        s0: hd.tb.k === 'stamp' ? o.s : (o.size || (LABEL_STYLES[o.style] || LABEL_STYLES.region).size),
+        r0: hd.tb.deg, snap: snapshot(),
+      };
+      return;
+    }
     const hit = hitTest(w.x, w.y);
     if (hit) {
       const already = M.sel.some((s) => s.k === hit.k && s.id === hit.id);
@@ -10220,7 +10270,36 @@ ruby rt { font-size: 0.5em; }
     }
     M.hover = w;
     const d = M.drag;
-    if (!d) { if (M.draft || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw(); return; }
+    if (!d) {
+      if (PREF.tool === 'select') {
+        const hd = handleAt(w, e.pointerType === 'touch');
+        const cur = hd ? (hd.kind === 'rotate' ? 'grab' : 'nwse-resize') : '';
+        if (M.canvas.style.cursor !== cur) M.canvas.style.cursor = cur;
+      }
+      if (M.draft || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw();
+      return;
+    }
+    if (d.kind === 'scale' || d.kind === 'rotate') {
+      const obj = findObj(d.k, d.id);
+      if (!obj) return;
+      if (!d.moved) {
+        if (Math.hypot(w.x - d.start.x, w.y - d.start.y) * M.zoom < 2) return;
+        d.moved = true;
+        pushUndo(d.snap);
+      }
+      if (d.kind === 'scale') {
+        const f = Math.hypot(w.x - d.cx, w.y - d.cy) / d.d0;
+        if (d.k === 'stamp') obj.s = Math.round(clamp(d.s0 * f, 0.15, 8) * 100) / 100;
+        else obj.size = Math.round(clamp(d.s0 * f, 5, 160) * 10) / 10;
+      } else {
+        let deg = d.r0 + (Math.atan2(w.y - d.cy, w.x - d.cx) - d.a0) * 180 / Math.PI;
+        if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+        deg = ((Math.round(deg) % 360) + 540) % 360 - 180;
+        if (d.k === 'stamp') obj.r = deg; else obj.rotation = clamp(deg, -90, 90); // 文字は逆さまにしない
+      }
+      draw();
+      return;
+    }
     if (d.kind === 'pan') {
       if (Math.hypot(w.sx - d.sx, w.sy - d.sy) > 4) d.moved = true;
       M.ox = d.ox + (w.sx - d.sx);
@@ -10306,6 +10385,9 @@ ruby rt { font-size: 0.5em; }
         M.draft = [f.pts[0]];
         updateHint();
       }
+      draw();
+    } else if (d.kind === 'scale' || d.kind === 'rotate') {
+      if (d.moved) { commit(); renderInspector(); }
       draw();
     } else if (d.kind === 'move') {
       if (d.moved) {
@@ -11180,6 +11262,77 @@ ruby rt { font-size: 0.5em; }
     ctx.restore();
   }
 
+  // ───── 選んだ素材・文字の、大きさと向きの取っ手 ─────
+  /** 1つだけ選んでいる素材・文字の外枠（回転を含む）と取っ手の位置（ワールド座標） */
+  function transformBox() {
+    if (M.sel.length !== 1) return null;
+    const { k, obj } = selObjs()[0] || {};
+    if (!obj || (k !== 'stamp' && k !== 'label') || layerLocked(layerOf(k))) return null;
+    let cx; let cy; let x0; let y0; let x1; let y1; let deg;
+    if (k === 'stamp') {
+      const sp = AS.sprite(obj.a, obj.v, palKey());
+      cx = obj.x; cy = obj.y; deg = obj.r || 0;
+      x0 = obj.f ? -(sp.x0 + sp.w) * obj.s : sp.x0 * obj.s;
+      x1 = obj.f ? -sp.x0 * obj.s : (sp.x0 + sp.w) * obj.s;
+      y0 = sp.y0 * obj.s; y1 = (sp.y0 + sp.h) * obj.s;
+    } else {
+      const box = M.labelBoxes.get(obj.id);
+      if (!box) return null;
+      cx = obj.x; cy = obj.y + (box.cy || 0); deg = obj.rotation || 0;
+      x0 = -box.w / 2; x1 = box.w / 2; y0 = -box.h / 2; y1 = box.h / 2;
+    }
+    const z = M.zoom;
+    const pad = 3 / z;
+    x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+    const a = deg * Math.PI / 180;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const tw = (lx, ly) => [cx + lx * ca - ly * sa, cy + lx * sa + ly * ca];
+    return {
+      k, obj, cx, cy, deg,
+      corners: [tw(x0, y0), tw(x1, y0), tw(x1, y1), tw(x0, y1)],
+      rot: tw((x0 + x1) / 2, y0 - 22 / z),
+      rotBase: tw((x0 + x1) / 2, y0),
+    };
+  }
+
+  /** 取っ手の上か（touch は少し広め） */
+  function handleAt(w, touch) {
+    const tb = transformBox();
+    if (!tb) return null;
+    const tol = (touch ? 16 : 8) / M.zoom;
+    if (Math.hypot(w.x - tb.rot[0], w.y - tb.rot[1]) <= tol) return { kind: 'rotate', tb };
+    for (let i = 0; i < 4; i++) {
+      if (Math.hypot(w.x - tb.corners[i][0], w.y - tb.corners[i][1]) <= tol) return { kind: 'scale', tb, corner: i };
+    }
+    return null;
+  }
+
+  function drawHandles(ctx) {
+    const tb = transformBox();
+    if (!tb) return;
+    const z = M.zoom;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.4 / z;
+    ctx.strokeStyle = '#2f6fed';
+    ctx.beginPath();
+    ctx.moveTo(tb.rotBase[0], tb.rotBase[1]);
+    ctx.lineTo(tb.rot[0], tb.rot[1]);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(tb.rot[0], tb.rot[1], 5 / z, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    tb.corners.forEach((c) => {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(c[0] - 4 / z, c[1] - 4 / z, 8 / z, 8 / z);
+      ctx.strokeRect(c[0] - 4 / z, c[1] - 4 / z, 8 / z, 8 / z);
+    });
+    ctx.restore();
+  }
+
   function drawOverlay(ctx) {
     const z = M.zoom;
     ctx.save();
@@ -11192,7 +11345,8 @@ ruby rt { font-size: 0.5em; }
         ctx.save();
         ctx.translate(obj.x, obj.y);
         if (obj.r) ctx.rotate(obj.r * Math.PI / 180);
-        ctx.strokeRect(sp.x0 * obj.s - 2 / z, sp.y0 * obj.s - 2 / z, sp.w * obj.s + 4 / z, sp.h * obj.s + 4 / z);
+        const bx = obj.f ? -(sp.x0 + sp.w) * obj.s : sp.x0 * obj.s;
+        ctx.strokeRect(bx - 2 / z, sp.y0 * obj.s - 2 / z, sp.w * obj.s + 4 / z, sp.h * obj.s + 4 / z);
         ctx.restore();
       } else if (k === 'label') {
         const box = M.labelBoxes.get(obj.id);
@@ -11220,6 +11374,7 @@ ruby rt { font-size: 0.5em; }
       }
     });
     ctx.setLineDash([]);
+    if (!M.drag || M.drag.kind === 'scale' || M.drag.kind === 'rotate') drawHandles(ctx);
     if (M.drag && M.drag.kind === 'box') {
       const d = M.drag;
       const x = Math.min(d.start.x, d.end.x);
@@ -11382,10 +11537,37 @@ ruby rt { font-size: 0.5em; }
     if (t.id === 'stamp') {
       const cats = AS.CATEGORIES;
       if (!cats.includes(PREF.stamp.cat)) PREF.stamp.cat = cats[0];
+      const pick = (id) => {
+        PREF.stamp.a = id;
+        // 最近使った素材（先頭に）
+        PREF.recent = [id].concat((PREF.recent || []).filter((x) => x !== id && AS.BY_ID[x])).slice(0, 8);
+        savePref();
+        renderInspector();
+      };
+      const gridBox = h('div');
+      const showGrid = () => {
+        clear(gridBox);
+        const q = (M.assetQ || '').trim();
+        if (q) {
+          const qs = q.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+          const hits = AS.ASSETS.filter((a) => (a.label + ' ' + a.cat + ' ' + a.id).indexOf(q) >= 0 || a.label.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).indexOf(qs) >= 0);
+          gridBox.appendChild(hits.length ? assetGrid(hits.map((a) => a.id), PREF.stamp.a, pick) : h('p', { class: 'small muted' }, '見つかりません'));
+        } else {
+          gridBox.appendChild(assetGrid(AS.ASSETS.filter((a) => a.cat === PREF.stamp.cat).map((a) => a.id), PREF.stamp.a, pick));
+        }
+      };
+      const search = h('input', {
+        class: 'input', type: 'search', placeholder: '素材を探す（例：城、木、塔）', value: M.assetQ || '', 'aria-label': '素材を探す',
+        oninput: (e) => { M.assetQ = e.target.value; showGrid(); },
+      });
+      parts.push(search);
+      const recent = (PREF.recent || []).filter((x) => AS.BY_ID[x]);
+      if (recent.length) parts.push(h('div', { class: 'small muted' }, '最近使った素材'), assetGrid(recent, PREF.stamp.a, pick));
       parts.push(h('div', { class: 'chips' }, cats.map((c) => h('button', {
-        type: 'button', class: 'chip' + (PREF.stamp.cat === c ? ' active' : ''), onclick: () => { PREF.stamp.cat = c; savePref(); renderInspector(); },
+        type: 'button', class: 'chip' + (PREF.stamp.cat === c && !(M.assetQ || '').trim() ? ' active' : ''), onclick: () => { PREF.stamp.cat = c; M.assetQ = ''; savePref(); renderInspector(); },
       }, c))));
-      parts.push(assetGrid(AS.ASSETS.filter((a) => a.cat === PREF.stamp.cat).map((a) => a.id), PREF.stamp.a, (id) => { PREF.stamp.a = id; savePref(); renderInspector(); }));
+      showGrid();
+      parts.push(gridBox);
       parts.push(UI.field('大きさ（[ ]）', range(PREF.stamp.s, 0.2, 4, 0.05, (v) => { PREF.stamp.s = v; savePref(); draw(); }, (v) => Math.round(v * 100) + '%')));
       parts.push(UI.field('回転（Q / E）', range(PREF.stamp.r, 0, 345, 15, (v) => { PREF.stamp.r = v; savePref(); draw(); }, (v) => v + '°')));
       parts.push(h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: PREF.stamp.randVar, onchange: (e) => { PREF.stamp.randVar = e.target.checked; savePref(); } }), '置くたびに形を少し変える'));
@@ -11463,7 +11645,11 @@ ruby rt { font-size: 0.5em; }
       parts.push(UI.field('回転', range(obj.r || 0, 0, 359, 1, (v) => { beginEdit(); obj.r = v; changed(); }, (v) => v + '°')));
       parts.push(h('div', { class: 'row wrap' },
         btn('左右反転', { icon: 'flip', small: true, onClick: () => { beginEdit(); obj.f = !obj.f; changed(); } }),
-        a.variants > 1 ? btn('形を変える', { icon: 'dice', small: true, onClick: () => { beginEdit(); obj.v = ((obj.v || 0) + 1) % a.variants; changed(); } }) : null));
+        a.variants > 1 ? btn('形を変える', { icon: 'dice', small: true, onClick: () => { beginEdit(); obj.v = ((obj.v || 0) + 1) % a.variants; changed(); } }) : null),
+      h('div', { class: 'row wrap' },
+        btn('最前面へ', { icon: 'up', small: true, ghost: true, title: 'ほかの素材より手前に描く', onClick: () => { beginEdit(); setStampZ(obj, 'front'); changed(true); } }),
+        btn('最背面へ', { icon: 'down', small: true, ghost: true, title: 'ほかの素材より奥に描く', onClick: () => { beginEdit(); setStampZ(obj, 'back'); changed(true); } }),
+        obj.z ? btn('前後を自動に戻す', { small: true, ghost: true, title: '上にあるものほど奥に描く、ふつうの順に戻す', onClick: () => { beginEdit(); setStampZ(obj, 'auto'); changed(true); } }) : null));
       const places = p.entries.filter((x) => x.type === 'place');
       parts.push(UI.field('設定資料とつなぐ', h('select', {
         class: 'input', onchange: (e) => { beginEdit(); obj.entryId = e.target.value; changed(true); },
@@ -11557,7 +11743,7 @@ ruby rt { font-size: 0.5em; }
           const fresh = E.autoStamps(m, M.H, M.B, (m.seed || 1) + Date.now() % 997);
           const want = (a) => (MOUNTAINS.has(a) ? chM.checked : NATURE.has(a) ? chT.checked : false);
           m.stamps = m.stamps.filter((x) => !want(x.a)).concat(fresh.filter((x) => want(x.a)));
-          m.stamps.sort((a, b) => a.y - b.y);
+          sortStamps();
           M.sel = [];
           commit();
           draw();
