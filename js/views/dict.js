@@ -78,9 +78,9 @@
   // ───── 作品の中 ─────
   function inWork(q, p) {
     if (!p || !q) return null;
-    const entries = p.entries.filter((e) => e.name.indexOf(q) >= 0 || (e.reading || '').indexOf(q) >= 0 || e.aliases.some((a) => a.indexOf(q) >= 0) || (q.length >= 2 && e.name.indexOf(q) < 0 && Object.values(e.fields || {}).some((v) => typeof v === 'string' && v.indexOf(q) >= 0)));
+    const entries = p.entries.filter((e) => (e.name || '').indexOf(q) >= 0 || (e.reading || '').indexOf(q) >= 0 || (e.aliases || []).some((a) => String(a).indexOf(q) >= 0) || (q.length >= 2 && Object.values(e.fields || {}).some((v) => typeof v === 'string' && v.indexOf(q) >= 0)));
     const readings = NS.Readings ? NS.Readings.collect(p).filter((r) => r.base.indexOf(q) >= 0 || NS.Readings.normReading(r.reading).indexOf(NS.Readings.normReading(q)) >= 0) : [];
-    const ideas = p.ideas.filter((i) => (i.body + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0).slice(0, 6);
+    const ideas = p.ideas.filter((i) => ((i.body || '') + ' ' + (i.word || '') + ' ' + (i.reading || '')).indexOf(q) >= 0).slice(0, 6);
     const chapters = [];
     p.chapters.forEach((c, i) => {
       const text = c.body || '';
@@ -157,7 +157,7 @@
           parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, '登録した読み方'),
             h('div', { class: 'reading-list' }, w.readings.map((r) => h('div', { class: 'reading-row static', html: NS.Text.rubyToHtml('|' + r.base + '《' + r.reading + '》', { vertical: false }) })))));
         }
-        w.ideas.forEach((i) => parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, 'アイデア帳・' + (i.kind || 'アイデア')), h('div', { class: 'small' }, (i.word ? i.word + '《' + i.reading + '》 ' : '') + i.body.split('\n')[0]))));
+        w.ideas.forEach((i) => parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, 'アイデア帳・' + (i.kind || 'アイデア')), h('div', { class: 'small' }, (i.word ? i.word + '《' + (i.reading || '') + '》 ' : '') + (i.body || '').split('\n')[0]))));
         if (w.chapters.length) {
           parts.push(h('div', { class: 'dict-item' }, h('div', { class: 'small muted' }, `本文での使用（全${w.chapters.reduce((a, x) => a + x.n, 0)}回）`),
             h('div', { class: 'chips' }, w.chapters.slice(0, 30).map((x) => h('button', {

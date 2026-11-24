@@ -447,7 +447,7 @@
       });
     }
 
-    if (enabled('hyouki')) checkHyouki(m, add, opts.corpus);
+    if (enabled('hyouki')) checkHyouki(m, add, opts.corpus, text || '');
 
     if (enabled('style-rule') && Array.isArray(opts.styleRules)) {
       opts.styleRules.forEach((r) => {
@@ -614,22 +614,42 @@
     }
   }
 
-  function countVariants(group, texts) {
-    return group.variants.map((v) => {
-      let n = 0;
-      texts.forEach((t) => {
+  /** 文字列ごとの集計結果を覚えておく（長編で毎回全話を数え直さないため） */
+  function memo(limit) {
+    const cache = new Map();
+    return (key, fn) => {
+      if (cache.has(key)) {
+        const hit = cache.get(key);
+        cache.delete(key); // 最近使ったものを後ろへ（古いものから捨てる）
+        cache.set(key, hit);
+        return hit;
+      }
+      const v = fn();
+      if (cache.size >= limit) cache.delete(cache.keys().next().value);
+      cache.set(key, v);
+      return v;
+    };
+  }
+  const hyoukiMemo = memo(400);
+  const rubyMemo = memo(400);
+
+  /** 1つの文章での表記ゆれの各形の出現数（グループ順の配列） */
+  function hyoukiCounts(t) {
+    return hyoukiMemo(t, () => {
+      const masked = T.maskRuby(t || '');
+      return HYOUKI_GROUPS.map((g) => g.variants.map((v) => {
         v.re.lastIndex = 0;
-        const mm = t.match(v.re);
-        if (mm) n += mm.length;
-      });
-      return n;
+        const mm = masked.match(v.re);
+        return mm ? mm.length : 0;
+      }));
     });
   }
 
-  function checkHyouki(m, add, corpus) {
-    const texts = Array.isArray(corpus) && corpus.length ? corpus.map((t) => T.maskRuby(t || '')) : [m];
-    HYOUKI_GROUPS.forEach((g) => {
-      const counts = countVariants(g, texts);
+  function checkHyouki(m, add, corpus, text) {
+    const texts = Array.isArray(corpus) && corpus.length ? corpus : [text];
+    const per = texts.map(hyoukiCounts);
+    HYOUKI_GROUPS.forEach((g, gi) => {
+      const counts = g.variants.map((_, vi) => per.reduce((a, c) => a + c[gi][vi], 0));
       const used = counts.filter((n) => n > 0).length;
       if (used < 2) return;
       let best = 0;
@@ -653,12 +673,16 @@
     const reg = opts.readings instanceof Map ? opts.readings : R.index(opts.readings || []);
     const corpusR = new Map();
     (Array.isArray(opts.corpus) && opts.corpus.length ? opts.corpus : [text]).forEach((t) => {
-      R.findRubies(t || '').forEach((r) => {
-        if (!r.reading.trim()) return;
-        const n = R.normReading(r.reading);
-        if (!corpusR.has(r.base)) corpusR.set(r.base, new Map());
-        const mm = corpusR.get(r.base);
-        const v = mm.get(n) || { count: 0, reading: r.reading };
+      // 文章ごとの「親文字→読み→回数」を覚えておき、足し合わせる
+      const local = rubyMemo(t || '', () => {
+        const out = [];
+        R.findRubies(t || '').forEach((r) => { if (r.reading.trim()) out.push([r.base, R.normReading(r.reading), r.reading]); });
+        return out;
+      });
+      local.forEach(([base, n, reading]) => {
+        if (!corpusR.has(base)) corpusR.set(base, new Map());
+        const mm = corpusR.get(base);
+        const v = mm.get(n) || { count: 0, reading };
         v.count++;
         mm.set(n, v);
       });
