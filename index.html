@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>綴り 小説執筆スタジオ</title>
+<meta name="description" content="小説だけに特化した執筆アプリ。添削、設定資料と設定矛盾チェック、アイデア帳、プロットボード、空想地図をひとつに。">
+<meta name="theme-color" content="#f4f1ea">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233a5a9b'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' fill='white' font-family='serif'%3E綴%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <nav id="sidebar" aria-label="メインメニュー"></nav>
+  <div id="main">
+    <header id="topbar">
+      <div id="project-title" class="project-title"></div>
+      <div id="view-title" class="view-title"></div>
+      <div id="top-actions" class="top-actions"></div>
+    </header>
+    <main id="view" class="view"></main>
+  </div>
+</div>
+<noscript><p style="padding:16px">このアプリを使うには JavaScript を有効にしてください。</p></noscript>
+<script src="js/textstats.js"></script>
+<script src="js/proofread.js"></script>
+<script src="js/consistency.js"></script>
+<script src="js/mapengine.js"></script>
+<script src="js/util.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+<script src="js/views/editor.js"></script>
+<script src="js/views/lore.js"></script>
+<script src="js/views/ideas.js"></script>
+<script src="js/views/map.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/sample.js"></script>
+</body>
+</html>

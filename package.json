@@ -1,0 +1,12 @@
+{
+  "name": "tsuzuri",
+  "version": "1.0.0",
+  "description": "綴り — 小説だけに特化した執筆アプリ（添削・設定資料・設定矛盾チェック・アイデア帳・プロット・空想地図）",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/engines.test.js",
+    "build": "node tools/build.mjs",
+    "serve": "python3 -m http.server 8765",
+    "e2e": "node tests/e2e-smoke.js"
+  }
+}
