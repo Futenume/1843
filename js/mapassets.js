@@ -1366,10 +1366,14 @@
 
   // ───── 画像キャッシュ ─────
   const cache = new Map();
-  function sprite(id, variant, palKey) {
+  /** 大きく置いた素材は、線が太くなりすぎないよう細めの線で描いた版を使う（段階ごとに保存） */
+  function lineScaleFor(s) { return s >= 1.75 ? 0.68 : s >= 1.3 ? 0.82 : 1; }
+
+  function sprite(id, variant, palKey, lineScale) {
     const a = BY_ID[id] || BY_ID['sym-pin'];
     const v = Math.max(0, (variant | 0) % a.variants);
-    const key = a.id + ':' + v + ':' + palKey;
+    const lk = lineScale && lineScale !== 1 ? lineScale : 1;
+    const key = a.id + ':' + v + ':' + palKey + (lk !== 1 ? ':' + lk : '');
     let sp = cache.get(key);
     if (sp) return sp;
     const [x0, y0, x1, y1] = a.box;
@@ -1384,8 +1388,13 @@
     ctx.translate(-x0, -y0);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    // 線の太さだけを変える（形は同じ乱数で同じに描く）
+    const target = lk === 1 ? ctx : new Proxy(ctx, {
+      get(t, k) { const val = t[k]; return typeof val === 'function' ? val.bind(t) : val; },
+      set(t, k, val) { t[k] = k === 'lineWidth' ? val * lk : val; return true; },
+    });
     try {
-      a.draw(ctx, mulberry32(hashStr(a.id) + v * 7919 + 13), COLORS[palKey] || COLORS.parchment);
+      a.draw(target, mulberry32(hashStr(a.id) + v * 7919 + 13), COLORS[palKey] || COLORS.parchment);
     } catch (e) { console.error('asset', a.id, e); }
     sp = { canvas: c, x0, y0, w, h };
     cache.set(key, sp);
@@ -1415,5 +1424,6 @@
     return c;
   }
 
-  NS.MapAssets = { ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr };
+  NS.MapAssets = {
+    lineScaleFor, ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr };
 })(window.Tsuzuri = window.Tsuzuri || {});

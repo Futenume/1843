@@ -119,9 +119,10 @@
     const seed = h('input', { class: 'input input-num', type: 'number', value: Math.floor(Math.random() * 99999) });
     const autoB = h('input', { type: 'checkbox', checked: true });
     const autoS = h('input', { type: 'checkbox', checked: true });
+    const autoR = h('input', { type: 'checkbox', checked: true });
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: 195, 'aria-label': 'プレビュー' });
     const drawPreview = () => {
-      const tmp = E.newMap('p', { preset: preset.value, size: 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, compass: false });
+      const tmp = E.newMap('p', { preset: preset.value, size: 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, compass: false });
       const n = tmp.gw * tmp.gh;
       const H = E.decodeHeights(tmp.height, n);
       const B = E.decodeBiomes(tmp.biome, n);
@@ -131,6 +132,20 @@
       E.renderTerrain(tmp, H, B, img, 0, 0, preview.width, preview.height, res);
       ctx.putImageData(img, 0, 0);
       const pk = E.PALETTES[palette.value].assets;
+      // 川（見本なので簡単に）
+      const plt = E.PALETTES[palette.value];
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      tmp.lines.forEach((ln) => {
+        ctx.strokeStyle = `rgb(${plt.coast.join(',')})`;
+        ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res * 1.6;
+        ctx.beginPath();
+        ln.points.forEach((pt, i) => (i ? ctx.lineTo(pt[0] * res, pt[1] * res) : ctx.moveTo(pt[0] * res, pt[1] * res)));
+        ctx.stroke();
+        ctx.strokeStyle = `rgb(${plt.shallow.join(',')})`;
+        ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res;
+        ctx.stroke();
+      });
       tmp.stamps.forEach((st) => {
         const sp = AS.sprite(st.a, st.v, pk);
         const k = st.s * res;
@@ -140,7 +155,7 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     };
     const redraw = UI.debounce(drawPreview, 150);
-    [preset, palette, land, seed, autoB, autoS].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+    [preset, palette, land, seed, autoB, autoS, autoR].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
     UI.modal({
       title: regenerate ? '地形を作り直す' : '新しい地図', wide: true,
       body: h('div', { class: 'gen-dialog' },
@@ -151,7 +166,8 @@
           UI.field('陸の割合', h('div', { class: 'row' }, land, landOut)),
           UI.field('シード（同じ数なら同じ地形）', h('div', { class: 'row' }, seed, btn('', { icon: 'dice', ghost: true, title: 'ランダム', onClick: () => { seed.value = Math.floor(Math.random() * 99999); drawPreview(); } }))),
           h('label', { class: 'check' }, autoB, '地面（森・砂漠・雪原など）を自動で塗る'),
-          h('label', { class: 'check' }, autoS, '山・丘・森の素材を自動で置く')),
+          h('label', { class: 'check' }, autoS, '山・丘・森の素材を自動で置く'),
+          h('label', { class: 'check' }, autoR, '川を自動で引く（山から海へ）')),
         h('div', { class: 'gen-preview-wrap' }, preview, h('p', { class: 'muted small' }, 'プレビュー'))),
       actions: [
         { label: 'キャンセル', ghost: true },
@@ -165,7 +181,12 @@
             m.seed = sd;
             const natural = new Set(['山・丘', '木・植物']);
             m.stamps = m.stamps.filter((st) => !(AS.BY_ID[st.a] && natural.has(AS.BY_ID[st.a].cat) && !st.name));
-            if (autoS.checked) m.stamps = m.stamps.concat(E.autoStamps(m, M.H, M.B, sd)).sort((a, b) => a.y - b.y);
+            if (autoR.checked) {
+              // 名前のない川は新しい地形に合わせて引き直す
+              m.lines = m.lines.filter((ln) => !((ln.kind === 'river' || ln.kind === 'stream') && !ln.name)).concat(E.autoRivers(m, M.H, sd));
+            }
+            if (autoS.checked) m.stamps = m.stamps.concat(E.autoStamps(m, M.H, M.B, sd));
+            sortStamps();
             m.style.palette = palette.value;
             M.sel = [];
             renderTerrainFull();
@@ -173,7 +194,7 @@
             renderInspector();
             return;
           }
-          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked });
+          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked });
           P().maps.push(m);
           NS.App.touch();
           NS.App.navigate('map', { id: m.id });
@@ -1323,7 +1344,7 @@
       const pk = palKey();
       for (const s of m.stamps) {
         if (s.x < vis.x0 || s.x > vis.x1 || s.y < vis.y0 || s.y > vis.y1 + 40) continue;
-        const sp = AS.sprite(s.a, s.v, pk);
+        const sp = AS.sprite(s.a, s.v, pk, AS.lineScaleFor(s.s));
         const k = S * s.s;
         const fx = s.f ? -1 : 1;
         if (s.r) {

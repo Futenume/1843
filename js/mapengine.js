@@ -416,7 +416,27 @@
     const Hpx = gh * cell;
     const rnd = mulberry32(((seed >>> 0) || 1) + 31337);
     const out = [];
-    const put = (a, x, y, s) => out.push({ id: sid(), a, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, s: Math.round(s * 100) / 100, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 8) });
+    // 川の上には木や山を置かない（川が隠れないように）
+    const wet = new Uint8Array(gw * gh);
+    (map.lines || []).forEach((ln) => {
+      if (ln.kind !== 'river' && ln.kind !== 'stream') return;
+      for (let i = 0; i + 1 < ln.points.length; i++) {
+        const [ax, ay] = ln.points[i];
+        const [bx, by] = ln.points[i + 1];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (cell * 0.5)));
+        for (let k = 0; k <= steps; k++) {
+          const cx = Math.floor((ax + (bx - ax) * k / steps) / cell);
+          const cy = Math.floor((ay + (by - ay) * k / steps) / cell);
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const x = cx + dx;
+            const y = cy + dy;
+            if (x >= 0 && y >= 0 && x < gw && y < gh) wet[y * gw + x] = 1;
+          }
+        }
+      }
+    });
+    const onRiver = (x, y) => wet[Math.max(0, Math.min(gh - 1, Math.floor(y / cell))) * gw + Math.max(0, Math.min(gw - 1, Math.floor(x / cell)))] === 1;
+    const put = (a, x, y, s) => { if (onRiver(x, y)) return; out.push({ id: sid(), a, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, s: Math.round(s * 100) / 100, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 8) }); };
     // 山：高い所から順に、大きさに合わせて間隔をあけて置く（主峰ほど大きく、裾へ向かって小さく）
     const placed = [];
     const GS = 40;
@@ -457,7 +477,15 @@
         // 谷筋や、ところどころ（ゆるやかなノイズで決める）は山を置かず、連なりの間に切れ目を作る
         if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.32) && rnd() < 0.75) continue;
         const t = Math.min(1, (c.h - 0.42) / 0.45);
-        const sc = 0.75 + t * 1.15 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
+        let sc = 0.75 + t * 1.15 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
+        // 小さな島などでは、裾が海にはみ出さない大きさまで縮める
+        const fits = (k) => {
+          const w = 15 * k;
+          const pts = [[-w, 0], [w, 0], [-w * 0.55, -w * 0.5], [w * 0.55, -w * 0.5], [0, -w * 0.9], [0, 2]];
+          return pts.every(([dx, dy]) => sampleH(H, gw, gh, cell, c.x + dx, c.y + dy) > 0.03);
+        };
+        while (sc > 0.6 && !fits(sc)) sc *= 0.86;
+        if (sc <= 0.6 && !fits(sc)) continue;
         const r = 14 * sc;
         // 横方向は重なりを少なく、縦方向（手前と奥）は少し重ねて奥行きを出す
         if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.74)) continue;
@@ -468,6 +496,7 @@
       } else if (c.h <= 0.42 && rnd() < 0.35) {
         // 裾野の丘
         const sc = 0.8 + rnd() * 0.35;
+        if (sampleH(H, gw, gh, cell, c.x - 13 * sc, c.y) <= 0.03 || sampleH(H, gw, gh, cell, c.x + 13 * sc, c.y) <= 0.03) continue;
         const r = 12 * sc;
         if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.5) < (r + q.r) * (q.kind === 'm' ? 0.7 : 0.95))) continue;
         put('hill', c.x, c.y, sc);
@@ -565,9 +594,152 @@
       style: defaultStyle(opts.palette), layers: defaultLayers(),
       createdAt: Date.now(), updatedAt: Date.now(),
     };
+    if (opts.rivers !== false && !PRESETS[opts.preset || 'continent'].blank) map.lines = autoRivers(map, H, seed);
     if (opts.stamps !== false) map.stamps = autoStamps(map, H, B, seed);
     if (opts.compass !== false) map.stamps.push({ id: sid(), a: 'compass', x: gw * cell - 56, y: 68, s: 1, r: 0, f: false, v: 0 });
     return map;
+  }
+
+  /**
+   * 川を自動で引く：高い所から、いちばん低い隣へと下っていき、海（や湖）に着いたものだけを残す。
+   * 途中で別の川に合流したら、そこで終わる（支流）。戻り値は川の線（ワールド座標）の配列。
+   */
+  function autoRivers(map, H, seed, count) {
+    const { gw, gh, cell } = map;
+    const rnd = mulberry32(((seed >>> 0) || 1) + 7177);
+    const n = gw * gh;
+    const owner = new Int32Array(n).fill(-1);
+    // 細かな凸凹で川が迷わないよう、なめらかにした高さで流れを決める（海かどうかは元の高さで見る）
+    const Hs = new Float32Array(n);
+    {
+      const R = 2;
+      const tmp = new Float32Array(n);
+      for (let y = 0; y < gh; y++) {
+        let acc = 0; let cnt = 0;
+        for (let x = -R; x < gw + R; x++) {
+          if (x + R < gw) { acc += H[y * gw + x + R]; cnt++; }
+          if (x - R - 1 >= 0) { acc -= H[y * gw + x - R - 1]; cnt--; }
+          if (x >= 0 && x < gw) tmp[y * gw + x] = acc / cnt;
+        }
+      }
+      for (let x = 0; x < gw; x++) {
+        let acc = 0; let cnt = 0;
+        for (let y = -R; y < gh + R; y++) {
+          if (y + R < gh) { acc += tmp[(y + R) * gw + x]; cnt++; }
+          if (y - R - 1 >= 0) { acc -= tmp[(y - R - 1) * gw + x]; cnt--; }
+          if (y >= 0 && y < gh) Hs[y * gw + x] = acc / cnt;
+        }
+      }
+    }
+    const sources = [];
+    for (let i = 0; i < 4000 && sources.length < 400; i++) {
+      const x = 2 + Math.floor(rnd() * (gw - 4));
+      const y = 2 + Math.floor(rnd() * (gh - 4));
+      const h = H[y * gw + x];
+      if (h > 0.5 && h < 0.85) sources.push({ x, y, h });
+    }
+    sources.sort((a, b) => b.h - a.h);
+    const want = count || Math.max(3, Math.round((gw * gh) / 9000));
+    const rivers = [];
+    const picked = [];
+    const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (const src of sources) {
+      if (rivers.length >= want) break;
+      if (picked.some((q) => Math.hypot(q.x - src.x, q.y - src.y) < Math.max(gw, gh) * 0.12)) continue;
+      const path = [[src.x, src.y]];
+      const seen = new Set([src.y * gw + src.x]);
+      let x = src.x;
+      let y = src.y;
+      let ok = false;
+      let joined = -1;
+      for (let step = 0; step < gw * 3; step++) {
+        let best = null;
+        let bestH = Infinity;
+        for (const [dx, dy] of N8) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 1 || ny < 1 || nx >= gw - 1 || ny >= gh - 1) continue;
+          const k = ny * gw + nx;
+          if (seen.has(k)) continue;
+          // 少しだけ揺らぎを入れて、まっすぐになりすぎないようにする
+          const hv = Hs[k] + (rnd() - 0.5) * 0.004 + (dx && dy ? 0.001 : 0);
+          if (hv < bestH) { bestH = hv; best = [nx, ny, k]; }
+        }
+        if (!best) break;
+        // 窪地で上りになる場合も、少しなら越える（それ以上は諦める）
+        if (bestH > Hs[y * gw + x] + 0.04) break;
+        [x, y] = best;
+        seen.add(best[2]);
+        path.push([x, y]);
+        if (H[best[2]] <= 0) { ok = true; break; }
+        if (owner[best[2]] >= 0) { ok = true; joined = owner[best[2]]; break; }
+      }
+      if (!ok || path.length < 14) continue;
+      // 行きつ戻りつした輪（近くに戻ってくる部分）を切り取る
+      for (let i = 0; i < path.length; i++) {
+        let cut = -1;
+        for (let j = path.length - 1; j > i + 2; j--) {
+          if (Math.abs(path[j][0] - path[i][0]) <= 1 && Math.abs(path[j][1] - path[i][1]) <= 1) { cut = j; break; }
+        }
+        if (cut > 0) path.splice(i + 1, cut - i - 1);
+      }
+      if (path.length < 10) continue;
+      const id = rivers.length;
+      path.forEach(([px, py]) => { owner[py * gw + px] = id; });
+      picked.push(src);
+      // 角ばった格子の道を間引き（RDP）、角を丸めて（Chaikin）なめらかな線にする
+      const simp = rdp(path, 0.9);
+      let pts = simp;
+      for (let it = 0; it < 2; it++) {
+        const q = [pts[0]];
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[i + 1];
+          q.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+        }
+        q.push(pts[pts.length - 1]);
+        pts = q;
+      }
+      // 間隔をおよそ2マスごとに整える
+      const thin = [pts[0]];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const l = thin[thin.length - 1];
+        if (Math.hypot(pts[i][0] - l[0], pts[i][1] - l[1]) >= 2) thin.push(pts[i]);
+      }
+      thin.push(pts[pts.length - 1]);
+      const world = thin.map(([px, py]) => [Math.round((px + 0.5) * cell * 10) / 10, Math.round((py + 0.5) * cell * 10) / 10]);
+      // 海側の端は、少し海の中まで伸ばす（海岸で切れて自然に流れ込む）
+      if (joined < 0) {
+        const a = world[world.length - 2];
+        const b = world[world.length - 1];
+        world.push([Math.round((b[0] + (b[0] - a[0]) * 0.6) * 10) / 10, Math.round((b[1] + (b[1] - a[1]) * 0.6) * 10) / 10]);
+      }
+      rivers.push({ id: sid(), kind: joined >= 0 ? 'stream' : 'river', points: world, name: '', w: joined >= 0 ? 1.15 : 1.5 + rnd() * 0.5, wobble: 0.3 });
+    }
+    return rivers;
+  }
+
+  /** 折れ線の間引き（Ramer–Douglas–Peucker） */
+  function rdp(pts, eps) {
+    if (pts.length < 3) return pts.slice();
+    const keep = new Uint8Array(pts.length);
+    keep[0] = 1;
+    keep[pts.length - 1] = 1;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const [ax, ay] = pts[a];
+      const [bx, by] = pts[b];
+      const L = Math.hypot(bx - ax, by - ay) || 1;
+      let md = 0;
+      let mi = -1;
+      for (let i = a + 1; i < b; i++) {
+        const d = Math.abs((bx - ax) * (ay - pts[i][1]) - (ax - pts[i][0]) * (by - ay)) / L;
+        if (d > md) { md = d; mi = i; }
+      }
+      if (md > eps && mi > 0) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }
+    }
+    return pts.filter((_, i) => keep[i]);
   }
 
   /** 古い形式の地図（地点・自動の山記号）を新しい形式に直す */
@@ -621,6 +793,6 @@
 
   NS.MapEngine = {
     BIOMES, PALETTES, PRESETS, SIZES, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
-    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, findLand, pickRes, sampleH, defaultStyle, sid,
+    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
