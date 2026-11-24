@@ -10913,9 +10913,9 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     M.sceneTimer = setTimeout(() => {
       if (!M) return;
       M.sceneTimer = 0;
-      if (M.navigating) { scheduleSceneBuild(); return; }
-      const cap = sceneCap();
-      if (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - cap) > 1e-6) buildScene(cap);
+      if (M.navigating || (M.drag && M.drag.kind !== 'pan') || M.job) { scheduleSceneBuild(); return; }
+      const cs = Math.min(M.dpr * M.zoom, sceneCap());
+      if (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - cs) > 1e-6) { buildScene(cs); draw(true); }
     }, 260);
   }
 
@@ -10928,8 +10928,10 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     const view = { scale: S, tx: M.dpr * M.ox, ty: M.dpr * M.oy, w: M.canvas.width, h: M.canvas.height, editing: true };
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, M.canvas.width, M.canvas.height);
+    // ブラシや移動で中身が変わり続けている間は、見えている所だけを直接描く（場面の画像は後で作る）
+    const editingLive = !!(M.drag && ['stroke', 'move', 'scale', 'rotate', 'freehand'].includes(M.drag.kind)) || !!M.job;
     // 全体が場面の画像に収まる倍率なら、ちょうどの細かさで作り直して使う
-    if (!M.navigating && S <= cap + 1e-6 && (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - S) > 1e-6)) buildScene(S);
+    if (!editingLive && !M.navigating && S <= cap + 1e-6 && (M.sceneDirty || !M.scene || Math.abs(M.scene.scale - S) > 1e-6)) buildScene(S);
     const useScene = M.scene && !M.sceneDirty && (M.navigating || M.scene.scale >= S - 1e-6);
     if (useScene) {
       // 地図の下の影と、場面の画像
@@ -10944,7 +10946,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
       ctx.drawImage(M.scene.canvas, view.tx, view.ty, M.W * S, M.Hpx * S);
     } else {
       renderMap(ctx, view);
-      if (S > cap) scheduleSceneBuild();
+      if (S > cap || editingLive) scheduleSceneBuild();
     }
     ctx.setTransform(S, 0, 0, S, view.tx, view.ty);
     drawOverlay(ctx);
