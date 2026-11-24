@@ -3531,10 +3531,18 @@ ruby rt { font-size: 0.5em; }
   }
 
   /** 地面の質感（色を少し変える） */
+  /** 拡大しても四角い模様が見えにくいノイズ（向きを変えた2つの値ノイズを重ねる） */
+  function tnoise(x, y) {
+    const a = vnoise(x, y);
+    const b = vnoise(x * 0.866 - y * 0.5 + 17.3, x * 0.5 + y * 0.866 + 5.1);
+    const n = ((a + b) * 0.5 - 0.5) * 1.45 + 0.5;
+    return n < 0 ? 0 : n > 1 ? 1 : n;
+  }
+
   function texture(b, c, wx, wy) {
     switch (b) {
       case 1: {
-        const k = 0.9 + vnoise(wx * 0.35, wy * 0.35) * 0.16;
+        const k = 0.9 + tnoise(wx * 0.35, wy * 0.35) * 0.16;
         return [c[0] * k, c[1] * k, c[2] * k];
       }
       case 2: {
@@ -3544,7 +3552,7 @@ ruby rt { font-size: 0.5em; }
         return [c[0] * k + g, c[1] * k + g, c[2] * k + g];
       }
       case 3: {
-        const n = vnoise(wx * 0.18, wy * 0.18);
+        const n = tnoise(wx * 0.18, wy * 0.18);
         if (n > 0.72) return mix(c, [120, 150, 160], 0.45);
         const k = 0.92 + n * 0.12;
         return [c[0] * k, c[1] * k, c[2] * k];
@@ -3554,7 +3562,7 @@ ruby rt { font-size: 0.5em; }
         return mix(c, [214, 224, 236], Math.max(0, n - 0.45) * 0.8);
       }
       case 5: {
-        const k = 0.86 + vnoise(wx * 0.45, wy * 0.45) * 0.2;
+        const k = 0.86 + tnoise(wx * 0.45, wy * 0.45) * 0.2;
         return [c[0] * k, c[1] * k, c[2] * k];
       }
       case 6: {
@@ -3563,7 +3571,7 @@ ruby rt { font-size: 0.5em; }
       }
       case 7: {
         const g = (hash2(wx * 2 | 0, wy * 2 | 0, 7) - 0.5) * 10;
-        const k = 0.9 + vnoise(wx * 0.4, wy * 0.4) * 0.16;
+        const k = 0.9 + tnoise(wx * 0.4, wy * 0.4) * 0.16;
         return [c[0] * k + g, c[1] * k + g, c[2] * k + g];
       }
       case 8: {
@@ -3649,8 +3657,9 @@ ruby rt { font-size: 0.5em; }
           c = [c[0] + n, c[1] + n, c[2] + n];
         } else {
           c = ramp(pal.ramp, h);
-          const jx = (hash2(px, py, 1337) - 0.5) * 0.9;
-          const jy = (hash2(py, px, 1338) - 0.5) * 0.9;
+          // 地面の境目を、マス目の角ばりではなく、ゆるやかに波打つ形にする（細かなざらつきも少し残す）
+          const jx = (vnoise(wx * 0.11 + 13.1, wy * 0.11) - 0.5) * 1.7 + (hash2(px, py, 1337) - 0.5) * 0.35;
+          const jy = (vnoise(wx * 0.11, wy * 0.11 + 7.7) - 0.5) * 1.7 + (hash2(py, px, 1338) - 0.5) * 0.35;
           const bxi = Math.max(0, Math.min(gw - 1, Math.round(gx + jx)));
           const byi = Math.max(0, Math.min(gh - 1, Math.round(gy + jy)));
           const b = B ? B[byi * gw + bxi] : 0;
