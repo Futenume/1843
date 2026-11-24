@@ -13,6 +13,7 @@
     { id: 'place', label: '場所', icon: 'map' },
     { id: 'term', label: '用語・アイテム', icon: 'tag' },
     { id: 'org', label: '組織', icon: 'flag' },
+    { id: 'relmap', label: '相関図', icon: 'network' },
     { id: 'rules', label: '世界観ルール', icon: 'shield' },
     { id: 'timeline', label: '年表', icon: 'clock' },
   ];
@@ -179,7 +180,7 @@
     clear(S.tabsEl);
     TABS.forEach((t) => {
       const n = TYPE_LABEL[t.id] ? p.entries.filter((e) => e.type === t.id).length
-        : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : p.timeline.length;
+        : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : t.id === 'relmap' ? 0 : p.timeline.length;
       S.tabsEl.appendChild(h('button', {
         type: 'button', class: 'lore-tab' + (S.tab === t.id ? ' active' : ''),
         onclick: () => { S.tab = t.id; S.selected = null; S.q = ''; renderTabs(); renderList(); renderDetail(); },
@@ -234,6 +235,8 @@
 
   function renderDetail() {
     clear(S.detail);
+    S.detail.classList.toggle('full', S.tab === 'relmap');
+    if (S.tab === 'relmap') { NS.RelMap.mount(S.detail); return; }
     if (S.tab === 'rules') { S.detail.appendChild(rulesPane()); return; }
     if (S.tab === 'timeline') { S.detail.appendChild(timelinePane()); return; }
     const p = P();
@@ -343,15 +346,20 @@
       const relBox = h('div', { class: 'table-like' });
       const renderRel = () => {
         clear(relBox);
-        relBox.appendChild(h('div', { class: 'tl-head rel-row' }, h('span', null, '相手'), h('span', null, '呼び方'), h('span', null, '関係・メモ'), h('span')));
+        relBox.appendChild(h('div', { class: 'tl-head rel-row' }, h('span', null, '相手'), h('span', null, '種類'), h('span', null, '呼び方'), h('span', null, '関係・メモ'), h('span')));
         e.relations.forEach((r, i) => {
+          const kindSel = h('select', { class: 'input', onchange: (ev) => { r.kind = ev.target.value; changed(e); } },
+            NS.RelMap.KINDS.map((k) => h('option', { value: k.id, selected: (r.kind || NS.RelMap.guessKind(r.note)) === k.id }, k.label)));
           relBox.appendChild(h('div', { class: 'rel-row' },
             entrySelect(p, 'character', r.targetId, (v) => { r.targetId = v; changed(e); }, e.id),
+            kindSel,
             textInput(r.calls, (v) => { r.calls = v; changed(e); }, { placeholder: '例：蓮くん（複数は／）' }),
             textInput(r.note, (v) => { r.note = v; changed(e); }, { placeholder: '幼なじみ、師弟 など' }),
             btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: () => { e.relations.splice(i, 1); changed(e); renderRel(); } })));
         });
-        relBox.appendChild(btn('関係を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { e.relations.push({ targetId: '', calls: '', note: '' }); changed(e); renderRel(); } }));
+        relBox.appendChild(h('div', { class: 'row wrap' },
+          btn('関係を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { e.relations.push({ targetId: '', kind: 'friend', calls: '', note: '' }); changed(e); renderRel(); } }),
+          btn('相関図で見る', { icon: 'network', small: true, ghost: true, onClick: () => { S.tab = 'relmap'; S.selected = null; renderTabs(); renderList(); renderDetail(); } })));
       };
       renderRel();
       form.appendChild(relBox);
