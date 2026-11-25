@@ -283,7 +283,7 @@
     if (SPRINT.end && Date.now() >= SPRINT.end) endSprint(false);
   }
   function sprintMenu(anchor) {
-    let goal = UI.lsGet('tsuzuri.sprintGoal', 0) || 0;
+    let goal = Math.max(0, Math.round(+UI.lsGet('tsuzuri.sprintGoal', 0) || 0));
     const goalIn = h('input', { class: 'input input-num', type: 'number', min: 0, step: 100, value: goal || '', placeholder: 'なし', 'aria-label': '目標の文字数',
       oninput: (e) => { goal = Math.max(0, Math.round(+e.target.value || 0)); UI.lsSet('tsuzuri.sprintGoal', goal); } });
     const start = (mins) => {
@@ -302,8 +302,13 @@
       h('label', { class: 'row small' }, '目標（なくても可）', goalIn, '字'),
       best ? h('div', { class: 'small muted' }, `これまでの最高：1時間あたり ${UI.fmtNum(best.rate)}字（${best.mins}分で${UI.fmtNum(best.chars)}字）`) : null));
   }
+  // ブラウザに残した記録（壊れていても動くように、形を確かめてから使う）
+  function sprintLog() {
+    const v = UI.lsGet('tsuzuri.sprints', []);
+    return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && Number.isFinite(+x.chars) && Number.isFinite(+x.mins) && +x.mins > 0).map((x) => ({ at: +x.at || 0, mins: +x.mins, chars: +x.chars })) : [];
+  }
   function bestSprint() {
-    const list = UI.lsGet('tsuzuri.sprints', []) || [];
+    const list = sprintLog();
     let best = null;
     list.forEach((x) => { const rate = Math.round(x.chars / Math.max(1, x.mins) * 60); if (x.chars > 0 && (!best || rate > best.rate)) best = Object.assign({ rate }, x); });
     return best;
@@ -340,7 +345,7 @@
     tickSprint();
     if (early && mins < 2 && chars <= 0) { toast('スプリントをやめました'); return; }
     const prevBest = bestSprint();
-    const list = (UI.lsGet('tsuzuri.sprints', []) || []).concat([{ at: Date.now(), mins, chars }]).slice(-50);
+    const list = sprintLog().concat([{ at: Date.now(), mins, chars }]).slice(-50);
     UI.lsSet('tsuzuri.sprints', list);
     const rate = Math.round(chars / Math.max(1, mins) * 60);
     if (!early) chime();

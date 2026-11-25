@@ -597,3 +597,18 @@ test('名前を考える：種類ごとの形・読み・重なりなし・す�
   const first = Names.generate('jp', { seed: 4, count: 1 })[0].name;
   assert.ok(!Names.generate('jp', { seed: 4, count: 10, avoid: [first] }).some((n) => n.name === first));
 });
+
+test('時間がかかりすぎない：とても長い漢字の並び・閉じない記号・細工したテキストの取り込み', () => {
+  const { Text, Publish, ImportText } = globalThis.Tsuzuri;
+  require('../js/readings.js');
+  const t0 = Date.now();
+  Publish.convert('漢'.repeat(100000), 'narou', {});
+  Text.rubyToHtml('漢'.repeat(100000), { vertical: true });
+  Text.rubyToHtml('《《'.repeat(50000), {});
+  ImportText.normalizeMarkup('あ'.repeat(100000) + '［＃');
+  ImportText.normalizeMarkup('［＃'.repeat(50000));
+  ImportText.normalizeMarkup('[[rb:'.repeat(40000));
+  assert.ok(Date.now() - t0 < 3000, '合わせて3秒以内（' + (Date.now() - t0) + 'ms）');
+  // ふつうのルビ・傍点はこれまでどおり
+  assert.equal(Text.rubyToHtml('東京《とうきょう》と《《強調》》'), '<ruby>東京<rt>とうきょう</rt></ruby>と<em class="boten">強調</em>');
+});

@@ -12,7 +12,8 @@
 
   const KANJI = '一-鿿㐀-䶿々〆ヵヶ';
   // 傍点 → |ルビ → 漢字《ルビ》 の順に見る（textstats.js の記法と同じ）
-  const RE_TOKEN = new RegExp('《《([^《》\\n]*)》》|[|｜]([^|｜《》\\n]{1,20})《([^《》\\n]{1,30})》|([' + KANJI + ']+)《([^《》\\n]{1,30})》', 'g');
+  // 長さに上限をつける（とても長い漢字の並びや閉じない記号でも、時間がかからないように）
+  const RE_TOKEN = new RegExp('《《([^《》\\n]{0,200})》》|[|｜]([^|｜《》\\n]{1,20})《([^《》\\n]{1,30})》|([' + KANJI + ']{1,20})《([^《》\\n]{1,30})》', 'g');
 
   const FORMATS = {
     narou: { label: '小説家になろう', note: 'ルビは |漢字《かんじ》、傍点はルビの「・」で代用します。「漢字（かな）」が勝手にルビになるのを防ぎます。' },
@@ -134,7 +135,7 @@
   function visibleLength(text, format) {
     let s = String(text || '');
     if (format === 'pixiv') s = s.replace(/\[\[rb:([^>\]]*?) > [^\]]*\]\]/g, '$1').replace(/\[chapter:[^\]]*\]|\[newpage\]/g, '');
-    else if (format === 'narou' || format === 'kakuyomu') s = s.replace(/[|｜]([^|｜《》\n]+)《[^《》\n]*》/g, '$1').replace(/《《([^《》\n]*)》》/g, '$1');
+    else if (format === 'narou' || format === 'kakuyomu') s = s.replace(/[|｜]([^|｜《》\n]{1,20})《[^《》\n]{0,30}》/g, '$1').replace(/《《([^《》\n]{0,200})》》/g, '$1');
     return Array.from(s.replace(/[\s　]/g, '')).length;
   }
 

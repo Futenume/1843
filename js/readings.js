@@ -6,8 +6,8 @@
 (function (NS) {
   'use strict';
   const KANJI = '一-鿿㐀-䶿々〆ヵヶ';
-  const RE_PIPE = /[|｜]([^|｜《》\n]{1,20})《([^《》\n]*)》/g;
-  const RE_KANJI = new RegExp('([' + KANJI + ']+)《([^《》\\n]*)》', 'g');
+  const RE_PIPE = /[|｜]([^|｜《》\n]{1,20})《([^《》\n]{0,30})》/g;
+  const RE_KANJI = new RegExp('([' + KANJI + ']{1,20})《([^《》\\n]{0,30})》', 'g');
 
   /** カタカナ→ひらがな、空白除去（読みの比較用） */
   function normReading(s) {

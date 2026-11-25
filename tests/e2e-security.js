@@ -99,6 +99,46 @@ fs.writeFileSync(evilPath, text);
   ok(r.color === '', '色の欄の CSS インジェクションは捨てる');
   ok(errs.length === 0, '読み込み・表示でエラーなし ' + errs.join(' | '));
   }
+  console.log('細工したテキストの取り込み');
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    const errs = [];
+    page.on('pageerror', (e) => errs.push(e.message));
+    page.on('dialog', (d) => { errs.push('dialog ' + d.message()); d.dismiss(); });
+    await page.route(/fonts\.(googleapis|gstatic)\.com|wik(ipedia|tionary)\.org/, (r) => r.abort());
+    await page.goto(BASE);
+    const txtPath = path.join(require('os').tmpdir(), 'tsuzuri-evil.txt');
+    fs.writeFileSync(txtPath, X + '\n\n# ' + X + '題\n' + X + '本文《《' + X + '》》[[rb:' + X + ' > よみ]]\n第二話 <script>window.__xss=9</script>\n' + '漢'.repeat(60000) + '《ルビ》\n' + '［＃'.repeat(30000));
+    await page.getByRole('button', { name: 'テキストを取り込む' }).click();
+    await page.locator('.modal input[type=file]').setInputFiles(txtPath);
+    await page.waitForTimeout(800);
+    const t0 = Date.now();
+    await page.locator('.modal').getByRole('button', { name: '取り込む' }).click();
+    await page.waitForTimeout(1500);
+    ok(Date.now() - t0 < 8000, '細工した長い行があっても固まらない（' + (Date.now() - t0) + 'ms）');
+    await page.evaluate(() => Tsuzuri.Preview.open({}));
+    await page.waitForTimeout(400);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => Tsuzuri.Manuscript.open());
+    await page.waitForTimeout(600);
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { const c = Tsuzuri.App.project.chapters[0]; c.snapshots.unshift({ at: Date.now(), body: '古い', label: '<img src=x onerror="window.__xss=7">', chars: 2 }); });
+    await page.locator('button[title="版の保存と履歴"]').click();
+    await page.waitForTimeout(200);
+    await page.getByRole('button', { name: '今と比べる' }).first().click();
+    await page.waitForTimeout(400);
+    const r = await page.evaluate(() => ({ xss: window.__xss || 0, chapters: Tsuzuri.App.project.chapters.length, imgs: document.querySelectorAll('#app img[src="x"], .modal img[src="x"], .pv-overlay img').length }));
+    console.log('  ', JSON.stringify(r));
+    ok(r.xss === 0 && r.imgs === 0, '取り込んだ原稿の HTML・スクリプトは、一覧・プレビュー・原稿用紙・版の比較で実行されない');
+    ok(r.chapters >= 2, '見出しで話に分けて取り込める');
+    // EPUB の中身もエスケープされている
+    const epub = await page.evaluate(() => new TextDecoder().decode(Tsuzuri.Epub.build(Tsuzuri.App.project, {}).data));
+    ok(!/<img src=x|<script>/.test(epub), 'EPUB の中の HTML はエスケープされる');
+    ok(errs.length === 0, 'エラーなし ' + errs.join(' | '));
+    try { fs.unlinkSync(txtPath); } catch (e) { /* 何もしない */ }
+    await page.close();
+  }
+
   await browser.close();
   try { fs.unlinkSync(evilPath); } catch (e) { /* 何もしない */ }
   console.log(process.exitCode ? '失敗あり' : 'すべて成功');

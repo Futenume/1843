@@ -18,9 +18,9 @@
   Object.keys(PAIRS).forEach((k) => { CLOSERS[PAIRS[k]] = k; });
 
   const KANJI = '一-鿿㐀-䶿々〆ヵヶ';
-  const RE_KANJI_RUBY = new RegExp('([' + KANJI + ']+)《([^《》\\n]{1,30})》', 'g');
+  const RE_KANJI_RUBY = new RegExp('([' + KANJI + ']{1,20})《([^《》\\n]{1,30})》', 'g');
   const RE_PIPE_RUBY = /[|｜]([^|｜《》\n]{1,20})《([^《》\n]{1,30})》/g;
-  const RE_EMPHASIS = /《《([^《》\n]*)》》/g;
+  const RE_EMPHASIS = /《《([^《》\n]{0,200})》》/g;
 
   /** ルビ・傍点の記法を、文字位置を変えずに埋め字へ置き換える（本文の解析用） */
   function maskRuby(text) {

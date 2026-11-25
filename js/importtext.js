@@ -23,9 +23,9 @@
   function decodeBytes(buf) {
     const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     const dec = (enc, fatal) => new TextDecoder(enc, fatal ? { fatal: true } : undefined).decode(u8);
-    if (u8[0] === 0xef && u8[1] === 0xbb && u8[2] === 0xbf) return { text: dec('utf-8').replace(/^﻿/, ''), encoding: 'UTF-8' };
-    if (u8[0] === 0xff && u8[1] === 0xfe) return { text: dec('utf-16le').replace(/^﻿/, ''), encoding: 'UTF-16' };
-    if (u8[0] === 0xfe && u8[1] === 0xff) return { text: dec('utf-16be').replace(/^﻿/, ''), encoding: 'UTF-16' };
+    if (u8[0] === 0xef && u8[1] === 0xbb && u8[2] === 0xbf) return { text: dec('utf-8').replace(/^\ufeff/, ''), encoding: 'UTF-8' };
+    if (u8[0] === 0xff && u8[1] === 0xfe) return { text: dec('utf-16le').replace(/^\ufeff/, ''), encoding: 'UTF-16' };
+    if (u8[0] === 0xfe && u8[1] === 0xff) return { text: dec('utf-16be').replace(/^\ufeff/, ''), encoding: 'UTF-16' };
     try { return { text: dec('utf-8', true), encoding: 'UTF-8' }; } catch (e) { /* UTF-8 ではない */ }
     const cands = [];
     ['shift_jis', 'euc-jp'].forEach((enc) => {
@@ -43,19 +43,27 @@
 
   /** ほかの書き方（pixiv・青空文庫）を、綴りの書き方（|漢字《かんじ》・《《傍点》》）にそろえる */
   function normalizeMarkup(text) {
-    let s = String(text || '').replace(/\r\n?/g, '\n').replace(/﻿/g, '');
+    let s = String(text || '').replace(/\r\n?/g, '\n').replace(/\ufeff/g, '');
     let ruby = 0;
     let emphasis = 0;
     // pixiv：[[rb:漢字 > かんじ]]、[newpage]
-    s = s.replace(/\[\[rb:\s*([^>\]\n]+?)\s*>\s*([^\]\n]+?)\s*\]\]/g, (all, base, rd) => { ruby++; return '|' + base + '《' + rd + '》'; });
+    // 長さに上限をつける（閉じない [[rb: がたくさんあるファイルでも時間がかからないように）
+    s = s.replace(/\[\[rb:[ 　]{0,3}([^>\]\n]{1,40}?)[ 　]{0,3}>[ 　]{0,3}([^\]\n]{1,40}?)[ 　]{0,3}\]\]/g, (all, base, rd) => { ruby++; return '|' + base + '《' + rd + '》'; });
     s = s.replace(/^[ 　]*\[newpage\][ 　]*$/gm, BREAK);
     // 青空文庫：X［＃「X」に傍点］ → 《《X》》、改ページ → 話の区切り、そのほかの注記は外す
-    s = s.replace(/([^\n［］]+?)［＃「([^」\n]+)」に(?:白ゴマ|丸|白丸|黒三角|白三角|二重丸|蛇の目|ばつ)?傍点］/g, (all, before, target) => {
-      if (before.endsWith(target)) { emphasis++; return before.slice(0, before.length - target.length) + '《《' + target + '》》'; }
-      return before;
-    });
+    // 注記で区切り、直前の文字が「」の中と同じなら傍点にする（前から1度なめるだけ）
+    if (s.indexOf('［＃') >= 0) {
+      const parts = s.split(/(［＃「[^」\n]{1,60}」に(?:白ゴマ|丸|白丸|黒三角|白三角|二重丸|蛇の目|ばつ)?傍点］)/);
+      let acc = '';
+      parts.forEach((part, i) => {
+        if (i % 2 === 0) { acc += part; return; }
+        const target = part.slice(3, part.indexOf('」'));
+        if (acc.endsWith(target)) { emphasis++; acc = acc.slice(0, acc.length - target.length) + '《《' + target + '》》'; }
+      });
+      s = acc;
+    }
     s = s.replace(/^[ 　]*［＃改(?:ページ|丁|頁|段|見開き)］[ 　]*$/gm, BREAK);
-    s = s.replace(/［＃[^］\n]*］/g, '');
+    s = s.replace(/［＃[^］\n]{0,80}］/g, '');
     // 全角の縦棒「｜」のルビはそのまま使える（綴りも｜と|の両方に対応）
     return { text: s, ruby, emphasis };
   }
