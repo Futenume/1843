@@ -468,8 +468,11 @@
     return d;
   }
 
-  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res, mask) {
+  function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res, mask, offX, offY) {
     res = res || 1;
+    // offX, offY：画像の左上がワールド座標のどこか（拡大表示用の細かい部分画像）
+    offX = offX || 0;
+    offY = offY || 0;
     const md = mask ? mask.data : null;
     const pal = PALETTES[(map.style && map.style.palette) || 'parchment'] || PALETTES.parchment;
     const shade = !map.style || map.style.hillshade !== false;
@@ -482,14 +485,14 @@
     rx0 = Math.max(0, rx0 | 0); ry0 = Math.max(0, ry0 | 0);
     rx1 = Math.min(W, Math.ceil(rx1)); ry1 = Math.min(img.height, Math.ceil(ry1));
     for (let py = ry0; py < ry1; py++) {
-      const wy = (py + 0.5) / res;
+      const wy = (py + 0.5) / res + offY;
       const gy = wy / cell - 0.5;
       const y0 = Math.floor(gy);
       const fy = gy - y0;
       const ya = Math.max(0, Math.min(gh - 1, y0));
       const yb = Math.max(0, Math.min(gh - 1, y0 + 1));
       for (let px = rx0; px < rx1; px++) {
-        const wx = (px + 0.5) / res;
+        const wx = (px + 0.5) / res + offX;
         const gx = wx / cell - 0.5;
         const x0 = Math.floor(gx);
         const fx = gx - x0;

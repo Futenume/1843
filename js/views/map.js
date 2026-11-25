@@ -440,6 +440,7 @@
 
   // ───── 地形の描画（重いので少しずつ） ─────
   function renderTerrainFull() {
+    invalidateDetail();
     if (M.job) M.job.cancel = true;
     const job = { y: 0, cancel: false };
     M.job = job;
@@ -474,6 +475,7 @@
     if (x1 <= x0 || y1 <= y0) return;
     E.renderTerrain(M.map, M.H, M.B, M.img, x0, y0, x1, y1, r, M.maskImg);
     M.baseCtx.putImageData(M.img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+    invalidateDetail();
     M.maskCtx.putImageData(M.maskImg, 0, 0, x0, y0, x1 - x0, y1 - y0);
   }
 
@@ -1375,6 +1377,55 @@
     }, 260);
   }
 
+  /** 見えている範囲（少し広め）の地形を細かい解像度で描く。重いので少しずつ */
+  function scheduleDetail(x0, y0, x1, y1, res) {
+    clearTimeout(M.detailTimer);
+    M.detailTimer = setTimeout(() => {
+      if (!M || M.navigating) return;
+      const padX = (x1 - x0) * 0.25;
+      const padY = (y1 - y0) * 0.25;
+      const rx = Math.max(0, Math.floor(x0 - padX));
+      const ry = Math.max(0, Math.floor(y0 - padY));
+      const rw = Math.min(M.W, Math.ceil(x1 + padX)) - rx;
+      const rh = Math.min(M.Hpx, Math.ceil(y1 + padY)) - ry;
+      if (rw <= 0 || rh <= 0) return;
+      const pw = Math.ceil(rw * res);
+      const ph = Math.ceil(rh * res);
+      if (pw * ph > 6e6) return; // 大きすぎる場合はあきらめる
+      const job = { cancel: false };
+      if (M.detailJob) M.detailJob.cancel = true;
+      M.detailJob = job;
+      const canvas = document.createElement('canvas');
+      canvas.width = pw;
+      canvas.height = ph;
+      const g = canvas.getContext('2d');
+      const img = g.createImageData(pw, ph);
+      const gen = M.terrainGen;
+      let y = 0;
+      const step = () => {
+        if (!M || job.cancel || gen !== M.terrainGen) return;
+        const t0 = performance.now();
+        while (y < ph && performance.now() - t0 < 12) {
+          const y2 = Math.min(ph, y + 12);
+          E.renderTerrain(M.map, M.H, M.B, img, 0, y, pw, y2, res, null, rx, ry);
+          y = y2;
+        }
+        if (y < ph) { requestAnimationFrame(step); return; }
+        g.putImageData(img, 0, 0);
+        M.detail = { canvas, x: rx, y: ry, w: pw / res, h: ph / res, res, ready: true };
+        M.detailJob = null;
+        draw(true);
+      };
+      requestAnimationFrame(step);
+    }, 160);
+  }
+  /** 地形が変わったら、細かい地形を作り直す */
+  function invalidateDetail() {
+    M.terrainGen = (M.terrainGen || 0) + 1;
+    M.detail = null;
+    if (M.detailJob) M.detailJob.cancel = true;
+  }
+
   function frame() {
     if (!M || !M.ctx) return;
     M.raf = 0;
@@ -1401,7 +1452,19 @@
       ctx.imageSmoothingQuality = M.navigating ? 'low' : 'high';
       ctx.drawImage(M.scene.canvas, view.tx, view.ty, M.W * S, M.Hpx * S);
     } else {
-      renderMap(ctx, view);
+      // 地形の基本の画像より細かく拡大しているとき：見えている範囲の細かい地形を使う（なければ作る）
+      let detail = null;
+      if (S > M.res * 1.4 && !editingLive) {
+        const vx0 = -view.tx / S;
+        const vy0 = -view.ty / S;
+        const vx1 = vx0 + view.w / S;
+        const vy1 = vy0 + view.h / S;
+        const dt = M.detail;
+        if (dt && dt.ready && dt.x <= vx0 && dt.y <= vy0 && dt.x + dt.w >= vx1 && dt.y + dt.h >= vy1 && dt.res >= Math.min(S, 3) * 0.7) detail = dt;
+        else if (!M.navigating) scheduleDetail(vx0, vy0, vx1, vy1, Math.min(S, 3));
+        if (!detail && dt && dt.ready) detail = dt; // 一部でも重なれば、その分は細かく見せる
+      }
+      renderMap(ctx, view, { detail });
       if (S > cap || editingLive) scheduleSceneBuild();
     }
     ctx.setTransform(S, 0, 0, S, view.tx, view.ty);
@@ -1409,25 +1472,52 @@
   }
 
   let paperCanvas = null;
+  /** 紙の質感：向きのない細かな粒と、いろいろな向きの短い繊維、ところどころの淡いしみ */
   function paperTexture() {
     if (paperCanvas) return paperCanvas;
+    const N = 384;
     const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 256;
+    c.width = N;
+    c.height = N;
     const ctx = c.getContext('2d');
-    const img = ctx.createImageData(256, 256);
-    for (let y = 0; y < 256; y++) {
-      for (let x = 0; x < 256; x++) {
-        const n = E.vnoise(x * 0.05, y * 0.05) * 0.6 + E.vnoise(x * 0.3, y * 0.02) * 0.25 + E.hash2(x, y, 5) * 0.15;
-        const v = 255 - Math.max(0, n - 0.35) * 90;
-        const o = (y * 256 + x) * 4;
+    const img = ctx.createImageData(N, N);
+    // 継ぎ目が見えないよう、端でつながるノイズ（周期 N）
+    const tile = (x, y, f) => {
+      const a = E.vnoise(x * f, y * f);
+      const b = E.vnoise((x - N) * f, y * f);
+      const c2 = E.vnoise(x * f, (y - N) * f);
+      const d = E.vnoise((x - N) * f, (y - N) * f);
+      const u = x / N;
+      const v = y / N;
+      return (a * (1 - u) + b * u) * (1 - v) + (c2 * (1 - u) + d * u) * v;
+    };
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const n = tile(x, y, 0.035) * 0.55 + tile(x + 31, y + 17, 0.12) * 0.25 + E.hash2(x, y, 5) * 0.2;
+        const v = 255 - Math.max(0, n - 0.38) * 70;
+        const o = (y * N + x) * 4;
         img.data[o] = v;
-        img.data[o + 1] = v - 4;
-        img.data[o + 2] = v - 12;
+        img.data[o + 1] = v - 3;
+        img.data[o + 2] = v - 10;
         img.data[o + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
+    // 繊維
+    const rnd = AS.mulberry32(77);
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 260; i++) {
+      const x = rnd() * N;
+      const y = rnd() * N;
+      const a = rnd() * Math.PI;
+      const L = 3 + rnd() * 9;
+      ctx.strokeStyle = `rgba(120,96,70,${0.05 + rnd() * 0.07})`;
+      ctx.lineWidth = 0.6 + rnd() * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + Math.cos(a) * L * 0.5 + (rnd() - 0.5) * 2, y + Math.sin(a) * L * 0.5 + (rnd() - 0.5) * 2, x + Math.cos(a) * L, y + Math.sin(a) * L);
+      ctx.stroke();
+    }
     paperCanvas = c;
     return c;
   }
@@ -1452,7 +1542,12 @@
     }
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    if (!layerHidden('terrain')) ctx.drawImage(opts.base || M.base, 0, 0, M.W, M.Hpx);
+    if (!layerHidden('terrain')) {
+      ctx.drawImage(opts.base || M.base, 0, 0, M.W, M.Hpx);
+      // 拡大しているときは、見えている所だけ細かく描いた地形を重ねる
+      const dt = opts.detail;
+      if (dt && dt.ready) ctx.drawImage(dt.canvas, dt.x, dt.y, dt.w, dt.h);
+    }
     else { ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, M.W, M.Hpx); }
 
     if (!layerHidden('areas')) m.areas.forEach((ar) => drawArea(ctx, ar));
@@ -1506,7 +1601,10 @@
         ctx.save();
         ctx.globalAlpha = st.palette === 'atlas' ? 0.2 : 0.35;
         ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = ctx.createPattern(paperTexture(), 'repeat');
+        const pat = ctx.createPattern(paperTexture(), 'repeat');
+        // 紙の目は地図より細かく（拡大しても粗くならないよう、1単位に約1.7画素）
+        if (pat && pat.setTransform && typeof DOMMatrix === 'function') pat.setTransform(new DOMMatrix().scale(0.6));
+        ctx.fillStyle = pat;
         ctx.fillRect(0, 0, M.W, M.Hpx);
         ctx.restore();
       }
