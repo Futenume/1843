@@ -569,12 +569,14 @@
     window.addEventListener('appinstalled', () => { installEvent = null; toast('アプリとして入れました'); });
     // サービスワーカーは http(s) で開いたときだけ（file:// の1ファイル版では使えない）
     if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+    // 初めて開いたとき（前の版がない）は「新しい版」と知らせない
+    const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
         if (!w) return;
         w.addEventListener('statechange', () => {
-          if (w.state === 'activated' && navigator.serviceWorker.controller) toast('新しい版を取り込みました。次に開いたときから反映されます');
+          if (w.state === 'activated' && hadController) toast('新しい版を取り込みました。次に開いたときから反映されます');
         });
       });
     }).catch(() => { /* 使えない環境では何もしない */ });

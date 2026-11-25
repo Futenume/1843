@@ -1119,3 +1119,11 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
 .trash-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trash-link { margin-left: 10px; background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .home-trash { margin-top: 18px; }
+
+/* ───── 名前を考える ───── */
+.name-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 6px 12px; }
+.name-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.name-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.name-main strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name-note { white-space: nowrap; }
+@media (max-width: 599px) { .name-list { grid-template-columns: minmax(0, 1fr); } .name-note { display: none; } }

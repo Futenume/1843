@@ -578,3 +578,22 @@ test('原稿用紙の割り付け：題・名前の位置、ぶら下げ、開�
   const r3 = Genko.layout([{ title: '', body: Array.from({ length: 50 }, () => 'あ'.repeat(20)).join('\n') }], { chars: 20, lines: 20, chapterTitles: false });
   assert.equal(r3.pages.length, 3);
 });
+
+test('名前を考える：種類ごとの形・読み・重なりなし・すでにある名前は出さない', () => {
+  require('../js/names.js');
+  const { Names } = globalThis.Tsuzuri;
+  Object.keys(Names.STYLES).forEach((st) => {
+    const list = Names.generate(st, { seed: 3, count: 20 });
+    assert.equal(list.length, 20, st);
+    assert.equal(new Set(list.map((n) => n.name)).size, 20, st + '：同じ名前を出さない');
+  });
+  const jp = Names.generate('jp', { seed: 5, count: 30, gender: 'f' });
+  assert.ok(jp.every((n) => /^[ぁ-ん]+ [ぁ-ん]+$/.test(n.reading) && n.name === n.family + n.given && n.note === '女性'));
+  assert.ok(Names.generate('jpOld', { seed: 2, count: 60 }).every((n) => !/^.+お/.test(n.name) || !n.family), '「お菊」に姓を付けない');
+  assert.ok(Names.generate('west', { seed: 1, count: 10 }).every((n) => /^[ァ-ヶー]+・/.test(n.name)));
+  assert.ok(Names.generate('placeJp', { seed: 1, count: 10 }).every((n) => /^[ぁ-ん]+$/.test(n.reading)));
+  // 同じシードなら同じ結果、すでにある名前は避ける
+  assert.deepEqual(Names.generate('elf', { seed: 9, count: 5 }), Names.generate('elf', { seed: 9, count: 5 }));
+  const first = Names.generate('jp', { seed: 4, count: 1 })[0].name;
+  assert.ok(!Names.generate('jp', { seed: 4, count: 10, avoid: [first] }).some((n) => n.name === first));
+});

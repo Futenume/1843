@@ -282,8 +282,68 @@
         const nameInput = S && S.detail.querySelector('.entry-name-input');
         if (nameInput) { nameInput.focus(); nameInput.select(); }
       } })),
+      h('div', { class: 'row' }, btn('名前を考える', { icon: 'dice', small: true, ghost: true, title: '人物名・地名などの候補を出します', onClick: () => namesDialog(S.tab) })),
       items);
     renderItems();
+  }
+
+  /** 名前を考える（候補から、そのまま設定資料に足せる） */
+  function namesDialog(tab) {
+    const p = P();
+    const N = NS.Names;
+    const placeTab = tab === 'place';
+    const styleKeys = Object.keys(N.STYLES).filter((k) => (placeTab ? !N.STYLES[k].person : true));
+    const prefs = UI.lsGet('tsuzuri.namePref', {}) || {};
+    let style = styleKeys.includes(prefs[tab]) ? prefs[tab] : (placeTab ? 'placeJp' : 'jp');
+    let gender = prefs.gender || 'any';
+    const chips = h('div', { class: 'chips' });
+    const genderBox = h('div', { class: 'chips' });
+    const list = h('div', { class: 'name-list' });
+    const renderChips = () => {
+      clear(chips);
+      styleKeys.forEach((k) => chips.appendChild(h('button', { type: 'button', class: 'chip' + (style === k ? ' active' : ''), 'aria-pressed': style === k ? 'true' : 'false',
+        onclick: () => { style = k; prefs[tab] = k; UI.lsSet('tsuzuri.namePref', prefs); renderChips(); roll(); } }, N.STYLES[k].label)));
+      clear(genderBox);
+      genderBox.hidden = !N.STYLES[style].person;
+      [['any', 'どちらも'], ['m', '男性'], ['f', '女性']].forEach(([k, l]) => genderBox.appendChild(h('button', { type: 'button', class: 'chip' + (gender === k ? ' active' : ''),
+        onclick: () => { gender = k; prefs.gender = k; UI.lsSet('tsuzuri.namePref', prefs); renderChips(); roll(); } }, l)));
+    };
+    const roll = () => {
+      clear(list);
+      const avoid = p.entries.map((e) => e.name);
+      N.generate(style, { gender, count: 12, avoid }).forEach((n) => {
+        const isPerson = N.STYLES[style].person;
+        const type = isPerson ? 'character' : 'place';
+        const addBtn = btn(isPerson ? '人物に追加' : '場所に追加', { small: true, icon: 'plus', onClick: () => {
+          const e = newEntry(type, n.name);
+          e.reading = (n.reading || '').replace(/\s/g, '');
+          // 名だけ・姓だけで書いても同じ人物と分かるように
+          if (n.given && n.family) e.aliases = [n.given, n.family].filter((a) => a && a !== n.name);
+          p.entries.push(e);
+          touch();
+          addBtn.disabled = true;
+          addBtn.textContent = '追加しました';
+          if (S && S.tab === type) { renderTabs(); renderList(); }
+        } });
+        list.appendChild(h('div', { class: 'name-row' },
+          h('div', { class: 'name-main' }, h('strong', null, n.name), n.reading ? h('span', { class: 'small muted' }, n.reading) : null),
+          h('span', { class: 'small muted name-note' }, n.note || ''),
+          btn('', { icon: 'copy', small: true, ghost: true, title: 'コピー', onClick: async () => {
+            try { await navigator.clipboard.writeText(n.name); UI.toast('コピーしました'); } catch (err) { UI.toast('コピーできませんでした', 'error'); }
+          } }),
+          addBtn));
+      });
+    };
+    renderChips();
+    roll();
+    UI.modal({
+      title: '名前を考える', wide: true,
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, '気に入った名前は、そのまま設定資料に足せます（和名は読みと、名だけ・姓だけの呼び方も一緒に登録します）。'),
+        chips, genderBox,
+        list),
+      actions: [{ label: 'ほかの候補', icon: 'dice', onClick: () => { roll(); return false; } }, { label: '閉じる', primary: true }],
+    });
   }
 
   function renderDetail() {
