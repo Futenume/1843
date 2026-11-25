@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-iW/8h9GKNrLDcklKN6hwCEjtLzQtQnvkmOd1ukXvyPI=' 'sha256-C316GlOrgHm5feg2z843NZSDi0oP/Ks9PhBntFAF4ZQ=' 'sha256-i6udrz5rpwRqlwywholv5BNF4raCnXcFpCCC1rUtFzc=' 'sha256-F/IaNGjCOpuwqyjZaLm35kSYbYHJ95MuUdxmR3S2HGI=' 'sha256-82ZOPWL0+jynfLjtr6MuJfMWyL6xRNapLyU6YzxBXhY=' 'sha256-+NY1PpS7ZYFVsOcSSmFKvO8DXZVx47WmXp/GHw/q16E=' 'sha256-/oVHyeah3KQU3H+Ve1C3Ixu7tXetMbtsyc+gil8HQZE=' 'sha256-sgHMs1d78sUbitbmfs6xAwB/E6qpWcIu8pr2ZizWEpg=' 'sha256-Q/o5pSeeztv5tcc6h2ThbSzeS3BbZF3sYDKeqYAOEFk=' 'sha256-iM6gLS0xt/o9NeXW/mrjiukv+SQZlGdKiI7PHLsJAvA=' 'sha256-8JQAhbk5P2cb2MkCxOp7voK8dKkZVkTY43frYdSH6D4=' 'sha256-lkwpU2K0ndDp3qrwga4Z1LLgavGFyW+8TA8yUSbSmPQ=' 'sha256-KLAtQNOFbGzcaUuNaL7aAR3Z/t30w8xkE84Dl2w9DhI=' 'sha256-9HmzkZ0F55n7aA7QheDgDDjOwYNdS6gZAv/5keANUeQ=' 'sha256-crIUzNg2rxN4r0eEKLLTT0kj6r8euzw+5f6oh4nIbdI=' 'sha256-kbbZCy11bBZG04bmQg6BnsQxrUxc/aue9zIuDTPS9lk=' 'sha256-SSHGsdU0gy5SaJyHHPJUZOBXVTvXUdD7Y/s/5KBTd8s=' 'sha256-Rxv+iQC3UlnsbzDjXF0XM2R9NGeZjI0B+AIFo2VAVW8=' 'sha256-oPuCcXWHAv/g0a+lEdTPvzmIE3dwB1IjDYiHwxc5tpo=' 'sha256-H4JWyuUPJXK2D+yXylY9wUexzZQyUbNItpLuGRu6rLI=' 'sha256-8GCVo0yqk0VqvOh6ZkyFEwDdui3NTHQtraOg3n4m6/c=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://upload.wikimedia.org; connect-src 'self' https://api.anthropic.com https://ja.wikipedia.org https://ja.wiktionary.org https://cdn.jsdelivr.net; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>綴り 小説執筆スタジオ</title>
 <meta name="description" content="小説だけに特化した執筆アプリ。添削、設定資料と設定矛盾チェック、アイデア帳、プロットボード、空想地図をひとつに。">
@@ -5848,6 +5850,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
         else if (k === 'value') el.value = v;
         else if (k === 'checked' || k === 'selected' || k === 'disabled' || k === 'readOnly' || k === 'multiple') el[k] = !!v;
         else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
+        else if ((k === 'href' || k === 'src') && /^\s*(javascript|vbscript|data:text\/html)/i.test(String(v).replace(/[\u0000-\u001f]/g, ''))) continue; // 危ない URL は付けない
         else if (v === true) el.setAttribute(k, '');
         else el.setAttribute(k, v);
       }
@@ -6342,50 +6345,94 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     });
   }
 
-  /** 古いデータや欠けた項目を補う */
+  // ───── 読み込んだデータの安全確認 ─────
+  const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+  /** JSON の値だけを深くコピーし、危ないキー（__proto__ など）を取り除く */
+  function sanitize(v, depth) {
+    depth = depth || 0;
+    if (depth > 60) return null;
+    if (Array.isArray(v)) return v.map((x) => sanitize(x, depth + 1));
+    if (v && typeof v === 'object') {
+      const o = {};
+      Object.keys(v).forEach((k) => { if (!BAD_KEYS.has(k)) o[k] = sanitize(v[k], depth + 1); });
+      return o;
+    }
+    if (typeof v === 'number' && !Number.isFinite(v)) return 0;
+    if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return null;
+    return v;
+  }
+  const str = (v, d) => (v == null ? (d || '') : typeof v === 'string' ? v : String(v));
+  const color = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : '');
+  const okId = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id);
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+  /** 古いデータや欠けた項目を補い、型をそろえる */
   function normalize(p) {
     p.version = 1;
-    p.title = p.title || '無題の作品';
-    p.author = p.author || '';
-    p.synopsis = p.synopsis || '';
-    p.chapters = Array.isArray(p.chapters) && p.chapters.length ? p.chapters : [newChapter('第一話')];
+    if (!okId(p.id)) p.id = UI.uid('p');
+    p.title = str(p.title) || '無題の作品';
+    p.author = str(p.author);
+    p.synopsis = str(p.synopsis);
+    p.chapters = arr(p.chapters).filter((c) => c && typeof c === 'object');
+    if (!p.chapters.length) p.chapters = [newChapter('第一話')];
     p.chapters.forEach((c) => {
-      c.id = c.id || UI.uid('ch');
-      c.title = c.title == null ? '無題' : c.title;
-      c.body = c.body || '';
-      c.memo = c.memo || '';
-      c.ignored = Array.isArray(c.ignored) ? c.ignored : [];
-      c.snapshots = Array.isArray(c.snapshots) ? c.snapshots : [];
-      c.narrator = c.narrator || ''; // 空なら作品の設定に従う
+      c.id = okId(c.id) ? c.id : UI.uid('ch');
+      c.title = c.title == null ? '無題' : str(c.title);
+      c.body = str(c.body);
+      c.memo = str(c.memo);
+      c.snapshots = arr(c.snapshots).filter((x) => x && typeof x === 'object').map((x) => Object.assign(x, { body: str(x.body), label: str(x.label) }));
+      c.ignored = arr(c.ignored).map((x) => str(x));
+      c.narrator = ['first', 'third', 'omniscient'].includes(c.narrator) ? c.narrator : ''; // 空なら作品の設定に従う
     });
-    p.entries = Array.isArray(p.entries) ? p.entries : [];
+    p.entries = arr(p.entries).filter((e) => e && typeof e === 'object');
     p.entries.forEach((e) => {
-      e.id = e.id || UI.uid('e');
-      e.type = e.type || 'character';
-      e.aliases = Array.isArray(e.aliases) ? e.aliases : [];
-      e.fields = e.fields || {};
-      e.custom = Array.isArray(e.custom) ? e.custom : [];
-      e.relations = Array.isArray(e.relations) ? e.relations : [];
-      e.appear = e.appear || {};
-      e.notes = e.notes || '';
+      e.id = okId(e.id) ? e.id : UI.uid('e');
+      e.type = ['character', 'place', 'term', 'org'].includes(e.type) ? e.type : 'character';
+      e.name = str(e.name);
+      e.reading = str(e.reading);
+      e.color = color(e.color);
+      e.aliases = arr(e.aliases).map((a) => str(a)).filter(Boolean);
+      e.fields = obj(e.fields);
+      Object.keys(e.fields).forEach((k) => { if (typeof e.fields[k] !== 'string') e.fields[k] = str(e.fields[k]); });
+      e.custom = arr(e.custom).filter((x) => x && typeof x === 'object').map((x) => ({ k: str(x.k), v: str(x.v) }));
+      e.relations = arr(e.relations).filter((r) => r && typeof r === 'object').map((r) => Object.assign(r, { targetId: str(r.targetId), calls: str(r.calls), note: str(r.note) }, r.kind != null ? { kind: str(r.kind) } : {}));
+      e.appear = obj(e.appear);
+      e.notes = str(e.notes);
     });
-    p.rules = p.rules || {};
-    p.rules.ng = Array.isArray(p.rules.ng) ? p.rules.ng : [];
-    p.rules.style = Array.isArray(p.rules.style) ? p.rules.style : [];
-    p.rules.world = p.rules.world || '';
-    p.rules.narrator = p.rules.narrator || 'auto';
-    p.rules.ng.forEach((r) => { if (r && !r.scope) r.scope = 'auto'; });
-    p.timeline = Array.isArray(p.timeline) ? p.timeline : [];
-    p.ideas = Array.isArray(p.ideas) ? p.ideas : [];
-    p.plot = p.plot || {};
-    p.plot.columns = Array.isArray(p.plot.columns) && p.plot.columns.length ? p.plot.columns
-      : ['起', '承', '転', '結'].map((t) => ({ id: UI.uid('col'), title: t }));
-    p.plot.cards = Array.isArray(p.plot.cards) ? p.plot.cards : [];
-    p.maps = Array.isArray(p.maps) ? p.maps : [];
-    p.log = p.log || {};
-    p.goal = p.goal || {};
-    if (p.goal.daily == null) p.goal.daily = 2000;
-    if (p.goal.total == null) p.goal.total = 100000;
+    p.rules = obj(p.rules);
+    p.rules.ng = arr(p.rules.ng).filter((r) => r && typeof r === 'object')
+      .map((r) => ({ word: str(r.word), reason: str(r.reason), suggestion: str(r.suggestion), scope: ['auto', 'all', 'dialogue'].includes(r.scope) ? r.scope : 'auto' }));
+    p.rules.style = arr(p.rules.style).filter((r) => r && typeof r === 'object').map((r) => ({ from: str(r.from), to: str(r.to) }));
+    p.rules.world = str(p.rules.world);
+    p.rules.narrator = ['auto', 'first', 'third', 'omniscient'].includes(p.rules.narrator) ? p.rules.narrator : 'auto';
+    p.timeline = arr(p.timeline).filter((t) => t && typeof t === 'object');
+    p.timeline.forEach((t) => { t.when = str(t.when); t.title = str(t.title); t.desc = str(t.desc); });
+    p.ideas = arr(p.ideas).filter((i) => i && typeof i === 'object');
+    p.ideas.forEach((i) => {
+      if (!okId(i.id)) i.id = UI.uid('i');
+      i.body = str(i.body);
+      i.kind = str(i.kind) || 'アイデア';
+      i.tags = arr(i.tags).map((t) => str(t)).filter(Boolean);
+      i.color = color(i.color);
+      if (i.word != null) i.word = str(i.word);
+      if (i.reading != null) i.reading = str(i.reading);
+    });
+    p.plot = obj(p.plot);
+    p.plot.columns = arr(p.plot.columns).filter((c) => c && typeof c === 'object' && okId(c.id));
+    p.plot.columns.forEach((c) => { c.title = str(c.title); });
+    if (!p.plot.columns.length) p.plot.columns = ['起', '承', '転', '結'].map((t) => ({ id: UI.uid('col'), title: t }));
+    p.plot.cards = arr(p.plot.cards).filter((c) => c && typeof c === 'object');
+    p.plot.cards.forEach((c) => { c.title = str(c.title); c.body = str(c.body); c.color = color(c.color); });
+    p.maps = arr(p.maps).filter((m) => m && typeof m === 'object' && okId(m.id));
+    p.maps.forEach((m) => {
+      m.name = str(m.name) || '地図';
+      arr(m.areas).forEach((a) => { if (a && typeof a === 'object') a.color = color(a.color) || '#8c3b5e'; });
+    });
+    p.log = obj(p.log);
+    p.goal = obj(p.goal);
+    p.goal.daily = Number.isFinite(+p.goal.daily) && p.goal.daily !== null && p.goal.daily !== '' ? Math.max(0, +p.goal.daily) : 2000;
+    p.goal.total = Number.isFinite(+p.goal.total) && p.goal.total !== null && p.goal.total !== '' ? Math.max(0, +p.goal.total) : 100000;
     return p;
   }
 
@@ -6423,7 +6470,8 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
 
   /** 作品をまるごと複製して新しい ID で取り込む */
   async function importProject(data) {
-    const p = normalize(JSON.parse(JSON.stringify(data)));
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('作品データの形式が正しくありません');
+    const p = normalize(sanitize(data));
     const list = (await get('projects')) || [];
     if (list.some((x) => x.id === p.id)) {
       p.id = UI.uid('p');
@@ -6435,7 +6483,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
 
   NS.Store = {
     init, get, set, del, get mode() { return mode; }, get persisted() { return persisted; },
-    newProject, newChapter, normalize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
+    newProject, newChapter, normalize, sanitize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});
 
@@ -12731,21 +12779,37 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     return r.json();
   }
 
+  function safeUrl(u, host) {
+    try {
+      const x = new URL(String(u || ''));
+      return x.protocol === 'https:' && x.hostname === host ? x.href : '';
+    } catch (e) { return ''; }
+  }
+
   async function wikipedia(q, signal) {
     const s = await fetchJSON(`https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(q)}&srlimit=3&format=json&origin=*`, signal);
     const hits = (s.query && s.query.search) || [];
     if (!hits.length) return null;
     const exact = hits.find((x) => x.title === q) || hits[0];
     const sum = await fetchJSON(`https://ja.wikipedia.org/api/rest_v1/page/summary/${enc(exact.title)}`, signal);
+    // ネットから来た URL は、決まった場所の https だけを使う（javascript: などは使わない）
+    const pageUrl = sum.content_urls && sum.content_urls.desktop && sum.content_urls.desktop.page;
+    const thumb = sum.thumbnail && sum.thumbnail.source;
     return {
-      title: sum.title, extract: sum.extract || '', url: (sum.content_urls && sum.content_urls.desktop && sum.content_urls.desktop.page) || `https://ja.wikipedia.org/wiki/${enc(sum.title)}`,
-      thumb: sum.thumbnail && sum.thumbnail.source, others: hits.filter((x) => x.title !== exact.title).map((x) => x.title),
+      title: String(sum.title || exact.title), extract: String(sum.extract || ''),
+      url: safeUrl(pageUrl, 'ja.wikipedia.org') || `https://ja.wikipedia.org/wiki/${enc(String(sum.title || exact.title))}`,
+      thumb: safeUrl(thumb, 'upload.wikimedia.org'), others: hits.filter((x) => x.title !== exact.title).map((x) => String(x.title)),
     };
   }
 
   /** ウィクショナリーの HTML から日本語の語義を取り出す */
   function parseWiktionary(html) {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // 文字だけを取り出すので、スクリプト・画像・イベント属性などは解析の前に取り除く
+    const clean = String(html || '')
+      .replace(/<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, '')
+      .replace(/<(img|iframe|object|embed|link|meta|source|video|audio|picture)\b[^>]*>/gi, '')
+      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    const doc = new DOMParser().parseFromString(clean, 'text/html');
     const h2s = Array.from(doc.querySelectorAll('h2'));
     const jp = h2s.find((x) => /^\s*日本語/.test(x.textContent));
     if (!jp) return [];
@@ -12773,7 +12837,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     const r = await fetchJSON(`https://ja.wiktionary.org/w/api.php?action=parse&page=${enc(q)}&prop=text&format=json&origin=*&redirects=1`, signal);
     if (!r.parse || !r.parse.text) return null;
     const defs = parseWiktionary(r.parse.text['*'] || '');
-    return defs.length ? { title: r.parse.title, defs, url: `https://ja.wiktionary.org/wiki/${enc(r.parse.title)}` } : null;
+    return defs.length ? { title: String(r.parse.title), defs, url: `https://ja.wiktionary.org/wiki/${enc(String(r.parse.title))}` } : null;
   }
 
   const LINKS = [
@@ -12913,7 +12977,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
         if (wp) {
           box.appendChild(h('div', { class: 'dict-card' },
             h('div', { class: 'dict-card-head' }, h('strong', null, wp.title), h('span', { class: 'muted small' }, 'Wikipedia'), h('a', { href: wp.url, target: '_blank', rel: 'noopener noreferrer', class: 'small' }, '開く')),
-            h('div', { class: 'dict-wp' }, wp.thumb ? h('img', { src: wp.thumb, alt: '', loading: 'lazy' }) : null, h('p', null, wp.extract)),
+            h('div', { class: 'dict-wp' }, wp.thumb ? h('img', { src: wp.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : null, h('p', null, wp.extract)),
             wp.others && wp.others.length ? h('div', { class: 'chips' }, h('span', { class: 'small muted' }, 'ほかの候補：'), wp.others.map((t) => h('button', { type: 'button', class: 'chip', onclick: () => run(t) }, t))) : null));
         }
         if (!wk && !wp) box.appendChild(h('p', { class: 'small muted' }, error ? 'ネット辞書に接続できませんでした（オフラインか、通信が制限されています）。' : '見つかりませんでした。'));
@@ -13124,13 +13188,32 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
     return sdkPromise;
   }
 
+  // キーの保存先：この端末（localStorage）か、このタブを閉じるまで（sessionStorage）
+  function keyStore() {
+    try { return localStorage.getItem(KEY_STORAGE + '.where') === 'session' ? sessionStorage : localStorage; } catch (e) { return null; }
+  }
+  function keyWhere() {
+    try { return localStorage.getItem(KEY_STORAGE + '.where') === 'session' ? 'session' : 'local'; } catch (e) { return 'local'; }
+  }
+  function setKeyWhere(where) {
+    const k = getKey();
+    try {
+      localStorage.removeItem(KEY_STORAGE);
+      sessionStorage.removeItem(KEY_STORAGE);
+      if (where === 'session') localStorage.setItem(KEY_STORAGE + '.where', 'session');
+      else localStorage.removeItem(KEY_STORAGE + '.where');
+    } catch (e) { /* 何もしない */ }
+    if (k) setKey(k);
+  }
   function getKey() {
-    try { return localStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
+    try { const st = keyStore(); return (st && st.getItem(KEY_STORAGE)) || ''; } catch (e) { return ''; }
   }
   function setKey(k) {
     try {
-      if (k) localStorage.setItem(KEY_STORAGE, k);
-      else localStorage.removeItem(KEY_STORAGE);
+      const st = keyStore();
+      if (!st) return false;
+      if (k) st.setItem(KEY_STORAGE, k);
+      else { localStorage.removeItem(KEY_STORAGE); sessionStorage.removeItem(KEY_STORAGE); }
       return true;
     } catch (e) { return false; }
   }
@@ -13537,7 +13620,7 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
       [['low', '速さ優先'], ['medium', '標準'], ['high', '丁寧']].map(([v, l]) => h('option', { value: v, selected: (st.aiEffort || 'medium') === v }, l)));
     const testOut = h('span', { class: 'small muted' });
     return h('div', { class: 'stack' },
-      h('p', { class: 'small muted' }, 'Anthropic の Claude を使ってAI添削・設定チェック・相談を行います。APIキーは Anthropic Console（console.anthropic.com）で発行できます。キーはこの端末のブラウザにだけ保存され、作品のバックアップには含まれません。共用のパソコンでは使い終わったら削除してください。'),
+      h('p', { class: 'small muted' }, 'Anthropic の Claude を使ってAI添削・設定チェック・相談を行います。APIキーは Anthropic Console（console.anthropic.com）で発行できます。キーはこの端末のブラウザにだけ保存され、作品のバックアップには含まれません。共用のパソコンでは保存先を「このタブを閉じるまで」にするか、使い終わったら削除してください。'),
       UI.field('APIキー', h('div', { class: 'row' }, key, btn('保存', { primary: true, small: true, onClick: () => {
         const v = key.value.trim();
         if (v && !/^sk-/.test(v)) { toast('APIキーの形式が正しくないようです', 'error'); return; }
@@ -13545,6 +13628,9 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
         toast(v ? 'APIキーを保存しました' : 'APIキーを削除しました');
       } }), btn('削除', { small: true, ghost: true, onClick: () => { setKey(''); key.value = ''; toast('APIキーを削除しました'); } }))),
       h('label', { class: 'check small' }, show, 'キーを表示'),
+      UI.field('キーの保存先', h('select', { class: 'input', onchange: (e) => { setKeyWhere(e.target.value); toast(e.target.value === 'session' ? 'キーはこのタブを閉じると消えます' : 'キーをこの端末に保存します'); } },
+        [['local', 'この端末に保存する（次に開いたときも使える）'], ['session', 'このタブを閉じるまで（共用の端末向け）']].map(([v, l]) => h('option', { value: v, selected: keyWhere() === v }, l))),
+        'どちらの場合も、キーは作品のバックアップには含まれず、Anthropic 以外には送られません'),
       h('div', { class: 'grid-2' }, UI.field('モデル', model), UI.field('考える深さ', effort)),
       h('div', { class: 'row' }, btn('接続テスト', { small: true, icon: 'check', onClick: async () => {
         if (key.value.trim() && key.value.trim() !== getKey()) setKey(key.value.trim());

@@ -30,13 +30,32 @@
     return sdkPromise;
   }
 
+  // キーの保存先：この端末（localStorage）か、このタブを閉じるまで（sessionStorage）
+  function keyStore() {
+    try { return localStorage.getItem(KEY_STORAGE + '.where') === 'session' ? sessionStorage : localStorage; } catch (e) { return null; }
+  }
+  function keyWhere() {
+    try { return localStorage.getItem(KEY_STORAGE + '.where') === 'session' ? 'session' : 'local'; } catch (e) { return 'local'; }
+  }
+  function setKeyWhere(where) {
+    const k = getKey();
+    try {
+      localStorage.removeItem(KEY_STORAGE);
+      sessionStorage.removeItem(KEY_STORAGE);
+      if (where === 'session') localStorage.setItem(KEY_STORAGE + '.where', 'session');
+      else localStorage.removeItem(KEY_STORAGE + '.where');
+    } catch (e) { /* 何もしない */ }
+    if (k) setKey(k);
+  }
   function getKey() {
-    try { return localStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
+    try { const st = keyStore(); return (st && st.getItem(KEY_STORAGE)) || ''; } catch (e) { return ''; }
   }
   function setKey(k) {
     try {
-      if (k) localStorage.setItem(KEY_STORAGE, k);
-      else localStorage.removeItem(KEY_STORAGE);
+      const st = keyStore();
+      if (!st) return false;
+      if (k) st.setItem(KEY_STORAGE, k);
+      else { localStorage.removeItem(KEY_STORAGE); sessionStorage.removeItem(KEY_STORAGE); }
       return true;
     } catch (e) { return false; }
   }
@@ -443,7 +462,7 @@
       [['low', '速さ優先'], ['medium', '標準'], ['high', '丁寧']].map(([v, l]) => h('option', { value: v, selected: (st.aiEffort || 'medium') === v }, l)));
     const testOut = h('span', { class: 'small muted' });
     return h('div', { class: 'stack' },
-      h('p', { class: 'small muted' }, 'Anthropic の Claude を使ってAI添削・設定チェック・相談を行います。APIキーは Anthropic Console（console.anthropic.com）で発行できます。キーはこの端末のブラウザにだけ保存され、作品のバックアップには含まれません。共用のパソコンでは使い終わったら削除してください。'),
+      h('p', { class: 'small muted' }, 'Anthropic の Claude を使ってAI添削・設定チェック・相談を行います。APIキーは Anthropic Console（console.anthropic.com）で発行できます。キーはこの端末のブラウザにだけ保存され、作品のバックアップには含まれません。共用のパソコンでは保存先を「このタブを閉じるまで」にするか、使い終わったら削除してください。'),
       UI.field('APIキー', h('div', { class: 'row' }, key, btn('保存', { primary: true, small: true, onClick: () => {
         const v = key.value.trim();
         if (v && !/^sk-/.test(v)) { toast('APIキーの形式が正しくないようです', 'error'); return; }
@@ -451,6 +470,9 @@
         toast(v ? 'APIキーを保存しました' : 'APIキーを削除しました');
       } }), btn('削除', { small: true, ghost: true, onClick: () => { setKey(''); key.value = ''; toast('APIキーを削除しました'); } }))),
       h('label', { class: 'check small' }, show, 'キーを表示'),
+      UI.field('キーの保存先', h('select', { class: 'input', onchange: (e) => { setKeyWhere(e.target.value); toast(e.target.value === 'session' ? 'キーはこのタブを閉じると消えます' : 'キーをこの端末に保存します'); } },
+        [['local', 'この端末に保存する（次に開いたときも使える）'], ['session', 'このタブを閉じるまで（共用の端末向け）']].map(([v, l]) => h('option', { value: v, selected: keyWhere() === v }, l))),
+        'どちらの場合も、キーは作品のバックアップには含まれず、Anthropic 以外には送られません'),
       h('div', { class: 'grid-2' }, UI.field('モデル', model), UI.field('考える深さ', effort)),
       h('div', { class: 'row' }, btn('接続テスト', { small: true, icon: 'check', onClick: async () => {
         if (key.value.trim() && key.value.trim() !== getKey()) setKey(key.value.trim());

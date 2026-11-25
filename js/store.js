@@ -95,50 +95,94 @@
     });
   }
 
-  /** 古いデータや欠けた項目を補う */
+  // ───── 読み込んだデータの安全確認 ─────
+  const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+  /** JSON の値だけを深くコピーし、危ないキー（__proto__ など）を取り除く */
+  function sanitize(v, depth) {
+    depth = depth || 0;
+    if (depth > 60) return null;
+    if (Array.isArray(v)) return v.map((x) => sanitize(x, depth + 1));
+    if (v && typeof v === 'object') {
+      const o = {};
+      Object.keys(v).forEach((k) => { if (!BAD_KEYS.has(k)) o[k] = sanitize(v[k], depth + 1); });
+      return o;
+    }
+    if (typeof v === 'number' && !Number.isFinite(v)) return 0;
+    if (typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return null;
+    return v;
+  }
+  const str = (v, d) => (v == null ? (d || '') : typeof v === 'string' ? v : String(v));
+  const color = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : '');
+  const okId = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id);
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+
+  /** 古いデータや欠けた項目を補い、型をそろえる */
   function normalize(p) {
     p.version = 1;
-    p.title = p.title || '無題の作品';
-    p.author = p.author || '';
-    p.synopsis = p.synopsis || '';
-    p.chapters = Array.isArray(p.chapters) && p.chapters.length ? p.chapters : [newChapter('第一話')];
+    if (!okId(p.id)) p.id = UI.uid('p');
+    p.title = str(p.title) || '無題の作品';
+    p.author = str(p.author);
+    p.synopsis = str(p.synopsis);
+    p.chapters = arr(p.chapters).filter((c) => c && typeof c === 'object');
+    if (!p.chapters.length) p.chapters = [newChapter('第一話')];
     p.chapters.forEach((c) => {
-      c.id = c.id || UI.uid('ch');
-      c.title = c.title == null ? '無題' : c.title;
-      c.body = c.body || '';
-      c.memo = c.memo || '';
-      c.ignored = Array.isArray(c.ignored) ? c.ignored : [];
-      c.snapshots = Array.isArray(c.snapshots) ? c.snapshots : [];
-      c.narrator = c.narrator || ''; // 空なら作品の設定に従う
+      c.id = okId(c.id) ? c.id : UI.uid('ch');
+      c.title = c.title == null ? '無題' : str(c.title);
+      c.body = str(c.body);
+      c.memo = str(c.memo);
+      c.snapshots = arr(c.snapshots).filter((x) => x && typeof x === 'object').map((x) => Object.assign(x, { body: str(x.body), label: str(x.label) }));
+      c.ignored = arr(c.ignored).map((x) => str(x));
+      c.narrator = ['first', 'third', 'omniscient'].includes(c.narrator) ? c.narrator : ''; // 空なら作品の設定に従う
     });
-    p.entries = Array.isArray(p.entries) ? p.entries : [];
+    p.entries = arr(p.entries).filter((e) => e && typeof e === 'object');
     p.entries.forEach((e) => {
-      e.id = e.id || UI.uid('e');
-      e.type = e.type || 'character';
-      e.aliases = Array.isArray(e.aliases) ? e.aliases : [];
-      e.fields = e.fields || {};
-      e.custom = Array.isArray(e.custom) ? e.custom : [];
-      e.relations = Array.isArray(e.relations) ? e.relations : [];
-      e.appear = e.appear || {};
-      e.notes = e.notes || '';
+      e.id = okId(e.id) ? e.id : UI.uid('e');
+      e.type = ['character', 'place', 'term', 'org'].includes(e.type) ? e.type : 'character';
+      e.name = str(e.name);
+      e.reading = str(e.reading);
+      e.color = color(e.color);
+      e.aliases = arr(e.aliases).map((a) => str(a)).filter(Boolean);
+      e.fields = obj(e.fields);
+      Object.keys(e.fields).forEach((k) => { if (typeof e.fields[k] !== 'string') e.fields[k] = str(e.fields[k]); });
+      e.custom = arr(e.custom).filter((x) => x && typeof x === 'object').map((x) => ({ k: str(x.k), v: str(x.v) }));
+      e.relations = arr(e.relations).filter((r) => r && typeof r === 'object').map((r) => Object.assign(r, { targetId: str(r.targetId), calls: str(r.calls), note: str(r.note) }, r.kind != null ? { kind: str(r.kind) } : {}));
+      e.appear = obj(e.appear);
+      e.notes = str(e.notes);
     });
-    p.rules = p.rules || {};
-    p.rules.ng = Array.isArray(p.rules.ng) ? p.rules.ng : [];
-    p.rules.style = Array.isArray(p.rules.style) ? p.rules.style : [];
-    p.rules.world = p.rules.world || '';
-    p.rules.narrator = p.rules.narrator || 'auto';
-    p.rules.ng.forEach((r) => { if (r && !r.scope) r.scope = 'auto'; });
-    p.timeline = Array.isArray(p.timeline) ? p.timeline : [];
-    p.ideas = Array.isArray(p.ideas) ? p.ideas : [];
-    p.plot = p.plot || {};
-    p.plot.columns = Array.isArray(p.plot.columns) && p.plot.columns.length ? p.plot.columns
-      : ['起', '承', '転', '結'].map((t) => ({ id: UI.uid('col'), title: t }));
-    p.plot.cards = Array.isArray(p.plot.cards) ? p.plot.cards : [];
-    p.maps = Array.isArray(p.maps) ? p.maps : [];
-    p.log = p.log || {};
-    p.goal = p.goal || {};
-    if (p.goal.daily == null) p.goal.daily = 2000;
-    if (p.goal.total == null) p.goal.total = 100000;
+    p.rules = obj(p.rules);
+    p.rules.ng = arr(p.rules.ng).filter((r) => r && typeof r === 'object')
+      .map((r) => ({ word: str(r.word), reason: str(r.reason), suggestion: str(r.suggestion), scope: ['auto', 'all', 'dialogue'].includes(r.scope) ? r.scope : 'auto' }));
+    p.rules.style = arr(p.rules.style).filter((r) => r && typeof r === 'object').map((r) => ({ from: str(r.from), to: str(r.to) }));
+    p.rules.world = str(p.rules.world);
+    p.rules.narrator = ['auto', 'first', 'third', 'omniscient'].includes(p.rules.narrator) ? p.rules.narrator : 'auto';
+    p.timeline = arr(p.timeline).filter((t) => t && typeof t === 'object');
+    p.timeline.forEach((t) => { t.when = str(t.when); t.title = str(t.title); t.desc = str(t.desc); });
+    p.ideas = arr(p.ideas).filter((i) => i && typeof i === 'object');
+    p.ideas.forEach((i) => {
+      if (!okId(i.id)) i.id = UI.uid('i');
+      i.body = str(i.body);
+      i.kind = str(i.kind) || 'アイデア';
+      i.tags = arr(i.tags).map((t) => str(t)).filter(Boolean);
+      i.color = color(i.color);
+      if (i.word != null) i.word = str(i.word);
+      if (i.reading != null) i.reading = str(i.reading);
+    });
+    p.plot = obj(p.plot);
+    p.plot.columns = arr(p.plot.columns).filter((c) => c && typeof c === 'object' && okId(c.id));
+    p.plot.columns.forEach((c) => { c.title = str(c.title); });
+    if (!p.plot.columns.length) p.plot.columns = ['起', '承', '転', '結'].map((t) => ({ id: UI.uid('col'), title: t }));
+    p.plot.cards = arr(p.plot.cards).filter((c) => c && typeof c === 'object');
+    p.plot.cards.forEach((c) => { c.title = str(c.title); c.body = str(c.body); c.color = color(c.color); });
+    p.maps = arr(p.maps).filter((m) => m && typeof m === 'object' && okId(m.id));
+    p.maps.forEach((m) => {
+      m.name = str(m.name) || '地図';
+      arr(m.areas).forEach((a) => { if (a && typeof a === 'object') a.color = color(a.color) || '#8c3b5e'; });
+    });
+    p.log = obj(p.log);
+    p.goal = obj(p.goal);
+    p.goal.daily = Number.isFinite(+p.goal.daily) && p.goal.daily !== null && p.goal.daily !== '' ? Math.max(0, +p.goal.daily) : 2000;
+    p.goal.total = Number.isFinite(+p.goal.total) && p.goal.total !== null && p.goal.total !== '' ? Math.max(0, +p.goal.total) : 100000;
     return p;
   }
 
@@ -176,7 +220,8 @@
 
   /** 作品をまるごと複製して新しい ID で取り込む */
   async function importProject(data) {
-    const p = normalize(JSON.parse(JSON.stringify(data)));
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('作品データの形式が正しくありません');
+    const p = normalize(sanitize(data));
     const list = (await get('projects')) || [];
     if (list.some((x) => x.id === p.id)) {
       p.id = UI.uid('p');
@@ -188,6 +233,6 @@
 
   NS.Store = {
     init, get, set, del, get mode() { return mode; }, get persisted() { return persisted; },
-    newProject, newChapter, normalize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
+    newProject, newChapter, normalize, sanitize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});

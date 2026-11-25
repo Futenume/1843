@@ -17,6 +17,7 @@
         else if (k === 'value') el.value = v;
         else if (k === 'checked' || k === 'selected' || k === 'disabled' || k === 'readOnly' || k === 'multiple') el[k] = !!v;
         else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
+        else if ((k === 'href' || k === 'src') && /^\s*(javascript|vbscript|data:text\/html)/i.test(String(v).replace(/[\u0000-\u001f]/g, ''))) continue; // 危ない URL は付けない
         else if (v === true) el.setAttribute(k, '');
         else el.setAttribute(k, v);
       }

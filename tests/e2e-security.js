@@ -1,0 +1,105 @@
+// セキュリティの確認（任意）。Playwright が必要です。
+//   python3 -m http.server 8765 &   （リポジトリ直下で） と  node tools/build.mjs のあとに
+//   node tests/e2e-security.js
+// ・CSP（コンテンツ セキュリティ ポリシー）の違反が出ないこと（通常版・1ファイル版）
+// ・ネット辞書の返答に危ない URL や HTML が混じっても、使わない・実行しないこと
+// ・細工したバックアップを読み込んでも、HTML が実行されず、__proto__ などで仕組みを書き換えられないこと
+const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:8765/index.html';
+const DIST = 'file://' + path.join(__dirname, '..', 'dist', 'tsuzuri.html');
+function ok(c, m) { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) process.exitCode = 1; }
+const FAKE = fs.readFileSync(path.join(__dirname, 'e2e-ai-mock.js'), 'utf8').match(/const FAKE = `([\s\S]*?)`;/)[1];
+const X = '<img src=x onerror="window.__xss=(window.__xss||0)+1">';
+const evil = JSON.parse(JSON.stringify({ app: 'tsuzuri', version: 1, project: {
+  id: 'p"><svg onload=alert(1)>', title: X + '作品', chapters: [{ id: 'c1', title: X, body: '本文 ' + X + ' |漢字《' + X + '》', snapshots: 'x', ignored: 5 }, 42, null],
+  entries: [{ id: 'e1', type: 'character', name: X, aliases: [X, 3], color: 'red;background:url(https://evil.example/leak)', fields: { role: X, age: 17 }, relations: [{ targetId: 'e1', calls: X }], custom: [{ k: X, v: X }] }, 'bad'],
+  ideas: [{ id: 'i1', body: X, kind: '読み方', word: X, reading: X, tags: [X], color: 'url(javascript:alert(1))' }],
+  rules: { ng: [{ word: X, reason: X, suggestion: X, scope: 'evil' }, 'x'], style: 'nope', world: X, narrator: '<b>' },
+  timeline: [{ when: X, title: X, desc: X }],
+  plot: { columns: [{ id: 'col1', title: X }], cards: [{ id: 'k1', columnId: 'col1', title: X, body: X, color: 'expression(alert(1))' }] },
+  maps: 'not-an-array', goal: { daily: 'abc', total: -5 }, log: [1, 2],
+} }));
+// __proto__ は JSON の文字列として直接入れる
+const text = JSON.stringify(evil).replace('"app":"tsuzuri"', '"app":"tsuzuri","__proto__":{"polluted":"yes"},"constructor":{"prototype":{"polluted2":"yes"}}').replace('"title":', '"__proto__":{"isAdmin":true},"title":');
+const evilPath = path.join(os.tmpdir(), 'tsuzuri-evil-' + process.pid + '.tsuzuri.json');
+fs.writeFileSync(evilPath, text);
+
+(async () => {
+  console.log('CSP とネット辞書');
+  const browser = await chromium.launch();
+  for (const url of [BASE, DIST]) {
+    console.log(url.startsWith('file') ? '1ファイル版' : '通常版');
+    const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    const errs = [];
+    page.on('pageerror', (e) => errs.push(e.message));
+    await page.addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(e.violatedDirective + ' ' + (e.blockedURI || '') + ' ' + (e.sourceFile || '') + ':' + e.lineNumber)); });
+    await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+    await page.route(/cdn\.jsdelivr\.net\/npm\/@anthropic-ai\/sdk@1\.7\.0\/\+esm/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' }, body: FAKE }));
+    await page.route(/ja\.wikipedia\.org\/w\/api\.php/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ query: { search: [{ title: '黄昏' }] } }) }));
+    await page.route(/ja\.wikipedia\.org\/api\/rest_v1/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ title: '黄昏', extract: 'テスト', content_urls: { desktop: { page: 'javascript:alert(1)' } }, thumbnail: { source: 'https://evil.example/x.png' } }) }));
+    await page.route(/ja\.wiktionary\.org/, (r) => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ parse: { title: '黄昏', text: { '*': '<div class="mw-parser-output"><h2>日本語</h2><ol><li>夕方<img src=x onerror="window.__xss=1"></li></ol></div>' } } }) }));
+    await page.goto(url);
+    await page.evaluate(() => localStorage.setItem('tsuzuri.apiKey', 'sk-ant-test'));
+    await page.getByRole('button', { name: 'サンプル作品を開く' }).click();
+    await page.waitForTimeout(700);
+    for (const r of ['lore', 'ideas', 'plot', 'map', 'write']) { await page.evaluate((x) => Tsuzuri.App.navigate(x), r); await page.waitForTimeout(r === 'map' ? 1500 : 300); }
+    await page.evaluate(() => Tsuzuri.Preview.open({})); await page.waitForTimeout(300); await page.keyboard.press('Escape');
+    // 辞書（悪意あるネットの返答）
+    await page.locator('.panel-tabs .tab[data-tab="dict"]').click();
+    await page.locator('.dict-search input').fill('黄昏');
+    await page.locator('.dict-search button').click();
+    await page.waitForTimeout(800);
+    const links = await page.$$eval('.dict-net a', (as) => as.map((a) => a.getAttribute('href')));
+    ok(links.every((h) => /^https:\/\/ja\.(wikipedia|wiktionary)\.org\//.test(h || '')), 'ネット辞書のリンクは https の決まった場所だけ（javascript: を付けない）');
+    ok(await page.locator('.dict-net img').count() === 0, '決まった場所以外の画像は読み込まない');
+    ok(!(await page.evaluate(() => window.__xss)), 'ウィクショナリーの HTML 内のスクリプトは動かない');
+    // AI
+    await page.locator('.panel-tabs .tab[data-tab="ai"]').click();
+    await page.getByRole('button', { name: 'AIで添削' }).click();
+    await page.waitForTimeout(800);
+    ok(await page.locator('.ai-card').count() >= 1, 'CSP の下でも AI（SDK の読み込み）が動く');
+    const v = await page.evaluate(() => window.__csp);
+    ok(v.length === 0, 'CSP の違反なし ' + v.slice(0, 5).join(' | '));
+    ok(errs.length === 0, 'エラーなし ' + errs.join(' | '));
+    await page.close();
+  }
+
+  console.log('細工したバックアップの読み込み');
+  {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(e.message));
+  page.on('dialog', (d) => { errs.push('dialog ' + d.message()); d.dismiss(); });
+  await page.route(/fonts\.(googleapis|gstatic)\.com|wik(ipedia|tionary)\.org/, (r) => r.abort());
+  await page.goto(BASE);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'バックアップから読み込む' }).first().click()]);
+  await chooser.setFiles(evilPath);
+  await page.waitForTimeout(1200);
+  for (const r of ['write', 'lore', 'ideas', 'plot', 'map']) { await page.evaluate((x) => Tsuzuri.App.navigate(x), r); await page.waitForTimeout(400); }
+  await page.evaluate(() => Tsuzuri.App.navigate('lore'));
+  await page.locator('.lore-tab', { hasText: '相関図' }).click().catch(() => {});
+  await page.waitForTimeout(400);
+  await page.locator('.lore-tab', { hasText: '世界観' }).click().catch(() => {});
+  await page.waitForTimeout(300);
+  await page.evaluate(() => Tsuzuri.App.navigate('write'));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => Tsuzuri.Preview.open({}));
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => Tsuzuri.App.navigate('home'));
+  await page.waitForTimeout(400);
+  const r = await page.evaluate(() => ({ xss: window.__xss || 0, polluted: ({}).polluted || ({}).polluted2 || ({}).isAdmin || null, title: Tsuzuri.App.project && Tsuzuri.App.project.title, id: Tsuzuri.App.project && Tsuzuri.App.project.id, color: Tsuzuri.App.project && Tsuzuri.App.project.entries[0].color }));
+  console.log('  ', JSON.stringify(r));
+  ok(r.xss === 0, '作品データの中の HTML は実行されない');
+  ok(!r.polluted, '__proto__ などでオブジェクトの仕組みを書き換えられない');
+  ok(/^[A-Za-z0-9_-]+$/.test(r.id || ''), '不正な ID は作り直す');
+  ok(r.color === '', '色の欄の CSS インジェクションは捨てる');
+  ok(errs.length === 0, '読み込み・表示でエラーなし ' + errs.join(' | '));
+  }
+  await browser.close();
+  try { fs.unlinkSync(evilPath); } catch (e) { /* 何もしない */ }
+  console.log(process.exitCode ? '失敗あり' : 'すべて成功');
+})();

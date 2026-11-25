@@ -21,21 +21,37 @@
     return r.json();
   }
 
+  function safeUrl(u, host) {
+    try {
+      const x = new URL(String(u || ''));
+      return x.protocol === 'https:' && x.hostname === host ? x.href : '';
+    } catch (e) { return ''; }
+  }
+
   async function wikipedia(q, signal) {
     const s = await fetchJSON(`https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(q)}&srlimit=3&format=json&origin=*`, signal);
     const hits = (s.query && s.query.search) || [];
     if (!hits.length) return null;
     const exact = hits.find((x) => x.title === q) || hits[0];
     const sum = await fetchJSON(`https://ja.wikipedia.org/api/rest_v1/page/summary/${enc(exact.title)}`, signal);
+    // ネットから来た URL は、決まった場所の https だけを使う（javascript: などは使わない）
+    const pageUrl = sum.content_urls && sum.content_urls.desktop && sum.content_urls.desktop.page;
+    const thumb = sum.thumbnail && sum.thumbnail.source;
     return {
-      title: sum.title, extract: sum.extract || '', url: (sum.content_urls && sum.content_urls.desktop && sum.content_urls.desktop.page) || `https://ja.wikipedia.org/wiki/${enc(sum.title)}`,
-      thumb: sum.thumbnail && sum.thumbnail.source, others: hits.filter((x) => x.title !== exact.title).map((x) => x.title),
+      title: String(sum.title || exact.title), extract: String(sum.extract || ''),
+      url: safeUrl(pageUrl, 'ja.wikipedia.org') || `https://ja.wikipedia.org/wiki/${enc(String(sum.title || exact.title))}`,
+      thumb: safeUrl(thumb, 'upload.wikimedia.org'), others: hits.filter((x) => x.title !== exact.title).map((x) => String(x.title)),
     };
   }
 
   /** ウィクショナリーの HTML から日本語の語義を取り出す */
   function parseWiktionary(html) {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // 文字だけを取り出すので、スクリプト・画像・イベント属性などは解析の前に取り除く
+    const clean = String(html || '')
+      .replace(/<(script|style|iframe|object|embed|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, '')
+      .replace(/<(img|iframe|object|embed|link|meta|source|video|audio|picture)\b[^>]*>/gi, '')
+      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    const doc = new DOMParser().parseFromString(clean, 'text/html');
     const h2s = Array.from(doc.querySelectorAll('h2'));
     const jp = h2s.find((x) => /^\s*日本語/.test(x.textContent));
     if (!jp) return [];
@@ -63,7 +79,7 @@
     const r = await fetchJSON(`https://ja.wiktionary.org/w/api.php?action=parse&page=${enc(q)}&prop=text&format=json&origin=*&redirects=1`, signal);
     if (!r.parse || !r.parse.text) return null;
     const defs = parseWiktionary(r.parse.text['*'] || '');
-    return defs.length ? { title: r.parse.title, defs, url: `https://ja.wiktionary.org/wiki/${enc(r.parse.title)}` } : null;
+    return defs.length ? { title: String(r.parse.title), defs, url: `https://ja.wiktionary.org/wiki/${enc(String(r.parse.title))}` } : null;
   }
 
   const LINKS = [
@@ -203,7 +219,7 @@
         if (wp) {
           box.appendChild(h('div', { class: 'dict-card' },
             h('div', { class: 'dict-card-head' }, h('strong', null, wp.title), h('span', { class: 'muted small' }, 'Wikipedia'), h('a', { href: wp.url, target: '_blank', rel: 'noopener noreferrer', class: 'small' }, '開く')),
-            h('div', { class: 'dict-wp' }, wp.thumb ? h('img', { src: wp.thumb, alt: '', loading: 'lazy' }) : null, h('p', null, wp.extract)),
+            h('div', { class: 'dict-wp' }, wp.thumb ? h('img', { src: wp.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : null, h('p', null, wp.extract)),
             wp.others && wp.others.length ? h('div', { class: 'chips' }, h('span', { class: 'small muted' }, 'ほかの候補：'), wp.others.map((t) => h('button', { type: 'button', class: 'chip', onclick: () => run(t) }, t))) : null));
         }
         if (!wk && !wp) box.appendChild(h('p', { class: 'small muted' }, error ? 'ネット辞書に接続できませんでした（オフラインか、通信が制限されています）。' : '見つかりませんでした。'));
