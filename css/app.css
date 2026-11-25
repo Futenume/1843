@@ -1051,3 +1051,27 @@ html.focus-writing .editor-sheet { box-shadow: none; border-color: transparent; 
 .sprint-result strong { font-size: 28px; margin-right: 4px; }
 /* 集中モードでは添削の波線を出さない（書くことだけに集中する。戻れば表示される） */
 html.focus-writing .editor-backdrop .mk { background: none; text-decoration: none; box-shadow: none; }
+
+/* ───── 版を比べる ───── */
+.diff-view {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--editor-font); font-size: 15px; line-height: 1.9;
+  max-height: 60vh; overflow: auto; padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+}
+del.diff-del { color: #b3261e; background: color-mix(in srgb, #e5484d 14%, transparent); text-decoration: line-through; text-decoration-color: #b3261e; }
+ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, transparent); text-decoration: underline; text-decoration-color: #30a46c; text-underline-offset: 3px; }
+.diff-fold { display: block; margin: 4px 0; color: var(--muted); font-size: 12px; text-align: center; font-family: var(--font-ui, sans-serif); }
+.diff-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
+.diff-plus { color: #1d6b37; font-weight: 600; }
+.diff-minus { color: #b3261e; font-weight: 600; }
+
+/* ───── テキストの取り込み ───── */
+.import-drop { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1.5px dashed var(--line-strong, var(--line)); border-radius: 10px; }
+.import-drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.import-paste { min-height: 90px; }
+.import-summary { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.import-list { max-height: 34vh; overflow: auto; margin: 0; padding-left: 2.2em; display: flex; flex-direction: column; gap: 2px; }
+.import-list li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.import-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-label-old, .diff-label-new { padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+.diff-label-old { background: color-mix(in srgb, #e5484d 12%, transparent); color: #b3261e; }
+.diff-label-new { background: color-mix(in srgb, #30a46c 14%, transparent); color: #1d6b37; }

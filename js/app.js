@@ -456,6 +456,7 @@
             App.openProject(p.id, 'write');
           } }),
           btn('バックアップから読み込む', { icon: 'upload', ghost: true, onClick: App.importBackup }),
+          btn('テキストを取り込む', { icon: 'file', ghost: true, title: 'ほかのアプリで書いた .txt・.md の原稿から作品を作ります', onClick: () => NS.ImportDialog.open({ mode: 'new' }) }),
           App.canInstall() ? btn('アプリとして入れる', { icon: 'download', ghost: true, title: 'ホーム画面やデスクトップから開けるアプリとして入れます（オフラインでも使えます）', onClick: App.install }) : null)));
       const listEl = h('section', { class: 'project-grid' });
       const notice = h('div');

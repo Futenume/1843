@@ -90,6 +90,7 @@
       h('div', { class: 'pane-head' },
         h('h2', null, '話'),
         btn('', { icon: 'plus', ghost: true, small: true, title: '新しい話を追加', onClick: addChapter }),
+        btn('', { icon: 'upload', ghost: true, small: true, title: 'テキスト（.txt・.md）から話を取り込む', onClick: () => { syncBody(); NS.ImportDialog.open(); } }),
         btn('', { icon: 'x', ghost: true, small: true, class: 'only-mobile', title: '閉じる', onClick: () => toggleChapters(true) })),
       S.chapterList,
       S.chapterTotal = h('div', { class: 'pane-foot muted small' }));
@@ -1053,6 +1054,7 @@
             h('span', { class: 'muted small' }, UI.fmtDate(s.at, true) + '・' + UI.fmtNum(s.chars || 0) + '字')),
           h('div', { class: 'row' },
             btn('見る', { small: true, ghost: true, onClick: () => UI.modal({ title: s.label || UI.fmtDate(s.at, true), wide: true, body: h('pre', { class: 'snapshot-text' }, s.body) }) }),
+            btn('今と比べる', { small: true, ghost: true, title: 'この版から今の本文までに変えた所を表示します', onClick: () => compareDialog(s.body, S.textarea.value, (s.label || UI.fmtDate(s.at, true)), '今の本文') }),
             btn('この版に戻す', { small: true, onClick: async () => {
               if (!(await UI.confirm('今の本文を版として保存してから、この版に戻します。'))) return;
               pushSnapshot(c, '復元前の状態', false);
@@ -1077,6 +1079,52 @@
           render();
         } })),
         list),
+    });
+  }
+
+  /** 2つの本文を比べて、消した所（赤い取り消し線）と足した所（緑の下線）を表示する */
+  function compareDialog(oldText, newText, oldLabel, newLabel) {
+    const r = NS.Diff.diffText(oldText, newText);
+    let onlyChanged = true;
+    const out = h('div', { class: 'diff-view', 'aria-live': 'polite' });
+    const render = () => {
+      clear(out);
+      if (!r.blocks) { out.appendChild(h('p', { class: 'muted' }, '違いはありません。')); return; }
+      r.segs.forEach((sg, i) => {
+        if (sg.type === 'eq') {
+          let t = sg.text;
+          if (onlyChanged) {
+            // 変わった所の前後2行だけ残し、あいだは「……」でまとめる
+            const lines = t.split('\n');
+            const keepHead = i > 0 ? 2 : 0;
+            const keepTail = i < r.segs.length - 1 ? 2 : 0;
+            if (lines.length > keepHead + keepTail + 2) {
+              const head = lines.slice(0, keepHead + (keepHead ? 1 : 0)).join('\n');
+              const tail = lines.slice(lines.length - keepTail - (keepTail ? 1 : 0)).join('\n');
+              if (head) out.appendChild(document.createTextNode(head));
+              out.appendChild(h('span', { class: 'diff-fold' }, `……（変わっていない ${lines.length - keepHead - keepTail - 1}行）……`));
+              if (tail) out.appendChild(document.createTextNode(tail));
+              return;
+            }
+          }
+          out.appendChild(document.createTextNode(t));
+        } else {
+          out.appendChild(h(sg.type === 'del' ? 'del' : 'ins', { class: 'diff-' + sg.type }, sg.text.replace(/\n/g, '↵\n')));
+        }
+      });
+    };
+    render();
+    UI.modal({
+      title: '版を比べる', wide: true,
+      body: h('div', { class: 'stack' },
+        h('div', { class: 'diff-summary small' },
+          h('span', null, h('span', { class: 'diff-label-old' }, oldLabel), ' → ', h('span', { class: 'diff-label-new' }, newLabel)),
+          h('span', null, `変えた所 ${r.blocks}か所`),
+          h('span', { class: 'diff-plus' }, `＋${UI.fmtNum(r.added)}字`),
+          h('span', { class: 'diff-minus' }, `−${UI.fmtNum(r.removed)}字`)),
+        h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { onlyChanged = e.target.checked; render(); } }), '変わった所の前後だけ表示'),
+        out),
+      actions: [{ label: '閉じる', primary: true }],
     });
   }
 

@@ -478,3 +478,52 @@ test('国に分ける：国の数・陸だけの塗り・国境・国名・作�
   assert.ok(w.labels.some((l) => /(海|洋)$/.test(l.text)));
   assert.ok(w.stamps.some((s) => s.a === 'sym-capital' && s.name));
 });
+
+test('版を比べる：両方の本文を復元でき、足した・消した文字数が合う', () => {
+  require('../js/diff.js');
+  const { Diff } = globalThis.Tsuzuri;
+  const back = (segs, side) => segs.filter((s) => s.type === 'eq' || s.type === side).map((s) => s.text).join('');
+  const a = '　リオは走った。\n「待って」\n三行目。\n';
+  const b = '　リオは急いで走った。\n「待ってよ」\n三行目。\n新しい段落。';
+  const r = Diff.diffText(a, b);
+  assert.equal(back(r.segs, 'del'), a);
+  assert.equal(back(r.segs, 'ins'), b);
+  assert.equal(r.added, 10);
+  assert.equal(r.removed, 0);
+  assert.equal(r.blocks, 3);
+  // 書き換えた段落は1文字ずつ比べる（段落まるごとの入れ替えにしない）
+  assert.ok(r.segs.some((s) => s.type === 'ins' && s.text === '急いで'));
+  // ランダムな本文でも、必ず元に戻せる
+  const al = 'あいう\nえ';
+  for (let t = 0; t < 200; t++) {
+    const g = () => Array.from({ length: (t * 7) % 37 }, (_, i) => al[(i * 13 + t * 5) % al.length]).join('');
+    const x = g();
+    const y = g().split('').reverse().join('');
+    const rr = Diff.diffText(x, y);
+    assert.equal(back(rr.segs, 'del'), x);
+    assert.equal(back(rr.segs, 'ins'), y);
+  }
+  assert.equal(Diff.diffText('同じ', '同じ').blocks, 0);
+});
+
+test('テキストの取り込み：見出しで話に分ける・作品名・ルビと傍点の変換・文字コード', () => {
+  require('../js/importtext.js');
+  const { ImportText: I } = globalThis.Tsuzuri;
+  const r = I.parse('星の物語\n\n第一話　旅立ち\n　朝。\n\n第二話：森\n[[rb:魔物 > まもの]]がいる。\n[newpage]\n続き\n\nエピローグ\n　おわり。', 'auto');
+  assert.equal(r.title, '星の物語');
+  assert.deepEqual(r.chapters.map((c) => c.title), ['第一話　旅立ち', '第二話：森', '第3話', 'エピローグ']);
+  assert.equal(r.chapters[1].body, '|魔物《まもの》がいる。');
+  assert.equal(r.ruby, 1);
+  assert.deepEqual(I.parse('# 一章\n本文1\n## 二章\n本文2').chapters.map((c) => c.title), ['一章', '二章']);
+  // 青空文庫の傍点と注記
+  assert.equal(I.parse('彼は静かに［＃「静かに」に傍点］言った［＃ここで字下げ終わり］。').chapters[0].body, '彼は《《静かに》》言った。');
+  // 本文中の長い行は見出しにしない／分けない設定
+  assert.equal(I.parse('第一話を読んだ彼女は、その日のうちに続きを書き始めて、気がつけば夜が明けていたのだった。').chapters.length, 1);
+  assert.equal(I.parse('第一話\n本文', 'none').chapters.length, 1);
+  assert.equal(I.parse('一\n\n\n\n二', 'blank').chapters.length, 2);
+  // Shift_JIS と UTF-8 の判定
+  const sj = new Uint8Array([0x82, 0xa0, 0x82, 0xa2, 0x82, 0xa4, 0x8a, 0xbf, 0x8e, 0x9a]);
+  assert.deepEqual(I.decodeBytes(sj), { text: 'あいう漢字', encoding: 'Shift_JIS' });
+  assert.equal(I.decodeBytes(new TextEncoder().encode('あいう')).encoding, 'UTF-8');
+  assert.equal(I.decodeBytes(new Uint8Array([0xef, 0xbb, 0xbf, 0xe3, 0x81, 0x82])).text, 'あ');
+});
