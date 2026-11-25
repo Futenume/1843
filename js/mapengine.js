@@ -829,9 +829,279 @@
       createdAt: Date.now(), updatedAt: Date.now(),
     };
     if (opts.rivers !== false && !PRESETS[opts.preset || 'continent'].blank) map.lines = autoRivers(map, H, seed);
+    // 町と道（国の地図）／大陸と海の仮の名前（世界地図）
+    let towns = null;
+    if (opts.towns && !pr.blank && !pr.world) {
+      towns = autoSettlements(map, H, B, seed);
+      map.lines = map.lines.concat(towns.lines);
+    }
+    if (opts.names && pr.world) map.labels = autoWorldLabels(map, H, seed);
     if (opts.stamps !== false) map.stamps = autoStamps(map, H, B, seed);
+    if (towns) {
+      // 町の周りの木や山はどける
+      const near = (st) => towns.stamps.some((t) => Math.hypot(t.x - st.x, t.y - st.y) < 18);
+      map.stamps = map.stamps.filter((st) => !near(st)).concat(towns.stamps).sort((a, b) => a.y - b.y);
+    }
     if (opts.compass !== false) map.stamps.push({ id: sid(), a: 'compass', x: gw * cell - 56, y: 68, s: 1, r: 0, f: false, v: 0 });
     return map;
+  }
+
+  // ───── 仮の地名 ─────
+  const SYL = ['ア', 'イ', 'エ', 'オ', 'カ', 'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'セ', 'ソ', 'タ', 'テ', 'ト', 'ナ', 'ニ', 'ノ', 'ハ', 'フ', 'ホ', 'マ', 'ミ', 'メ', 'モ', 'ラ', 'リ', 'ル', 'レ', 'ロ', 'ガ', 'ギ', 'グ', 'ゴ', 'ザ', 'ゼ', 'ダ', 'デ', 'ド', 'バ', 'ベ', 'ボ', 'ヴァ', 'ヴィ', 'ユ', 'ヨ', 'ワ', 'ティ', 'フェ', 'シェ'];
+  const END = ['ン', 'ル', 'ス', 'ア', 'ド', 'ラ', 'リア', 'ニア', 'ール', 'ーン', 'ム', 'ト', 'ディア', 'ロス', 'ネ'];
+  /** カタカナの空想の地名を作る（同じ地図では重ならない） */
+  function makeNamer(seed) {
+    const rnd = mulberry32(((seed >>> 0) || 1) + 99991);
+    const used = new Set();
+    return () => {
+      for (let t = 0; t < 40; t++) {
+        const n = 1 + Math.floor(rnd() * 2);
+        let w = '';
+        let prev = '';
+        for (let i = 0; i < n; i++) {
+          let sy = SYL[Math.floor(rnd() * SYL.length)];
+          if (sy === prev) sy = SYL[Math.floor(rnd() * SYL.length)];
+          w += sy;
+          prev = sy;
+        }
+        w += END[Math.floor(rnd() * END.length)];
+        if (w.length >= 3 && w.length <= 6 && !used.has(w)) { used.add(w); return w; }
+      }
+      return 'ノルド' + used.size;
+    };
+  }
+
+  /** 陸のかたまり（4方向でつながる陸）。大きい順に { cells, cx, cy, n } */
+  function landMasses(H, gw, gh, minCells) {
+    const seen = new Uint8Array(gw * gh);
+    const out = [];
+    for (let i = 0; i < H.length; i++) {
+      if (H[i] <= 0 || seen[i]) continue;
+      const st = [i];
+      seen[i] = 1;
+      let n = 0; let sx = 0; let sy = 0;
+      const cells = [];
+      while (st.length) {
+        const k = st.pop();
+        const x = k % gw;
+        const y = (k / gw) | 0;
+        n++; sx += x; sy += y;
+        cells.push(k);
+        if (x > 0 && !seen[k - 1] && H[k - 1] > 0) { seen[k - 1] = 1; st.push(k - 1); }
+        if (x < gw - 1 && !seen[k + 1] && H[k + 1] > 0) { seen[k + 1] = 1; st.push(k + 1); }
+        if (y > 0 && !seen[k - gw] && H[k - gw] > 0) { seen[k - gw] = 1; st.push(k - gw); }
+        if (y < gh - 1 && !seen[k + gw] && H[k + gw] > 0) { seen[k + gw] = 1; st.push(k + gw); }
+      }
+      if (n >= (minCells || 1)) out.push({ cells, n, cx: sx / n, cy: sy / n });
+    }
+    return out.sort((a, b) => b.n - a.n);
+  }
+
+  /**
+   * 世界地図の仮の名前：大きな大陸に「〇〇大陸」、広い海に「〇〇海／〇〇洋」。
+   * 文字は大陸の中で、なるべく山の少ない所に置く。
+   */
+  function autoWorldLabels(map, H, seed) {
+    const { gw, gh, cell } = map;
+    const name = makeNamer(seed);
+    const labels = [];
+    const masses = landMasses(H, gw, gh, 500).slice(0, 8);
+    masses.forEach((m) => {
+      // 重心に近く、低めの陸のマスを探す
+      let best = null;
+      let bs = -Infinity;
+      for (let i = 0; i < m.cells.length; i += 7) {
+        const k = m.cells[i];
+        const x = k % gw;
+        const y = (k / gw) | 0;
+        const sc = -Math.hypot(x - m.cx, (y - m.cy) * 1.3) - H[k] * 40;
+        if (sc > bs) { bs = sc; best = [x, y]; }
+      }
+      if (!best) return;
+      const size = Math.max(18, Math.min(34, Math.sqrt(m.n) * 0.55));
+      labels.push({ id: sid(), x: (best[0] + 0.5) * cell, y: (best[1] + 0.5) * cell, text: name() + '大陸', style: 'region', size: Math.round(size), rotation: 0, vertical: false, curve: 0 });
+    });
+    // 海：陸から遠い所を、互いに離して3つまで
+    const CD = coastDistance(H, gw, gh);
+    const cand = [];
+    for (let y = Math.floor(gh * 0.18); y < gh * 0.82; y += 3) {
+      for (let x = Math.floor(gw * 0.06); x < gw * 0.94; x += 3) {
+        const k = y * gw + x;
+        if (H[k] <= 0) cand.push({ x, y, d: CD[k] });
+      }
+    }
+    cand.sort((a, b) => b.d - a.d);
+    const seas = [];
+    for (const c of cand) {
+      if (seas.length >= 3 || c.d < 12) break;
+      if (seas.some((q) => Math.hypot(q.x - c.x, q.y - c.y) < gw * 0.25)) continue;
+      seas.push(c);
+      labels.push({ id: sid(), x: (c.x + 0.5) * cell, y: (c.y + 0.5) * cell, text: name() + (c.d > 30 ? '洋' : '海'), style: 'sea', size: c.d > 30 ? 24 : 20, rotation: 0, vertical: false, curve: 0 });
+    }
+    return labels;
+  }
+
+  /**
+   * 国の地図の町と道：平らで川や海に近い所に、王都・町・村・港を置き、道でつなぐ。
+   * 道は山や水を避けて通る（格子の最短経路）。地名は仮のカタカナ。
+   */
+  function autoSettlements(map, H, B, seed) {
+    const { gw, gh, cell } = map;
+    const rnd = mulberry32(((seed >>> 0) || 1) + 5381);
+    const name = makeNamer(seed + 17);
+    const CD = coastDistance(H, gw, gh);
+    // 川のマス
+    const wet = new Uint8Array(gw * gh);
+    (map.lines || []).forEach((ln) => {
+      if (ln.kind !== 'river' && ln.kind !== 'stream') return;
+      ln.points.forEach(([px, py]) => {
+        const x = Math.floor(px / cell);
+        const y = Math.floor(py / cell);
+        for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+          const xx = x + dx; const yy = y + dy;
+          if (xx >= 0 && yy >= 0 && xx < gw && yy < gh) wet[yy * gw + xx] = 1;
+        }
+      });
+    });
+    const slope = (x, y) => {
+      const k = y * gw + x;
+      const hx = H[k + 1] - H[k - 1];
+      const hy = H[k + gw] - H[k - gw];
+      return Math.hypot(hx, hy);
+    };
+    // 本島（いちばん大きな陸）に置く
+    const mass = landMasses(H, gw, gh, 200)[0];
+    if (!mass) return { stamps: [], lines: [] };
+    const onMain = new Uint8Array(gw * gh);
+    mass.cells.forEach((k) => { onMain[k] = 1; });
+    const cands = [];
+    for (let i = 0; i < mass.cells.length; i += 3) {
+      const k = mass.cells[i];
+      const x = k % gw;
+      const y = (k / gw) | 0;
+      if (x < 3 || y < 3 || x > gw - 4 || y > gh - 4) continue;
+      const h = H[k];
+      if (h < 0.03 || h > 0.42) continue;
+      const b = B ? B[k] : 0;
+      if (b === 4 || b === 3 || b === 7) continue;
+      const sl = slope(x, y);
+      const coast = CD[k];
+      let score = 1 - sl * 6 + (wet[k] ? 0.8 : 0) + (b === 8 || b === 0 ? 0.3 : 0) - h * 0.6 + rnd() * 0.25;
+      cands.push({ x, y, k, score, coastal: false, coast, sl });
+    }
+    // 海辺（港の候補）：海から 2〜4 マスの陸
+    const coastCands = [];
+    for (let i = 0; i < mass.cells.length; i += 2) {
+      const k = mass.cells[i];
+      const x = k % gw;
+      const y = (k / gw) | 0;
+      if (x < 4 || y < 4 || x > gw - 5 || y > gh - 5) continue;
+      if (H[k] < 0.02 || H[k] > 0.25) continue;
+      const nearSea = [[3, 0], [-3, 0], [0, 3], [0, -3]].some(([dx, dy]) => H[(y + dy) * gw + x + dx] <= 0);
+      if (nearSea) coastCands.push({ x, y, k, score: 1 - slope(x, y) * 5 + rnd() * 0.3 });
+    }
+    cands.sort((a, b) => b.score - a.score);
+    coastCands.sort((a, b) => b.score - a.score);
+    const placed = [];
+    const far = (c, d) => placed.every((q) => Math.hypot(q.x - c.x, q.y - c.y) >= d);
+    const span = Math.sqrt(mass.n);
+    // 王都：点数が高く、本島の中心寄り
+    let capital = null;
+    let best = -Infinity;
+    cands.slice(0, 400).forEach((c) => {
+      const s2 = c.score - Math.hypot(c.x - mass.cx, c.y - mass.cy) / span * 1.2;
+      if (s2 > best) { best = s2; capital = c; }
+    });
+    if (!capital) return { stamps: [], lines: [] };
+    placed.push(Object.assign({ kind: 'capital' }, capital));
+    const port = coastCands.find((c) => far(c, span * 0.25));
+    if (port) placed.push(Object.assign({ kind: 'port' }, port));
+    const nTowns = Math.max(2, Math.min(5, Math.round(span / 22)));
+    for (const c of cands) { if (placed.filter((q) => q.kind === 'town').length >= nTowns) break; if (far(c, span * 0.22)) placed.push(Object.assign({ kind: 'town' }, c)); }
+    const nVil = Math.max(3, Math.min(9, Math.round(span / 12)));
+    for (const c of cands) { if (placed.filter((q) => q.kind === 'village').length >= nVil) break; if (far(c, span * 0.12)) placed.push(Object.assign({ kind: 'village' }, c)); }
+
+    // 道：格子の上の最短経路（山・急な斜面は高く、水は通れない）
+    const costAt = (k) => {
+      if (!onMain[k]) return Infinity;
+      const h = H[k];
+      return 1 + Math.max(0, h - 0.35) * 40 + (h > 0.6 ? 60 : 0) + (B && B[k] === 3 ? 3 : 0);
+    };
+    const roadCell = new Uint8Array(gw * gh);
+    const route = (a, b) => {
+      const N = gw * gh;
+      const dist = new Float32Array(N).fill(Infinity);
+      const prev = new Int32Array(N).fill(-1);
+      const open = [a.k];
+      dist[a.k] = 0;
+      const heur = (k) => Math.hypot((k % gw) - b.x, ((k / gw) | 0) - b.y);
+      const pq = [[heur(a.k), a.k]];
+      let iter = 0;
+      while (pq.length && iter++ < 60000) {
+        // 小さな優先度つきキュー（二分ヒープ）
+        const top = pq[0];
+        const last = pq.pop();
+        if (pq.length) {
+          pq[0] = last;
+          let i = 0;
+          for (;;) {
+            const l = i * 2 + 1; const r = l + 1; let m = i;
+            if (l < pq.length && pq[l][0] < pq[m][0]) m = l;
+            if (r < pq.length && pq[r][0] < pq[m][0]) m = r;
+            if (m === i) break;
+            const t = pq[i]; pq[i] = pq[m]; pq[m] = t; i = m;
+          }
+        }
+        const k = top[1];
+        if (k === b.k) break;
+        const x = k % gw;
+        const y = (k / gw) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const nx = x + dx; const ny = y + dy;
+          if (nx < 1 || ny < 1 || nx >= gw - 1 || ny >= gh - 1) continue;
+          const nk = ny * gw + nx;
+          let c = costAt(nk);
+          if (!Number.isFinite(c)) continue;
+          if (roadCell[nk]) c *= 0.55; // 既にある道に沿うと安い（道が合流する）
+          const nd = dist[k] + c * (dx && dy ? 1.4142 : 1);
+          if (nd < dist[nk]) {
+            dist[nk] = nd;
+            prev[nk] = k;
+            const item = [nd + heur(nk), nk];
+            pq.push(item);
+            let i = pq.length - 1;
+            while (i > 0) { const p2 = (i - 1) >> 1; if (pq[p2][0] <= pq[i][0]) break; const t = pq[i]; pq[i] = pq[p2]; pq[p2] = t; i = p2; }
+          }
+        }
+      }
+      if (prev[b.k] < 0) return null;
+      const path = [];
+      for (let k = b.k; k >= 0; k = prev[k]) { path.push([k % gw, (k / gw) | 0]); if (k === a.k) break; }
+      path.reverse();
+      path.forEach(([x, y]) => { roadCell[y * gw + x] = 1; });
+      return path;
+    };
+    const lines = [];
+    const toWorldLine = (path, kind) => {
+      const simp = rdp(path, 1.2);
+      return { id: sid(), kind, points: simp.map(([x, y]) => [Math.round((x + 0.5) * cell * 10) / 10, Math.round((y + 0.5) * cell * 10) / 10]), name: '', w: 1, wobble: kind === 'highway' ? 0.12 : 0.18 };
+    };
+    // つなぐ順：王都から近い順に、すでにつながった所のうち一番近い所へ
+    const linked = [placed[0]];
+    placed.slice(1).sort((p1, p2) => Math.hypot(p1.x - capital.x, p1.y - capital.y) - Math.hypot(p2.x - capital.x, p2.y - capital.y)).forEach((q) => {
+      let near = linked[0];
+      linked.forEach((l) => { if (Math.hypot(l.x - q.x, l.y - q.y) < Math.hypot(near.x - q.x, near.y - q.y)) near = l; });
+      const path = route(near, q);
+      if (path && path.length > 2) lines.push(toWorldLine(path, (q.kind === 'village' || near.kind === 'village') ? 'road' : 'highway'));
+      linked.push(q);
+    });
+    const ASSET = { capital: 'castle', port: 'port', town: 'town', village: 'village' };
+    const stamps = placed.map((q) => ({
+      id: sid(), a: ASSET[q.kind], x: Math.round((q.x + 0.5) * cell * 10) / 10, y: Math.round((q.y + 0.5) * cell * 10) / 10,
+      s: q.kind === 'capital' ? 1.5 : q.kind === 'village' ? 1 : 1.2, r: 0, f: false, v: Math.floor(rnd() * 4),
+      name: q.kind === 'capital' ? '王都' + name() : q.kind === 'port' ? name() + '港' : name(), entryId: '', note: '',
+    }));
+    return { stamps, lines };
   }
 
   /**
@@ -1027,6 +1297,6 @@
 
   NS.MapEngine = {
     BIOMES, PALETTES, PRESETS, SIZES, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
-    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, findLand, pickRes, sampleH, defaultStyle, sid,
+    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

@@ -119,10 +119,13 @@
     // 世界地図を選んだら、横長の大きさ・地図帳の配色・陸の割合をそれらしく（自分で変えた項目はそのまま）
     let paletteTouched = !!regenerate;
     let sizeTouched = false;
+    let nameTouched = !!regenerate;
     palette.addEventListener('change', () => { paletteTouched = true; });
     size.addEventListener('change', () => { sizeTouched = true; });
+    name.addEventListener('input', () => { nameTouched = true; });
     preset.addEventListener('change', () => {
       const pr = E.PRESETS[preset.value] || {};
+      if (!nameTouched) name.value = pr.world ? '世界地図' : '新しい地図';
       if (pr.world) {
         if (!sizeTouched) size.value = 'w';
         if (!paletteTouched) palette.value = 'atlas';
@@ -138,10 +141,12 @@
     const autoB = h('input', { type: 'checkbox', checked: true });
     const autoS = h('input', { type: 'checkbox', checked: true });
     const autoR = h('input', { type: 'checkbox', checked: true });
+    const autoT = h('input', { type: 'checkbox', checked: true });
+    const autoTLabel = h('span', null, '町と道を置く（仮の地名つき。あとで名前を変えられます）');
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: 195, 'aria-label': 'プレビュー' });
     const drawPreview = () => {
       const isWorld = !!(E.PRESETS[preset.value] || {}).world;
-      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, compass: false });
+      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: !regenerate && autoT.checked, compass: false });
       const ph = Math.round(300 * tmp.gh / tmp.gw);
       if (preview.height !== ph) preview.height = ph;
       const n = tmp.gw * tmp.gh;
@@ -158,13 +163,18 @@
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       tmp.lines.forEach((ln) => {
-        ctx.strokeStyle = `rgb(${plt.coast.join(',')})`;
-        ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res * 1.6;
         ctx.beginPath();
         ln.points.forEach((pt, i) => (i ? ctx.lineTo(pt[0] * res, pt[1] * res) : ctx.moveTo(pt[0] * res, pt[1] * res)));
-        ctx.stroke();
-        ctx.strokeStyle = `rgb(${plt.shallow.join(',')})`;
-        ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res;
+        if (ln.kind === 'river' || ln.kind === 'stream') {
+          ctx.strokeStyle = `rgb(${plt.coast.join(',')})`;
+          ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res * 1.6;
+          ctx.stroke();
+          ctx.strokeStyle = `rgb(${plt.shallow.join(',')})`;
+          ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res;
+        } else {
+          ctx.strokeStyle = plt.road;
+          ctx.lineWidth = Math.max(0.6, (ln.kind === 'highway' ? 2.4 : 1.4) * res);
+        }
         ctx.stroke();
       });
       tmp.stamps.forEach((st) => {
@@ -176,7 +186,13 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     };
     const redraw = UI.debounce(drawPreview, 150);
-    [preset, palette, land, seed, autoB, autoS, autoR].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+    [preset, palette, land, seed, autoB, autoS, autoR, autoT].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+    const syncTownLabel = () => {
+      const pr = E.PRESETS[preset.value] || {};
+      autoTLabel.textContent = pr.world ? '大陸と海に仮の名前を付ける（あとで変えられます）' : '町と道を置く（仮の地名つき。あとで名前を変えられます）';
+      autoT.closest('label').hidden = !!pr.blank || !!regenerate;
+    };
+    preset.addEventListener('change', syncTownLabel);
     UI.modal({
       title: regenerate ? '地形を作り直す' : '新しい地図', wide: true,
       body: h('div', { class: 'gen-dialog' },
@@ -188,7 +204,8 @@
           UI.field('シード（同じ数なら同じ地形）', h('div', { class: 'row' }, seed, btn('', { icon: 'dice', ghost: true, title: 'ランダム', onClick: () => { seed.value = Math.floor(Math.random() * 99999); drawPreview(); } }))),
           h('label', { class: 'check' }, autoB, '地面（森・砂漠・雪原など）を自動で塗る'),
           h('label', { class: 'check' }, autoS, '山・丘・森の素材を自動で置く'),
-          h('label', { class: 'check' }, autoR, '川を自動で引く（山から海へ）')),
+          h('label', { class: 'check' }, autoR, '川を自動で引く（山から海へ）'),
+          h('label', { class: 'check' }, autoT, autoTLabel)),
         h('div', { class: 'gen-preview-wrap' }, preview, h('p', { class: 'muted small' }, 'プレビュー'))),
       actions: [
         { label: 'キャンセル', ghost: true },
@@ -219,13 +236,17 @@
             renderInspector();
             return;
           }
-          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked });
+          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: autoT.checked, names: autoT.checked });
           P().maps.push(m);
           NS.App.touch();
           NS.App.navigate('map', { id: m.id });
         } },
       ],
     });
+    // 新しい地図は「世界地図」から（作り直しは今の地図の形に近い「大陸」から）
+    preset.value = regenerate ? 'continent' : 'world';
+    preset.dispatchEvent(new Event('change'));
+    syncTownLabel();
     setTimeout(drawPreview, 30);
   }
 

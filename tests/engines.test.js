@@ -425,3 +425,23 @@ test('世界地図：いくつもの大陸・極地は海（氷は描画）・�
     for (let y = 0; y < m.gh; y++) { assert.ok(H[y * m.gw] <= 0); assert.ok(H[y * m.gw + m.gw - 1] <= 0); }
   }
 });
+
+test('町と道の自動配置：道は水の上を通らない／世界地図の仮の名前', () => {
+  for (const preset of ['continent', 'island', 'coast']) {
+    const m = MapEngine.newMap('国', { preset, seed: 42, towns: true });
+    const H = MapEngine.decodeHeights(m.height, m.gw * m.gh);
+    const towns = m.stamps.filter((s) => ['castle', 'town', 'village', 'port'].includes(s.a));
+    assert.ok(towns.length >= 5, preset + '：町や村が置かれる');
+    assert.equal(towns.filter((s) => s.a === 'castle').length, 1, '王都はひとつ');
+    assert.ok(towns.every((s) => s.name), '仮の名前が付く');
+    assert.equal(new Set(towns.map((s) => s.name)).size, towns.length, '名前は重ならない');
+    const roads = m.lines.filter((l) => l.kind === 'road' || l.kind === 'highway');
+    assert.ok(roads.length >= 3, '道でつながる');
+    roads.forEach((r) => r.points.forEach(([x, y]) => {
+      assert.ok(MapEngine.sampleH(H, m.gw, m.gh, m.cell, x, y) > 0, '道は陸の上');
+    }));
+  }
+  const w = MapEngine.newMap('世界', { preset: 'world', seed: 7, names: true });
+  assert.ok(w.labels.filter((l) => /大陸$/.test(l.text)).length >= 3);
+  assert.ok(w.labels.some((l) => /(海|洋)$/.test(l.text)));
+});
