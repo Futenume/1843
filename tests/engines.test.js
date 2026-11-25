@@ -386,3 +386,42 @@ test('同じ語の繰り返し：名前の一部（黒霧の森 → 黒霧）も
   assert.equal(rules(t, { names: ['黒霧の森'] }).filter((i) => i.ruleId === 'word-repeat').length, 0);
   assert.equal(rules(t).filter((i) => i.ruleId === 'word-repeat').length, 1);
 });
+
+test('世界地図：いくつもの大陸・極地は海（氷は描画）・経緯線と地球規模の縮尺', () => {
+  for (const seed of [11, 42, 7]) {
+    const m = MapEngine.newMap('世界', { preset: 'world', seed });
+    assert.equal(m.gw, 420);
+    assert.equal(m.gh, 210);
+    assert.equal(m.style.grid, 'latlon');
+    assert.ok(m.style.ice);
+    assert.ok(m.style.kmPerCell > 50, '一周およそ4万kmの縮尺');
+    const H = MapEngine.decodeHeights(m.height, m.gw * m.gh);
+    // 陸のかたまりの数（小さすぎる島は数えない）
+    const seen = new Uint8Array(H.length);
+    let big = 0;
+    for (let i = 0; i < H.length; i++) {
+      if (H[i] <= 0 || seen[i]) continue;
+      let n = 0;
+      const st = [i];
+      seen[i] = 1;
+      while (st.length) {
+        const k = st.pop();
+        n++;
+        const x = k % m.gw;
+        const y = (k / m.gw) | 0;
+        [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dy]) => {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= m.gw || ny >= m.gh) return;
+          const j = ny * m.gw + nx;
+          if (!seen[j] && H[j] > 0) { seen[j] = 1; st.push(j); }
+        });
+      }
+      if (n > 600) big++;
+    }
+    assert.ok(big >= 3, `大陸が3つ以上（seed ${seed}：${big}）`);
+    // 最上段・最下段と左右の端は海
+    for (let x = 0; x < m.gw; x++) { assert.ok(H[x] <= 0); assert.ok(H[(m.gh - 1) * m.gw + x] <= 0); }
+    for (let y = 0; y < m.gh; y++) { assert.ok(H[y * m.gw] <= 0); assert.ok(H[y * m.gw + m.gw - 1] <= 0); }
+  }
+});

@@ -111,18 +111,39 @@
   function newMapDialog(regenerate) {
     const name = h('input', { class: 'input', type: 'text', value: regenerate ? M.map.name : '世界地図' });
     const preset = h('select', { class: 'input' }, Object.keys(E.PRESETS).map((k) => h('option', { value: k }, E.PRESETS[k].label)));
-    const size = h('select', { class: 'input' }, [['s', '小'], ['m', '中'], ['l', '大']].map(([v, l]) => h('option', { value: v, selected: v === 'm' }, l)));
+    const size = h('select', { class: 'input' }, [['s', '小'], ['m', '中'], ['l', '大'], ['w', '世界（横長 2:1）']].map(([v, l]) => h('option', { value: v, selected: v === 'm' }, l)));
     const palette = h('select', { class: 'input' }, Object.keys(E.PALETTES).map((k) => h('option', { value: k, selected: regenerate ? M.map.style.palette === k : k === 'parchment' }, E.PALETTES[k].label)));
     const land = h('input', { type: 'range', min: 10, max: 80, value: 42, class: 'range' });
     const landOut = h('span', { class: 'muted small range-out' }, '42%');
     land.addEventListener('input', () => { landOut.textContent = land.value + '%'; });
+    // 世界地図を選んだら、横長の大きさ・地図帳の配色・陸の割合をそれらしく（自分で変えた項目はそのまま）
+    let paletteTouched = !!regenerate;
+    let sizeTouched = false;
+    palette.addEventListener('change', () => { paletteTouched = true; });
+    size.addEventListener('change', () => { sizeTouched = true; });
+    preset.addEventListener('change', () => {
+      const pr = E.PRESETS[preset.value] || {};
+      if (pr.world) {
+        if (!sizeTouched) size.value = 'w';
+        if (!paletteTouched) palette.value = 'atlas';
+        land.value = Math.round((pr.land || 0.3) * 100);
+      } else {
+        if (!sizeTouched && size.value === 'w') size.value = 'm';
+        if (!paletteTouched) palette.value = 'parchment';
+        land.value = Math.round((pr.land || 0.42) * 100);
+      }
+      landOut.textContent = land.value + '%';
+    });
     const seed = h('input', { class: 'input input-num', type: 'number', value: Math.floor(Math.random() * 99999) });
     const autoB = h('input', { type: 'checkbox', checked: true });
     const autoS = h('input', { type: 'checkbox', checked: true });
     const autoR = h('input', { type: 'checkbox', checked: true });
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: 195, 'aria-label': 'プレビュー' });
     const drawPreview = () => {
-      const tmp = E.newMap('p', { preset: preset.value, size: 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, compass: false });
+      const isWorld = !!(E.PRESETS[preset.value] || {}).world;
+      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, compass: false });
+      const ph = Math.round(300 * tmp.gh / tmp.gw);
+      if (preview.height !== ph) preview.height = ph;
       const n = tmp.gw * tmp.gh;
       const H = E.decodeHeights(tmp.height, n);
       const B = E.decodeBiomes(tmp.biome, n);
@@ -176,8 +197,11 @@
             pushUndo();
             const m = M.map;
             const sd = +seed.value || 1;
+            const prw = !!(E.PRESETS[preset.value] || {}).world;
             M.H = E.generate(m.gw, m.gh, { preset: preset.value, seed: sd, land: land.value / 100 });
-            M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd) : new Uint8Array(m.gw * m.gh);
+            M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd, prw ? 'world' : null) : new Uint8Array(m.gw * m.gh);
+            m.style.ice = prw;
+            if (prw && (!m.style.grid || m.style.grid === 'none')) m.style.grid = 'latlon';
             m.seed = sd;
             const natural = new Set(['山・丘', '木・植物']);
             // 自然の素材と、自動で置いた波は、新しい地形に合わせて置き直す
@@ -1438,7 +1462,7 @@
       }
       setWorld();
     }
-    if (st.grid && st.grid !== 'none' && !layerHidden('deco')) drawGrid(ctx, st);
+    if (st.grid && st.grid !== 'none' && !layerHidden('deco')) drawGrid(ctx, st, pl);
     if (!layerHidden('labels')) {
       m.areas.forEach((ar) => {
         if (!ar.name || layerHidden('areas')) return;
@@ -1687,7 +1711,40 @@
     ctx.restore();
   }
 
-  function drawGrid(ctx, st) {
+  /** 経緯線（世界地図）：緯線・経線を30°ごと、赤道は太く、回帰線と極圏は点線。端に度数 */
+  function drawLatLon(ctx, st, pl) {
+    const W = M.W;
+    const Hh = M.Hpx;
+    const yOf = (lat) => (90 - lat) / 180 * Hh;
+    const xOf = (lon) => (lon + 180) / 360 * W;
+    const ink = st.palette === 'night' ? 'rgba(255,255,255,0.75)' : 'rgba(40,32,24,0.9)';
+    ctx.save();
+    ctx.globalAlpha = st.gridOpacity != null ? st.gridOpacity : 0.35;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    for (let lat = -60; lat <= 60; lat += 30) { if (lat) { ctx.moveTo(0, yOf(lat)); ctx.lineTo(W, yOf(lat)); } }
+    for (let lon = -150; lon <= 150; lon += 30) { ctx.moveTo(xOf(lon), 0); ctx.lineTo(xOf(lon), Hh); }
+    ctx.stroke();
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(0, yOf(0)); ctx.lineTo(W, yOf(0));
+    ctx.stroke();
+    ctx.lineWidth = 0.7;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    [23.44, -23.44, 66.56, -66.56].forEach((lat) => { ctx.moveTo(0, yOf(lat)); ctx.lineTo(W, yOf(lat)); });
+    ctx.stroke();
+    ctx.restore();
+    const lab = (t, x, y, align) => drawText(ctx, t, 0, 0, { size: Math.max(8, W / 190), weight: 500, color: ink, halo: pl.halo, align, x, y });
+    [60, 30, 0, -30, -60].forEach((lat) => lab(lat === 0 ? '0°' : `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}`, 6, yOf(lat) - 6, 'left'));
+    for (let lon = -150; lon <= 150; lon += 30) {
+      lab(lon === 0 ? '0°' : `${Math.abs(lon)}°${lon > 0 ? 'E' : 'W'}`, xOf(lon) + 3, Hh - 40, 'left');
+    }
+  }
+
+  function drawGrid(ctx, st, pl) {
+    if (st.grid === 'latlon') { drawLatLon(ctx, st, pl); return; }
     const size = (st.gridSize || 12) * M.map.cell;
     ctx.save();
     ctx.strokeStyle = st.palette === 'night' ? 'rgba(255,255,255,0.6)' : 'rgba(50,40,30,0.85)';
@@ -2460,13 +2517,13 @@
       UI.field('地名の大きさ', h('select', { class: 'input', onchange: (e) => { set('labelScale', parseFloat(e.target.value)); renderInspector(); } },
         [[0.8, '小さめ'], [1, 'ふつう'], [1.25, '大きめ'], [1.55, 'とても大きく']].map(([v, l]) => h('option', { value: v, selected: (st.labelScale || 1) === v }, l)))),
       h('div', { class: 'grid-2' },
-        sel('grid', [['none', 'なし'], ['square', '方眼'], ['hex', '六角形（ヘックス）']], 'マス目'),
+        sel('grid', [['none', 'なし'], ['square', '方眼'], ['hex', '六角形（ヘックス）'], ['latlon', '経緯線（世界地図）']], 'マス目'),
         UI.field('マスの大きさ', h('input', { class: 'input input-num', type: 'number', min: 2, max: 80, value: st.gridSize || 12, onchange: (e) => set('gridSize', Math.max(2, parseInt(e.target.value, 10) || 12)) }))),
       UI.field('縮尺（1マス＝何km）', h('input', { class: 'input input-num', type: 'number', min: 0.01, step: 0.5, value: st.kmPerCell, onchange: (e) => set('kmPerCell', Math.max(0.01, parseFloat(e.target.value) || 1)) }),
         `地図の横幅 ≒ ${UI.fmtNum(m.gw * st.kmPerCell)} km`),
       h('div', { class: 'check-grid' },
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
-        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感')),
+        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true)),
       h('div', { class: 'row wrap' },
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),

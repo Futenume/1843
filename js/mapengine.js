@@ -129,6 +129,7 @@
   }
 
   const PRESETS = {
+    world: { label: '世界地図（いくつもの大陸）', world: true, freq: 3.4, land: 0.3, size: 'w' },
     continent: { label: '大陸', freq: 3.2, falloff: 1.25, land: 0.42 },
     islands: { label: '群島', freq: 6, falloff: 0.55, land: 0.3 },
     island: { label: 'ひとつの島', freq: 3.8, falloff: 2.2, land: 0.3 },
@@ -139,12 +140,83 @@
     land: { label: '白紙（陸）', blank: 0.15 },
   };
 
+  /**
+   * 世界地図：大陸の「核」をいくつか置き、ゆがめたノイズで海岸線を作る。
+   * 左右の端は海にして（地図の端で大陸が切れないように）、極地は海にする（氷は描画で）。
+   */
+  function generateWorld(gw, gh, opts, preset) {
+    const seed = (opts.seed >>> 0) || 1;
+    const rnd = mulberry32(seed + 4049);
+    const fbm = makeNoise(seed);
+    const warp = makeNoise(seed + 7919);
+    const H = new Float32Array(gw * gh);
+    const aspect = gw / gh;
+    const n = 4 + Math.floor(rnd() * 4);
+    const centers = [];
+    const rad = (q) => Math.max(q.rx * aspect, q.ry);
+    for (let i = 0; i < n * 120 && centers.length < n; i++) {
+      const c = { x: 0.11 + rnd() * 0.78, y: 0.2 + rnd() * 0.6, rx: 0.05 + rnd() * 0.07, ry: 0.08 + rnd() * 0.1 };
+      // 大陸どうしが重ならないよう、大きさに合わせて離す（別々の大陸になるように）
+      if (centers.some((q) => Math.hypot((q.x - c.x) * aspect, q.y - c.y) < (rad(q) + rad(c)) * 1.3 + 0.05)) continue;
+      centers.push(c);
+    }
+    const cores = [];
+    // 1つの大陸を2〜4個のふくらみで作り、腕や半島のある形にする
+    centers.forEach((c) => {
+      const lobes = 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < lobes; k++) {
+        const a = rnd() * Math.PI * 2;
+        const off = k ? 0.45 + rnd() * 0.45 : 0;
+        cores.push({
+          x: c.x + Math.cos(a) * c.rx * off, y: c.y + Math.sin(a) * c.ry * off,
+          rx: c.rx * (k ? 0.45 + rnd() * 0.35 : 0.85), ry: c.ry * (k ? 0.45 + rnd() * 0.35 : 0.85), a: rnd() * Math.PI, k: k ? 0.75 + rnd() * 0.25 : 0.95,
+        });
+      }
+    });
+    // 小さな島々の核
+    const isles = 5 + Math.floor(rnd() * 6);
+    for (let i = 0; i < isles; i++) cores.push({ x: 0.08 + rnd() * 0.84, y: 0.15 + rnd() * 0.7, rx: 0.015 + rnd() * 0.03, ry: 0.015 + rnd() * 0.035, a: rnd() * Math.PI, k: 0.6 + rnd() * 0.3 });
+    const freq = preset.freq * (opts.roughness || 1);
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const nx = x / gw;
+        const ny = y / gh;
+        const wx = (warp(nx * 3, ny * 3, 3) - 0.5) * 0.26 + (warp(nx * 11 + 2, ny * 11, 2) - 0.5) * 0.04;
+        const wy = (warp(nx * 3 + 5.2, ny * 3 + 1.3, 3) - 0.5) * 0.26 + (warp(nx * 11, ny * 11 + 4, 2) - 0.5) * 0.04;
+        let core = 0;
+        for (const c of cores) {
+          const dx = (nx + wx - c.x) * aspect;
+          const dy = ny + wy - c.y;
+          const ca = Math.cos(c.a);
+          const sa = Math.sin(c.a);
+          const u = (dx * ca + dy * sa) / (c.rx * aspect);
+          const v = (-dx * sa + dy * ca) / c.ry;
+          const d = u * u + v * v;
+          if (d < 4) core = Math.max(core, c.k * (1 - d / 4));
+        }
+        // 大陸の核の近くは海岸線を複雑に、離れた所はノイズを弱めて、大陸どうしが陸続きになりにくくする
+        let v = core * 0.85 + (fbm((nx + wx) * freq * aspect, (ny + wy) * freq, 6) - 0.5) * (0.66 + core * 0.95);
+        // 左右の端と極地は海に寄せる
+        const ex = Math.min(nx, 1 - nx);
+        if (ex < 0.05) v -= (0.05 - ex) * 6;
+        const lat = Math.abs(ny - 0.5) * 2;
+        if (lat > 0.84) v -= (lat - 0.84) * 3;
+        H[y * gw + x] = v;
+      }
+    }
+    return H;
+  }
+
   /** 地形を生成する（Float32Array、-1〜1） */
   function generate(gw, gh, opts) {
     opts = opts || {};
     const preset = PRESETS[opts.preset || 'continent'] || PRESETS.continent;
-    const H = new Float32Array(gw * gh);
+    let H = new Float32Array(gw * gh);
     if (preset.blank != null) { H.fill(preset.blank); return H; }
+    if (preset.world) {
+      H = generateWorld(gw, gh, opts, preset);
+      return normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, true);
+    }
     const seed = (opts.seed >>> 0) || 1;
     const fbm = makeNoise(seed);
     const warp = makeNoise(seed + 7919);
@@ -169,8 +241,12 @@
         H[y * gw + x] = v;
       }
     }
+    return normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, !preset.gradient);
+  }
+
+  /** 陸の割合に合わせて海面を決め、-1〜1 にそろえる。edges＝外周1〜2マスを海にする */
+  function normalizeHeights(H, gw, gh, landRatio, edges) {
     const sorted = Array.from(H).sort((a, b) => a - b);
-    const landRatio = opts.land != null ? opts.land : preset.land;
     const t = sorted[Math.floor((1 - landRatio) * (sorted.length - 1))];
     const min = sorted[0];
     const max = sorted[sorted.length - 1];
@@ -178,7 +254,7 @@
       const v = H[i];
       H[i] = v >= t ? Math.pow((v - t) / (max - t || 1), 1.3) : -Math.pow((t - v) / (t - min || 1), 0.7);
     }
-    if (!preset.gradient) {
+    if (edges) {
       for (let y = 0; y < gh; y++) {
         for (let x = 0; x < gw; x++) {
           const e = Math.min(x, y, gw - 1 - x, gh - 1 - y);
@@ -190,9 +266,10 @@
   }
 
   /** 高さと乱数から地面の種類を自動で塗る */
-  function autoBiome(H, gw, gh, seed) {
+  function autoBiome(H, gw, gh, seed, climate) {
     const B = new Uint8Array(gw * gh);
     const moist = makeNoise(((seed >>> 0) || 1) + 104729);
+    if (climate === 'world') return worldBiome(H, gw, gh, moist, B);
     for (let y = 0; y < gh; y++) {
       const lat = Math.abs(y / gh - 0.5) * 2;
       for (let x = 0; x < gw; x++) {
@@ -208,6 +285,49 @@
         else if (m > 0.53) b = temp > 0.72 ? 5 : 1;
         else if (m < 0.36 && temp > 0.55) b = 2;
         else if (m < 0.42) b = 6;
+        B[i] = b;
+      }
+    }
+    return B;
+  }
+
+  /**
+   * 世界地図の気候帯：赤道は密林、その少し外は乾いた砂漠の帯、中緯度は草原と森、
+   * 高緯度は針葉樹林、その先はツンドラ（荒れ地）と雪原。海から遠い内陸は乾きやすい。
+   */
+  function worldBiome(H, gw, gh, moist, B) {
+    // 海からの距離（内陸ほど乾く）を粗く求める
+    const dist = new Float32Array(gw * gh).fill(1e9);
+    const q = [];
+    for (let i = 0; i < H.length; i++) if (H[i] <= 0) { dist[i] = 0; q.push(i); }
+    for (let h = 0; h < q.length; h++) {
+      const i = q[h];
+      const x = i % gw;
+      const y = (i / gw) | 0;
+      const d = dist[i] + 1;
+      if (x > 0 && dist[i - 1] > d) { dist[i - 1] = d; q.push(i - 1); }
+      if (x < gw - 1 && dist[i + 1] > d) { dist[i + 1] = d; q.push(i + 1); }
+      if (y > 0 && dist[i - gw] > d) { dist[i - gw] = d; q.push(i - gw); }
+      if (y < gh - 1 && dist[i + gw] > d) { dist[i + gw] = d; q.push(i + gw); }
+    }
+    for (let y = 0; y < gh; y++) {
+      const latRaw = Math.abs(y / gh - 0.5) * 2;
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        const h = H[i];
+        if (h <= 0) continue;
+        const lat = latRaw + (moist(x / gw * 9 + 3.3, y / gh * 9, 2) - 0.5) * 0.12;
+        const inland = Math.min(1, dist[i] / (gw * 0.06));
+        const m = moist(x / gw * 5, y / gh * 5, 4) - inland * 0.18;
+        let b = 0;
+        if (h > 0.8 || lat > 0.82) b = 4; // 雪
+        else if (lat > 0.7) b = m > 0.5 ? 1 : 6; // 針葉樹林 か ツンドラ
+        else if (h > 0.62) b = 7; // 岩山
+        else if (lat < 0.2) b = m > 0.42 ? 5 : (m > 0.32 ? 0 : 2); // 赤道：密林
+        else if (lat < 0.42) b = m < 0.5 ? 2 : (m > 0.6 ? 1 : 0); // 亜熱帯の乾燥帯
+        else if (m > 0.62 && h < 0.12) b = 3; // 湿地
+        else if (m > 0.5) b = 1; // 温帯の森
+        else if (m < 0.36) b = 6;
         B[i] = b;
       }
     }
@@ -302,12 +422,60 @@
    * 地形を描く。mask（同じ大きさの ImageData）を渡すと、陸を不透明・水を透明にした
    * 「陸地マスク」も書き込む（川を海岸で切るのに使う。縁はなめらかに）。
    */
+  /**
+   * 海の各マスから一番近い陸までの距離（マス単位）。なめらかに補間できるよう、
+   * 地形が変わったときだけ計算し直す（高さの合計で変化を見分ける）。
+   */
+  const coastCache = new WeakMap();
+  function coastDistance(H, gw, gh) {
+    let sum = 0;
+    for (let i = 0; i < H.length; i++) sum += H[i] * ((i % 7) + 1);
+    const hit = coastCache.get(H);
+    if (hit && hit.sum === sum) return hit.d;
+    const d = new Float32Array(gw * gh);
+    const INF = 1e6;
+    for (let i = 0; i < d.length; i++) d[i] = H[i] > 0 ? 0 : INF;
+    // 2回の走査で近似ユークリッド距離（3-4 チャンファー）
+    const a = 1;
+    const b = 1.4142;
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        let v = d[i];
+        if (x > 0) v = Math.min(v, d[i - 1] + a);
+        if (y > 0) {
+          v = Math.min(v, d[i - gw] + a);
+          if (x > 0) v = Math.min(v, d[i - gw - 1] + b);
+          if (x < gw - 1) v = Math.min(v, d[i - gw + 1] + b);
+        }
+        d[i] = v;
+      }
+    }
+    for (let y = gh - 1; y >= 0; y--) {
+      for (let x = gw - 1; x >= 0; x--) {
+        const i = y * gw + x;
+        let v = d[i];
+        if (x < gw - 1) v = Math.min(v, d[i + 1] + a);
+        if (y < gh - 1) {
+          v = Math.min(v, d[i + gw] + a);
+          if (x < gw - 1) v = Math.min(v, d[i + gw + 1] + b);
+          if (x > 0) v = Math.min(v, d[i + gw - 1] + b);
+        }
+        d[i] = v;
+      }
+    }
+    coastCache.set(H, { sum, d });
+    return d;
+  }
+
   function renderTerrain(map, H, B, img, rx0, ry0, rx1, ry1, res, mask) {
     res = res || 1;
     const md = mask ? mask.data : null;
     const pal = PALETTES[(map.style && map.style.palette) || 'parchment'] || PALETTES.parchment;
     const shade = !map.style || map.style.hillshade !== false;
     const ripples = !map.style || map.style.ripples !== false;
+    const ice = !!(map.style && map.style.ice);
+    const CD = coastDistance(H, map.gw, map.gh);
     const { gw, gh, cell } = map;
     const W = img.width;
     const data = img.data;
@@ -343,16 +511,31 @@
         const dist = gm < 0.0004 ? 99 : Math.abs(h) / gm;
         let c;
         if (h < 0) {
-          const depth = Math.min(1, -h / 0.6);
-          c = mix(pal.shallow, pal.deep, depth * depth * (3 - 2 * depth));
-          c = mix(c, pal.glow, Math.exp(-dist / 7) * 0.6);
+          // 深さ：沖ほど深い色に。海岸からの距離（なめらかに補間）も使い、沖の浅い所が雲のように白く浮かないようにする
+          const c00 = CD[ya * gw + xa];
+          const c10 = CD[ya * gw + xb];
+          const c01 = CD[yb * gw + xa];
+          const c11 = CD[yb * gw + xb];
+          const cd = ((c00 + (c10 - c00) * fx) * (1 - fy) + (c01 + (c11 - c01) * fx) * fy) * cell;
+          const dD = Math.min(1, Math.max(0, cd - 2) / 46);
+          const dH = Math.min(1, -h / 0.45);
+          let depth = Math.max(dD * 0.85, dH);
+          depth = depth * depth * (3 - 2 * depth);
+          c = mix(pal.shallow, pal.deep, depth);
+          c = mix(c, pal.glow, Math.exp(-dist / 5) * 0.45);
           if (ripples) {
             for (let k = 0; k < 3; k++) {
               const a = 1 - Math.abs(dist - (5 + k * 5.5)) / 0.75;
               if (a > 0) c = mix(c, pal.ripple, a * (0.5 - k * 0.13));
             }
+            // 沖の細い横波（古地図の版画のような海の模様）
+            if (cd > 20) {
+              const w = Math.sin(wy * 0.62 + Math.sin(wx * 0.045 + wy * 0.01) * 2.2 + vnoise(wx * 0.03, wy * 0.03) * 5);
+              const f = Math.min(1, (cd - 20) / 30) * Math.max(0, (w - 0.93) / 0.07) * (vnoise(wx * 0.012 + 9, wy * 0.04) > 0.45 ? 1 : 0);
+              if (f > 0) c = mix(c, pal.ripple, f * 0.22);
+            }
           }
-          const n = (vnoise(wx * 0.025, wy * 0.025) - 0.5) * 6;
+          const n = (vnoise(wx * 0.02, wy * 0.02) - 0.5) * 5 + (vnoise(wx * 0.11, wy * 0.11) - 0.5) * 2;
           c = [c[0] + n, c[1] + n, c[2] + n];
         } else {
           c = ramp(pal.ramp, h);
@@ -365,6 +548,10 @@
           if (b && pal.biome[b] && h < 0.82) c = mix(c, pal.biome[b], b === 4 ? 0.88 : 0.68);
           c = texture(b, c, wx, wy);
           if (dist < 2.4 && h < 0.25) c = mix(c, pal.beach, (1 - dist / 2.4) * 0.55);
+          // 手描きの水彩のような、ゆるやかな色むら＋海岸の内側をわずかに濃く
+          const wc = 1 + (vnoise(wx * 0.008 + 17, wy * 0.008) - 0.5) * 0.07;
+          const rim = dist < 9 && dist > 1.5 ? 1 - (1 - (dist - 1.5) / 7.5) * 0.06 : 1;
+          c = [c[0] * wc * rim, c[1] * wc * rim, c[2] * wc * rim];
           if (shade) {
             const s = 1 + (-dhdx - dhdy) * 0.7071 * 9;
             const k = Math.max(0.6, Math.min(1.3, s));
@@ -372,6 +559,22 @@
           }
         }
         if (dist < 0.95) c = mix(c, pal.coast, Math.max(0, 1 - dist / 0.95) * 0.92);
+        // 極地の氷（世界地図）
+        if (ice) {
+          const lat = Math.abs(wy / (gh * cell) - 0.5) * 2;
+          const edge = 0.86 + (vnoise(wx * 0.009 + 5, 1.7) - 0.5) * 0.12 + (vnoise(wx * 0.03, wy * 0.05) - 0.5) * 0.06 + (vnoise(wx * 0.11, wy * 0.13) - 0.5) * 0.02;
+          const t = (lat - edge) * gh * cell * 0.5; // 氷の縁からの距離（ワールド単位、内側が正）
+          if (t > -1.2) {
+            let ic = mix(pal.ice || [238, 243, 246], [255, 255, 255], 0.3 + vnoise(wx * 0.05, wy * 0.05) * 0.4);
+            // ひび割れ
+            const cr = Math.abs(vnoise(wx * 0.06 + 3, wy * 0.06) - 0.5);
+            if (cr < 0.012) ic = mix(ic, pal.iceShade || [178, 196, 210], 0.6);
+            ic = mix(ic, pal.iceShade || [178, 196, 210], Math.max(0, 1 - t / 5) * 0.35);
+            const a = Math.max(0, Math.min(1, (t + 1.2) / 1.2));
+            c = mix(c, ic, a);
+            if (Math.abs(t) < 0.9) c = mix(c, pal.coast, (1 - Math.abs(t) / 0.9) * 0.75);
+          }
+        }
         if (pal.paper) {
           const n = (hash2(px, py, 99) - 0.5) * pal.paper * 2;
           c = [c[0] + n, c[1] + n, c[2] + n];
@@ -584,7 +787,7 @@
     return B;
   }
 
-  const SIZES = { s: [240, 156], m: [300, 195], l: [380, 247] };
+  const SIZES = { s: [240, 156], m: [300, 195], l: [380, 247], w: [420, 210] };
 
   function defaultStyle(palette) {
     return {
@@ -600,19 +803,29 @@
   /** 地図データの雛形 */
   function newMap(name, opts) {
     opts = opts || {};
-    const size = SIZES[opts.size || 'm'] || SIZES.m;
+    const pr = PRESETS[opts.preset || 'continent'] || PRESETS.continent;
+    const size = SIZES[opts.size || pr.size || 'm'] || SIZES.m;
     const gw = size[0];
     const gh = size[1];
     const cell = 4;
     const seed = opts.seed || Math.floor(Math.random() * 1e9);
     const H = generate(gw, gh, { preset: opts.preset || 'continent', seed, land: opts.land });
-    const B = opts.biome === false ? new Uint8Array(gw * gh) : autoBiome(H, gw, gh, seed);
+    const B = opts.biome === false ? new Uint8Array(gw * gh) : autoBiome(H, gw, gh, seed, pr.world ? 'world' : null);
+    const style = defaultStyle(opts.palette);
+    if (pr.world) {
+      // 世界地図：経緯線・極地の氷・地球規模の縮尺（横幅＝一周およそ4万km）
+      style.grid = 'latlon';
+      style.gridOpacity = 0.35;
+      style.ice = true;
+      style.kmPerCell = Math.round(40000 / gw);
+      style.world = true;
+    }
     const map = {
       id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       name: name || '新しい地図', gw, gh, cell, seed,
       height: encodeHeights(H), biome: encodeBiomes(B),
       stamps: [], lines: [], areas: [], labels: [],
-      style: defaultStyle(opts.palette), layers: defaultLayers(),
+      style, layers: defaultLayers(),
       createdAt: Date.now(), updatedAt: Date.now(),
     };
     if (opts.rivers !== false && !PRESETS[opts.preset || 'continent'].blank) map.lines = autoRivers(map, H, seed);
