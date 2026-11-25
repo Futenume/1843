@@ -13,7 +13,8 @@ let html = readFileSync(join(root, 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="(js\/[^"]+)"><\/script>/g)].map((m) => m[1]);
   const styles = [...html.matchAll(/<link rel="stylesheet" href="(css\/[^"]+)">/g)].map((m) => m[1]);
   const icons = ['icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
-  const files = ['index.html', 'manifest.webmanifest', ...styles, ...scripts, ...icons];
+  // AI ライブラリはスクリプトのタグではなく、使うときに読み込む（オフラインでも開けるよう一緒に保存しておく）
+  const files = ['index.html', 'manifest.webmanifest', ...styles, ...scripts, 'js/vendor/anthropic-sdk.js', ...icons];
   const h = createHash('sha256');
   files.forEach((f) => h.update(readFileSync(join(root, f))));
   const version = h.digest('hex').slice(0, 12);
@@ -38,7 +39,9 @@ html = html.replace(/<script src="(js\/[^"]+)"><\/script>/g, (_, src) => {
 // 1ファイル版はスクリプトが埋め込みになるので、CSP は「この中身のスクリプトだけ」を許可する（sha256 のハッシュ）
 const hashes = [];
 html.replace(/<script>([\s\S]*?)<\/script>/g, (_, js) => { hashes.push(`'sha256-${createHash('sha256').update(js, 'utf8').digest('base64')}'`); return _; });
-html = html.replace(/(<meta http-equiv="Content-Security-Policy" content="[^"]*script-src )'self'/, `$1'self' ${hashes.join(' ')}`);
+html = html.replace(/(<meta http-equiv="Content-Security-Policy" content="[^"]*script-src )'self'/, `$1'self' ${hashes.join(' ')} https://cdn.jsdelivr.net`);
+// 1ファイル版は file:// で開くため、AI ライブラリ（同じ版）だけは CDN から読み込む
+html = html.replace(/(connect-src [^;"]*)/, '$1 https://cdn.jsdelivr.net');
 // サービスワーカーと manifest は1ファイル版では使わない（file:// では動かないため）
 html = html.replace(/<link rel="manifest"[^>]*>\n?/, '').replace(/<link rel="apple-touch-icon"[^>]*>\n?/, '');
 

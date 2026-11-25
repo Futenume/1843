@@ -37,11 +37,11 @@ export { Anthropic };
 function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  ✓ ' + m); }
 (async () => {
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-  await page.route(/cdn\.jsdelivr\.net\/npm\/@anthropic-ai\/sdk@1\.7\.0\/\+esm/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' }, body: FAKE }));
+  await page.route(/cdn\.jsdelivr\.net\/npm\/@anthropic-ai\/sdk@1\.7\.0\/\+esm|\/js\/vendor\/anthropic-sdk\.js/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' }, body: FAKE }));
   await page.goto(BASE);
   await page.evaluate(() => localStorage.setItem('tsuzuri.apiKey', 'sk-ant-test'));
   await page.getByRole('button', { name: 'サンプル作品を開く' }).click();

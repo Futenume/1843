@@ -9,7 +9,10 @@
   const UI = NS.UI;
   const { h, icon, btn, clear, toast } = UI;
 
-  const SDK_URL = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.7.0/+esm';
+  // AI ライブラリ（Anthropic 公式 SDK）。Web で公開しているときは、アプリ自身が配る同じ版を使う（外部のサイトからスクリプトを読み込まない）。
+  // 1ファイル版（file:// で開いたとき）だけは、ブラウザの制限でファイルから読み込めないため、同じ版を CDN から読み込む。
+  const SDK_CDN = 'https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.7.0/+esm';
+  const SDK_URL = /^https?:$/.test(location.protocol) ? new URL('js/vendor/anthropic-sdk.js', location.href).href : SDK_CDN;
   const KEY_STORAGE = 'tsuzuri.apiKey';
   const MODELS = [
     ['claude-opus-5-5', 'Claude Opus 5.5（高品質・おすすめ）'],

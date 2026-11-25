@@ -1,7 +1,7 @@
 // 綴り — サービスワーカー（オフラインでも使えるように、アプリのファイルを保存しておく）
 // 作品のデータはブラウザの保存領域（IndexedDB）にあり、ここでは扱わない。
 // AI（api.anthropic.com）や辞書（Wikipedia など）への通信は保存せず、そのまま通す。
-const VERSION = 'd48e3909cde0';
+const VERSION = 'dce532189f44';
 const CACHE = 'tsuzuri-' + VERSION;
 const FONT_CACHE = 'tsuzuri-fonts';
 const APP_FILES = [
@@ -37,6 +37,7 @@ const APP_FILES = [
   "./js/views/manuscript.js",
   "./js/ai.js",
   "./js/sample.js",
+  "./js/vendor/anthropic-sdk.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",

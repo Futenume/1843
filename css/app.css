@@ -1127,3 +1127,8 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
 .name-main strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .name-note { white-space: nowrap; }
 @media (max-width: 599px) { .name-list { grid-template-columns: minmax(0, 1fr); } .name-note { display: none; } }
+
+/* ほかのサイトに埋め込まれたとき */
+.framed-warning { max-width: 420px; margin: 18vh auto 0; padding: 24px; text-align: center; font-family: var(--font-sans, sans-serif); }
+.framed-warning h1 { font-size: 28px; margin-bottom: 12px; }
+.framed-warning a { display: inline-block; margin-top: 12px; color: var(--accent); }

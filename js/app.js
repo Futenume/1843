@@ -583,7 +583,23 @@
   }
 
   // ───── 起動 ─────
+  /** ほかのサイトの中（iframe）に埋め込まれていたら、作品を開かずに知らせる（だまして操作させる手口を防ぐ） */
+  function framedByOtherSite() {
+    let framed = false;
+    try { framed = window.top !== window.self; } catch (e) { framed = true; }
+    if (!framed) return false;
+    const app = document.getElementById('app');
+    if (app) app.remove();
+    const box = h('div', { class: 'framed-warning', role: 'alert' },
+      h('h1', null, '綴り'),
+      h('p', null, '安全のため、綴りはほかのサイトの中では開けません。'),
+      h('a', { href: location.href, target: '_top', rel: 'noopener' }, '綴りを直接開く'));
+    document.body.appendChild(box);
+    return true;
+  }
+
   async function start() {
+    if (framedByOtherSite()) return;
     setupPWA();
     App.applySettings();
     await Store.init();
