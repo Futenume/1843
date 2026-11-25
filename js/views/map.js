@@ -1876,17 +1876,28 @@
       if (landAreas.length) drawLandAreas(ctx, landAreas, layerHidden('terrain') ? null : (opts.mask || M.mask));
       m.areas.forEach((ar) => { if (!ar.land) drawArea(ctx, ar); });
     }
-    if (!layerHidden('paths')) {
-      const order = ['river', 'stream', 'route', 'trail', 'road', 'highway', 'rail', 'wall', 'border'];
-      const sorted = m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+    // 道の太さ：縮小して見ているときは、細くなりすぎないよう少し太く（書き出しは少しだけ）
+    const cssScale = view.editing ? S / (M.dpr || 1) : 1;
+    pathBoost = view.editing ? (cssScale < 1 ? Math.min(1.8, Math.pow(1 / cssScale, 0.6)) : 1) : 1.15;
+    const order = ['river', 'stream', 'route', 'trail', 'road', 'highway', 'rail', 'wall', 'border'];
+    const sorted = layerHidden('paths') ? [] : m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+    if (sorted.length) {
       const rivers = sorted.filter((ln) => ln.kind === 'river' || ln.kind === 'stream');
       // 川は陸の上だけに描き、海や湖に入ったら水面に溶け込ませる
       if (rivers.length) drawRivers(ctx, rivers, pl, layerHidden('terrain') ? null : (opts.mask || M.mask));
-      sorted.forEach((ln) => { if (ln.kind !== 'river' && ln.kind !== 'stream') drawPath(ctx, ln, pl); });
+      // 航路・国境・城壁は素材の下。道は山や森の上に描く（森や山の陰に隠れないように）
+      sorted.forEach((ln) => { if (ln.kind !== 'river' && ln.kind !== 'stream' && !ROAD_KINDS.includes(ln.kind)) drawPath(ctx, ln, pl); });
     }
-    if (!layerHidden('stamps')) {
+    // 素材は2回に分けて描く：山・木 → 道 → 町・建物など（道が町の絵の上を横切らないように）
+    const NATURAL = { '山・丘': 1, '木・植物': 1 };
+    const isNatural = (s) => { const a = AS.BY_ID[s.a]; return !!(a && NATURAL[a.cat]); };
+    const drawRoads = () => { sorted.forEach((ln) => { if (ROAD_KINDS.includes(ln.kind)) drawPath(ctx, ln, pl); }); };
+    if (layerHidden('stamps')) drawRoads();
+    else for (let pass = 0; pass < 2; pass++) {
+      if (pass === 1) drawRoads();
       const pk = palKey();
       for (const s of m.stamps) {
+        if (isNatural(s) === (pass === 1)) continue;
         if (s.x < vis.x0 || s.x > vis.x1 || s.y < vis.y0 || s.y > vis.y1 + 40) continue;
         const sp = AS.sprite(s.a, s.v, pk, AS.lineScaleFor(s.s));
         const k = S * s.s;
@@ -2018,6 +2029,7 @@
   function inkOf(pl) { return pl.ink === '#f2ead8' ? '#1a1a1a' : pl.ink; }
 
   let riverLayer = null;
+  let pathBoost = 1;
   let areaLayer = null;
   /** 陸だけを塗る領域（国など）：塗りと、内側の縁取りを、陸の形で切り抜いて描く */
   function drawLandAreas(ctx, areas, mask) {
@@ -2098,9 +2110,21 @@
     return { fill: `rgb(${fill.join(',')})`, edge: `rgba(${pl.coast.join(',')},0.9)` };
   }
 
+  /** 道の下に敷く、地面から浮かせる淡い縁取り */
+  function roadCasing(ctx, pts, pl, width, dash) {
+    ctx.save();
+    ctx.globalAlpha = pl === E.PALETTES.night ? 0.75 : 0.82;
+    ctx.strokeStyle = pl.halo;
+    ctx.lineWidth = width;
+    if (dash) ctx.setLineDash(dash);
+    strokePoly(ctx, pts);
+    ctx.restore();
+  }
+
   function drawPath(ctx, ln, pl) {
     if (ln.points.length < 2) return;
-    const w = ln.w || 1;
+    const roadLike = ROAD_KINDS.includes(ln.kind) || ln.kind === 'route';
+    const w = (ln.w || 1) * (roadLike ? pathBoost : 1);
     const pts = wobble(sampleSpline(ln.points, false, 3), ln.wobble != null ? ln.wobble : (PATH_KINDS[ln.kind] || {}).wobble || 0, seedOf(ln.id));
     ctx.save();
     ctx.lineCap = 'round';
@@ -2126,25 +2150,32 @@
         break;
       }
       case 'highway':
+        // 街道：淡い縁取り → 濃い色の帯 → 明るい芯（2本線の道）
+        roadCasing(ctx, pts, pl, 6 * w);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 3.4 * w;
+        ctx.lineWidth = 3.8 * w;
         strokePoly(ctx, pts);
-        ctx.strokeStyle = 'rgba(255,246,222,0.95)';
-        ctx.lineWidth = 1.5 * w;
+        ctx.strokeStyle = pl === E.PALETTES.night ? 'rgba(40,34,28,0.95)' : 'rgba(255,246,222,0.97)';
+        ctx.lineWidth = 1.35 * w;
         strokePoly(ctx, pts);
         break;
       case 'road':
+        // 道：淡い縁取りの上に、はっきりした色の線
+        roadCasing(ctx, pts, pl, 4.4 * w);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 1.6 * w;
+        ctx.lineWidth = 2.1 * w;
         strokePoly(ctx, pts);
         break;
       case 'trail':
+        // 小道：淡い縁取りの上に点線
+        roadCasing(ctx, pts, pl, 3.4 * w);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 1.1 * w;
-        ctx.setLineDash([3 * w, 2.6 * w]);
+        ctx.lineWidth = 1.6 * w;
+        ctx.setLineDash([3.4 * w, 2.4 * w]);
         strokePoly(ctx, pts);
         break;
       case 'rail':
+        roadCasing(ctx, pts, pl, 5 * w);
         ctx.lineCap = 'butt';
         ctx.strokeStyle = '#2b2b2b';
         ctx.lineWidth = 2.8 * w;
@@ -2177,8 +2208,8 @@
         strokePoly(ctx, pts);
         break;
       case 'route':
-        ctx.strokeStyle = hexA(inkOf(pl), 0.55);
-        ctx.lineWidth = 1 * w;
+        ctx.strokeStyle = hexA(inkOf(pl), 0.6);
+        ctx.lineWidth = 1.2 * w;
         ctx.setLineDash([5 * w, 4 * w]);
         strokePoly(ctx, pts);
         break;

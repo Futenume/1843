@@ -1099,13 +1099,23 @@
       const simp = rdp(path, 1.2);
       return { id: sid(), kind, points: simp.map(([x, y]) => [Math.round((x + 0.5) * cell * 10) / 10, Math.round((y + 0.5) * cell * 10) / 10]), name: '', w: 1, wobble: kind === 'highway' ? 0.12 : 0.18 };
     };
-    // つなぐ順：王都から近い順に、すでにつながった所のうち一番近い所へ
-    const linked = [placed[0]];
-    placed.slice(1).sort((p1, p2) => Math.hypot(p1.x - capital.x, p1.y - capital.y) - Math.hypot(p2.x - capital.x, p2.y - capital.y)).forEach((q) => {
-      let near = linked[0];
-      linked.forEach((l) => { if (Math.hypot(l.x - q.x, l.y - q.y) < Math.hypot(near.x - q.x, near.y - q.y)) near = l; });
-      const path = route(near, q);
-      if (path && path.length > 2) lines.push(toWorldLine(path, (q.kind === 'village' || near.kind === 'village') ? 'road' : 'highway'));
+    // つなぐ順：まず王都・港・町を街道で結び（幹線）、そのあと村を一番近い所へ道でつなぐ
+    const byDist = (list) => list.slice().sort((p1, p2) => Math.hypot(p1.x - capital.x, p1.y - capital.y) - Math.hypot(p2.x - capital.x, p2.y - capital.y));
+    const nearestOf = (q, list) => {
+      let near = list[0];
+      list.forEach((l) => { if (Math.hypot(l.x - q.x, l.y - q.y) < Math.hypot(near.x - q.x, near.y - q.y)) near = l; });
+      return near;
+    };
+    const majors = [placed[0]];
+    byDist(placed.slice(1).filter((q) => q.kind !== 'village')).forEach((q) => {
+      const path = route(nearestOf(q, majors), q);
+      if (path && path.length > 2) lines.push(toWorldLine(path, 'highway'));
+      majors.push(q);
+    });
+    const linked = majors.slice();
+    byDist(placed.filter((q) => q.kind === 'village')).forEach((q) => {
+      const path = route(nearestOf(q, linked), q);
+      if (path && path.length > 2) lines.push(toWorldLine(path, 'road'));
       linked.push(q);
     });
     const ASSET = { capital: 'castle', port: 'port', town: 'town', village: 'village' };
