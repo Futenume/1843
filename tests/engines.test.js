@@ -527,3 +527,54 @@ test('テキストの取り込み：見出しで話に分ける・作品名・�
   assert.equal(I.decodeBytes(new TextEncoder().encode('あいう')).encoding, 'UTF-8');
   assert.equal(I.decodeBytes(new Uint8Array([0xef, 0xbb, 0xbf, 0xe3, 0x81, 0x82])).text, 'あ');
 });
+
+test('EPUB：ZIP の形（mimetype が先頭・無圧縮）、目次、縦書き、ルビ、XML として正しい', () => {
+  require('../js/epub.js');
+  const { Epub } = globalThis.Tsuzuri;
+  const p = { id: 'p1', title: '星の物語 & <A>', author: '作者', chapters: [{ title: '第一話', body: '　|魔物《まもの》が来た。\n\n「本当に!?」\u0001' }, { title: '第二話', body: '二話。' }] };
+  const r = Epub.build(p, { vertical: true, date: new Date('2026-01-02T03:04:05Z') });
+  const u8 = r.data;
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  assert.equal(dv.getUint32(0, true), 0x04034b50);
+  assert.equal(dv.getUint16(8, true), 0, '無圧縮');
+  assert.equal(new TextDecoder().decode(u8.slice(30, 38)), 'mimetype');
+  assert.equal(new TextDecoder().decode(u8.slice(38, 58)), 'application/epub+zip');
+  assert.deepEqual(r.files.slice(0, 2), ['mimetype', 'META-INF/container.xml']);
+  const text = new TextDecoder().decode(u8);
+  assert.ok(text.includes('page-progression-direction="rtl"'));
+  assert.ok(text.includes('<ruby>魔物<rt>まもの</rt></ruby>'));
+  assert.ok(text.includes('<span class="tcy">!?</span>'));
+  assert.ok(text.includes('星の物語 &amp; &lt;A&gt;'));
+  assert.ok(text.includes('「本当に<span class="tcy">!?</span>」</p>'), 'XML に使えない文字は除く');
+  assert.ok(text.includes('<dcterms:modified') === false && text.includes('2026-01-02T03:04:05Z'));
+  // 同じ作品なら同じ識別子
+  assert.equal(Epub.uuidFrom('p1'), Epub.uuidFrom('p1'));
+  assert.notEqual(Epub.uuidFrom('p1'), Epub.uuidFrom('p2'));
+  // CRC32 の既知の値
+  assert.equal(Epub.crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
+});
+
+test('原稿用紙の割り付け：題・名前の位置、ぶら下げ、開き括弧の送り、半角数字', () => {
+  require('../js/publish.js');
+  require('../js/genko.js');
+  const { Genko } = globalThis.Tsuzuri;
+  const r = Genko.layout([{ title: '第一話', body: '　あいうえおかきくけこさしすせそたちつて。次。\n「数は12345!?」' }], { chars: 20, lines: 20, title: '星の物語', author: '山田' });
+  const ln = r.pages[0];
+  const txt = (l) => l.cells.map((c) => c.t || '_').join('');
+  assert.equal(txt(ln[0]), '___星の物語', '題は4マス目から');
+  assert.equal(ln[1].cells.length, 19, '名前は最後の1マスを空ける');
+  assert.equal(txt(ln[1]).slice(-2), '山田');
+  assert.equal(txt(ln[3]), '__第一話');
+  assert.equal(ln[5].cells.length, 20);
+  assert.equal(ln[5].hang && ln[5].hang.t, '。', '行の頭の句点は前の行にぶら下げる');
+  assert.equal(txt(ln[6]), '次。');
+  const nums = ln[7].cells.filter((c) => c.tcy).map((c) => c.t);
+  assert.deepEqual(nums, ['12', '34', '!?']);
+  // 開き括弧は行の最後のマスに置かない
+  const r2 = Genko.layout([{ title: '', body: 'あ'.repeat(19) + '「い」' }], { chars: 20, lines: 20, chapterTitles: false });
+  assert.equal(r2.pages[0][0].cells.length, 19);
+  assert.equal(r2.pages[0][1].cells[0].t, '「');
+  // ページ数
+  const r3 = Genko.layout([{ title: '', body: Array.from({ length: 50 }, () => 'あ'.repeat(20)).join('\n') }], { chars: 20, lines: 20, chapterTitles: false });
+  assert.equal(r3.pages.length, 3);
+});

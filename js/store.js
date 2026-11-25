@@ -117,6 +117,18 @@
   const arr = (v) => (Array.isArray(v) ? v : []);
   const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
+  const TRASH_DAYS = 30;
+  function normChapter(c) {
+    c.id = okId(c.id) ? c.id : UI.uid('ch');
+    c.title = c.title == null ? '無題' : str(c.title);
+    c.body = str(c.body);
+    c.memo = str(c.memo);
+    c.snapshots = arr(c.snapshots).filter((x) => x && typeof x === 'object').map((x) => Object.assign(x, { body: str(x.body), label: str(x.label) }));
+    c.ignored = arr(c.ignored).map((x) => str(x));
+    c.narrator = ['first', 'third', 'omniscient'].includes(c.narrator) ? c.narrator : ''; // 空なら作品の設定に従う
+    return c;
+  }
+
   /** 古いデータや欠けた項目を補い、型をそろえる */
   function normalize(p) {
     p.version = 1;
@@ -126,15 +138,12 @@
     p.synopsis = str(p.synopsis);
     p.chapters = arr(p.chapters).filter((c) => c && typeof c === 'object');
     if (!p.chapters.length) p.chapters = [newChapter('第一話')];
-    p.chapters.forEach((c) => {
-      c.id = okId(c.id) ? c.id : UI.uid('ch');
-      c.title = c.title == null ? '無題' : str(c.title);
-      c.body = str(c.body);
-      c.memo = str(c.memo);
-      c.snapshots = arr(c.snapshots).filter((x) => x && typeof x === 'object').map((x) => Object.assign(x, { body: str(x.body), label: str(x.label) }));
-      c.ignored = arr(c.ignored).map((x) => str(x));
-      c.narrator = ['first', 'third', 'omniscient'].includes(c.narrator) ? c.narrator : ''; // 空なら作品の設定に従う
-    });
+    p.chapters.forEach(normChapter);
+    // ごみ箱（消した話。30日・30件まで）
+    const limit = Date.now() - TRASH_DAYS * 86400000;
+    p.trash = arr(p.trash).filter((t) => t && typeof t === 'object' && t.chapter && typeof t.chapter === 'object')
+      .map((t) => ({ at: Number.isFinite(+t.at) ? +t.at : Date.now(), pos: Number.isFinite(+t.pos) ? Math.max(0, Math.round(+t.pos)) : 0, chapter: normChapter(t.chapter) }))
+      .filter((t) => t.at >= limit).slice(-30);
     p.entries = arr(p.entries).filter((e) => e && typeof e === 'object');
     p.entries.forEach((e) => {
       e.id = okId(e.id) ? e.id : UI.uid('e');
@@ -212,10 +221,49 @@
     await set('projects', list);
   }
 
+  /** 作品を消す（ごみ箱へ移す。30日たつと自動で消える） */
   async function deleteProject(id) {
+    const data = await get('project:' + id);
+    const list0 = (await get('projects')) || [];
+    const meta = list0.find((x) => x.id === id);
+    if (data) {
+      await set('trash:' + id, data);
+      const tl = ((await get('trashProjects')) || []).filter((x) => x.id !== id);
+      tl.push({ id, title: (meta && meta.title) || data.title || '無題', chars: (meta && meta.chars) || 0, deletedAt: Date.now() });
+      await set('trashProjects', tl);
+    }
     await del('project:' + id);
-    const list = ((await get('projects')) || []).filter((x) => x.id !== id);
-    await set('projects', list);
+    await set('projects', list0.filter((x) => x.id !== id));
+  }
+
+  /** ごみ箱の作品（古いものはここで消す） */
+  async function listTrash() {
+    const tl = (await get('trashProjects')) || [];
+    const limit = Date.now() - TRASH_DAYS * 86400000;
+    const keep = [];
+    for (const t of tl) {
+      if (!t || typeof t !== 'object' || !okId(t.id)) continue;
+      if ((+t.deletedAt || 0) < limit) await del('trash:' + t.id);
+      else keep.push(t);
+    }
+    if (keep.length !== tl.length) await set('trashProjects', keep);
+    return keep.slice().sort((a, b) => b.deletedAt - a.deletedAt);
+  }
+
+  async function restoreProject(id) {
+    const data = await get('trash:' + id);
+    if (!data) throw new Error('ごみ箱に見つかりません');
+    const p = normalize(data);
+    const list = (await get('projects')) || [];
+    if (list.some((x) => x.id === p.id)) { p.id = UI.uid('p'); p.title += '（復元）'; }
+    await saveProject(p);
+    await purgeProject(id);
+    return p;
+  }
+
+  async function purgeProject(id) {
+    await del('trash:' + id);
+    await set('trashProjects', ((await get('trashProjects')) || []).filter((x) => x.id !== id));
   }
 
   /** 作品をまるごと複製して新しい ID で取り込む */
@@ -234,5 +282,6 @@
   NS.Store = {
     init, get, set, del, get mode() { return mode; }, get persisted() { return persisted; },
     newProject, newChapter, normalize, sanitize, listProjects, loadProject, saveProject, deleteProject, importProject, totalChars,
+    listTrash, restoreProject, purgeProject, TRASH_DAYS,
   };
 })(window.Tsuzuri = window.Tsuzuri || {});

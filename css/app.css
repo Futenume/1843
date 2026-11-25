@@ -1075,3 +1075,47 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
 .diff-label-old, .diff-label-new { padding: 1px 6px; border-radius: 4px; font-weight: 600; }
 .diff-label-old { background: color-mix(in srgb, #e5484d 12%, transparent); color: #b3261e; }
 .diff-label-new { background: color-mix(in srgb, #30a46c 14%, transparent); color: #1d6b37; }
+
+/* ───── 原稿用紙・応募書式 ───── */
+.genko-page {
+  position: relative; width: 297mm; height: 210mm; background: #fff; color: #111; overflow: hidden;
+  font-family: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.genko-body { position: absolute; writing-mode: vertical-rl; display: block; }
+.genko-line { box-sizing: border-box; white-space: nowrap; overflow: visible; background-clip: content-box; background-origin: content-box; }
+.genko-grid .genko-line {
+  background-image:
+    linear-gradient(to right, #c9776a 0, #c9776a 0.25mm, transparent 0.25mm, transparent calc(100% - 0.25mm), #c9776a calc(100% - 0.25mm)),
+    repeating-linear-gradient(to bottom, #c9776a 0, #c9776a 0.2mm, transparent 0.2mm, transparent 100%),
+    linear-gradient(to top, #c9776a 0, #c9776a 0.25mm, transparent 0.25mm);
+  background-size: 100% 100%, 100% calc(100% / var(--genko-chars, 20)), 100% 100%;
+}
+.genko-hashira { display: block; }
+.genko-grid .genko-hashira { background: linear-gradient(to right, transparent 45%, #c9776a 45%, #c9776a 55%, transparent 55%) center / 100% 0.4mm no-repeat; }
+.genko-line .gc { display: inline-block; text-align: center; vertical-align: top; }
+.genko-line .gc.tcy { text-combine-upright: all; -webkit-text-combine: horizontal; }
+.genko-line .gc.boten { text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }
+.genko-no { position: absolute; left: 0; right: 0; bottom: 8mm; text-align: center; font-size: 9pt; color: #555; font-family: var(--font-sans, sans-serif); }
+.genko-print { display: none; }
+.genko-preview { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #e9e6df; padding: 10px; }
+.genko-strip { display: flex; flex-direction: row-reverse; gap: 10px; justify-content: flex-end; width: max-content; }
+.genko-thumb { width: calc(297mm * 0.36); height: calc(210mm * 0.36); overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.2); flex: none; }
+.genko-thumb .genko-page { transform: scale(0.36); transform-origin: 0 0; }
+.genko-info { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.stack-sm { display: flex; flex-direction: column; gap: 4px; }
+@media print {
+  body.printing-genko .pv-print { display: none !important; }
+  body.printing-genko .genko-print { display: block; }
+  body.printing-genko .genko-page { break-after: page; page-break-after: always; }
+}
+
+/* ───── お知らせの「元に戻す」・ごみ箱 ───── */
+#toast.show.has-action { pointer-events: auto; display: flex; align-items: center; gap: 14px; }
+.toast-action { background: none; border: 0; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 2px 0; white-space: nowrap; }
+.trash-list { display: flex; flex-direction: column; gap: 6px; }
+.trash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.trash-row > div:first-child { flex: 1; min-width: 0; }
+.trash-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-link { margin-left: 10px; background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.home-trash { margin-top: 18px; }

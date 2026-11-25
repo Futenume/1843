@@ -157,16 +157,20 @@
   }
 
   let toastTimer = null;
-  function toast(msg, kind) {
+  /** 短いお知らせ。action: { label, onClick } を渡すと「元に戻す」などのボタンが付く（少し長く出す） */
+  function toast(msg, kind, action) {
     let el = document.getElementById('toast');
     if (!el) {
       el = h('div', { id: 'toast', role: 'status', 'aria-live': 'polite' });
       document.body.appendChild(el);
     }
     el.textContent = msg;
-    el.className = 'show' + (kind ? ' ' + kind : '');
+    if (action && action.label) {
+      el.appendChild(h('button', { type: 'button', class: 'toast-action', onclick: () => { el.className = ''; action.onClick(); } }, action.label));
+    }
+    el.className = 'show' + (kind ? ' ' + kind : '') + (action ? ' has-action' : '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.className = ''; }, 2600);
+    toastTimer = setTimeout(() => { el.className = ''; }, action ? 7000 : 2600);
   }
 
   /** モーダル。actions: [{label, primary, danger, onClick(close) -> false で閉じない}] */

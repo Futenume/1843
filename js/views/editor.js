@@ -468,7 +468,9 @@
       });
       S.chapterList.appendChild(li);
     });
-    S.chapterTotal.textContent = `全${p.chapters.length}話・${UI.fmtNum(total)}字`;
+    clear(S.chapterTotal);
+    S.chapterTotal.append(`全${p.chapters.length}話・${UI.fmtNum(total)}字`);
+    if (p.trash && p.trash.length) S.chapterTotal.appendChild(h('button', { type: 'button', class: 'trash-link', onclick: openTrash }, `ごみ箱（${p.trash.length}）`));
   }
 
   function chapterMenu(anchor, c, i) {
@@ -488,15 +490,57 @@
       { label: 'テキストで書き出す', icon: 'download', onClick: () => { syncBody(); UI.download(UI.safeFilename(c.title) + '.txt', c.title + '\n\n' + c.body); } },
       { label: '投稿サイト用に書き出す', icon: 'upload', onClick: () => { syncBody(); NS.PublishDialog.open({ chapterId: c.id }); } },
       null,
-      { label: '削除', icon: 'trash', danger: true, onClick: async () => {
+      { label: '削除（ごみ箱へ）', icon: 'trash', danger: true, onClick: () => {
         if (p.chapters.length <= 1) { toast('最後の話は削除できません'); return; }
-        if (!(await UI.confirm(`「${c.title}」を削除します。元に戻せません。`, { danger: true, okLabel: '削除' }))) return;
+        syncBody();
         p.chapters.splice(i, 1);
+        p.trash = (p.trash || []).concat([{ at: Date.now(), pos: i, chapter: c }]).slice(-30);
         App().touch();
         if (c.id === S.ch.id) App().navigate('write', { id: p.chapters[Math.max(0, i - 1)].id });
         else renderChapterList();
+        toast(`「${c.title}」をごみ箱に移しました`, null, { label: '元に戻す', onClick: () => restoreChapter(c.id) });
       } },
     ]);
+  }
+
+  /** ごみ箱から話を戻す（消したときの位置へ） */
+  function restoreChapter(id) {
+    const p = P();
+    const k = (p.trash || []).findIndex((t) => t.chapter.id === id);
+    if (k < 0) return;
+    const t = p.trash.splice(k, 1)[0];
+    const ch = t.chapter;
+    if (p.chapters.some((x) => x.id === ch.id)) ch.id = UI.uid('ch');
+    p.chapters.splice(Math.min(t.pos, p.chapters.length), 0, ch);
+    App().touch();
+    App().navigate('write', { id: ch.id });
+    toast(`「${ch.title}」を戻しました`);
+  }
+  function openTrash() {
+    const p = P();
+    const list = h('div', { class: 'trash-list' });
+    let closeFn = null;
+    const render = () => {
+      clear(list);
+      const items = (p.trash || []).slice().reverse();
+      if (!items.length) { list.appendChild(h('p', { class: 'muted' }, 'ごみ箱は空です。')); return; }
+      items.forEach((t) => {
+        const left = Math.max(0, NS.Store.TRASH_DAYS - Math.floor((Date.now() - t.at) / 86400000));
+        list.appendChild(h('div', { class: 'trash-row' },
+          h('div', null, h('strong', null, t.chapter.title || '無題'),
+            h('span', { class: 'small muted' }, `${UI.fmtNum(countOf(t.chapter))}字・${UI.relTime(t.at)}に削除・あと${left}日で完全に消えます`)),
+          btn('戻す', { small: true, onClick: () => { if (closeFn) closeFn(); restoreChapter(t.chapter.id); } }),
+          btn('', { icon: 'trash', small: true, ghost: true, title: '完全に削除', onClick: async () => {
+            if (!(await UI.confirm(`「${t.chapter.title}」を完全に削除します。元に戻せません。`, { danger: true, okLabel: '完全に削除' }))) return;
+            p.trash = p.trash.filter((x) => x !== t);
+            App().touch();
+            render();
+            renderChapterList();
+          } })));
+      });
+    };
+    render();
+    closeFn = UI.modal({ title: 'ごみ箱（消した話）', body: h('div', { class: 'stack' }, h('p', { class: 'small muted' }, `消した話は ${NS.Store.TRASH_DAYS}日間ここに残り、元の位置に戻せます。`), list), actions: [{ label: '閉じる', primary: true }] });
   }
 
   function moveChapter(i, d) {

@@ -111,5 +111,46 @@
     });
   }
 
-  NS.PublishDialog = { open };
+  /** 電子書籍（EPUB）で書き出す */
+  function openEpub(opts) {
+    opts = opts || {};
+    const p = NS.App.project;
+    if (!p) return;
+    if (NS.Views.write && NS.Views.write.chapter && NS.Views.write.chapter()) {
+      const cur = NS.Views.write.chapter();
+      const text = NS.Views.write.getText();
+      if (cur && text !== cur.body) { cur.body = text; NS.App.touch(); }
+    }
+    const EP = Object.assign({ vertical: true }, UI.lsGet('tsuzuri.epubPref', {}));
+    const title = h('input', { class: 'input', type: 'text', value: p.title, 'aria-label': '本の題' });
+    const author = h('input', { class: 'input', type: 'text', value: p.author || '', placeholder: '例：筆名', 'aria-label': '著者名' });
+    const dir = h('select', { class: 'input', 'aria-label': '組み方' },
+      h('option', { value: 'v', selected: EP.vertical }, '縦書き（右から左へめくる）'),
+      h('option', { value: 'h', selected: !EP.vertical }, '横書き（左から右へめくる）'));
+    const range = h('select', { class: 'input', 'aria-label': '書き出す範囲' },
+      h('option', { value: '*' }, `全話（${p.chapters.length}話）`),
+      p.chapters.map((c, i) => h('option', { value: c.id }, `${i + 1}. ${c.title || '無題'}だけ`)));
+    UI.modal({
+      title: '電子書籍（EPUB）で書き出す',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, 'Kindle・Apple Books・楽天Kobo・BOOTH などで読める EPUB 3 の本にします。ルビ・傍点・縦中横（!? や2桁の数字）、目次と扉が付きます。'),
+        h('div', { class: 'grid-2' }, UI.field('本の題', title), UI.field('著者名', author)),
+        h('div', { class: 'grid-2' }, UI.field('組み方', dir), UI.field('書き出す範囲', range)),
+        h('p', { class: 'small muted' }, 'Kindle で出版するときは、この EPUB を Kindle ダイレクト・パブリッシングにそのまま登録できます（表紙の画像は登録の画面で別に付けます）。')),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: '書き出す', primary: true, onClick: () => {
+          EP.vertical = dir.value === 'v';
+          UI.lsSet('tsuzuri.epubPref', EP);
+          if (!p.author && author.value.trim()) { p.author = author.value.trim(); NS.App.touch(); }
+          const chapters = range.value === '*' ? p.chapters : p.chapters.filter((c) => c.id === range.value);
+          const r = NS.Epub.build(p, { vertical: EP.vertical, title: title.value.trim() || p.title, author: author.value.trim(), chapters });
+          UI.download(UI.safeFilename(title.value.trim() || p.title) + '.epub', new Blob([r.data], { type: 'application/epub+zip' }));
+          toast('EPUB を書き出しました');
+        } },
+      ],
+    });
+  }
+
+  NS.PublishDialog = { open, openEpub };
 })(window.Tsuzuri = window.Tsuzuri || {});

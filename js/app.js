@@ -268,6 +268,8 @@
         { label: '表示中の話をテキストで書き出す', icon: 'file', onClick: () => App.exportChapterTxt() },
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
         { label: '投稿サイト用に書き出す（なろう・カクヨム・pixiv）', icon: 'upload', onClick: () => NS.PublishDialog.open({ chapterId: (App.currentChapter() || {}).id }) },
+        { label: '電子書籍（EPUB）で書き出す', icon: 'book2', onClick: () => NS.PublishDialog.openEpub({ chapterId: (App.currentChapter() || {}).id }) },
+        { label: '原稿用紙・応募書式で印刷（PDF）', icon: 'printer', onClick: () => NS.Manuscript.open() },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
         { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,
@@ -500,11 +502,16 @@
               render('home', {});
             } },
             null,
-            { label: '削除', icon: 'trash', danger: true, onClick: async () => {
-              if (!(await UI.confirm(`「${m.title}」を削除します。元に戻せません。`, { danger: true, okLabel: '削除' }))) return;
+            { label: '削除（ごみ箱へ）', icon: 'trash', danger: true, onClick: async () => {
+              if (!(await UI.confirm(`「${m.title}」をごみ箱に移します。${Store.TRASH_DAYS}日間は、ホームの「ごみ箱」から元に戻せます。`, { danger: true, okLabel: 'ごみ箱へ' }))) return;
+              if (App.project && App.project.id === m.id) {
+                if (App.saveState !== 'saved') await App.saveNow();
+                App.project = null;
+                renderChrome();
+              }
               await Store.deleteProject(m.id);
-              if (App.project && App.project.id === m.id) { App.project = null; renderChrome(); }
               render('home', {});
+              toast(`「${m.title}」をごみ箱に移しました`, null, { label: '元に戻す', onClick: async () => { await Store.restoreProject(m.id); render('home', {}); toast('元に戻しました'); } });
             } },
           ]);
         });
@@ -520,6 +527,23 @@
           h('span', null, '更新 ' + UI.relTime(m.updatedAt))));
         listEl.appendChild(card);
       });
+      // ごみ箱（消した作品）
+      const trash = await Store.listTrash();
+      if (trash.length) {
+        wrap.appendChild(h('details', { class: 'home-trash' },
+          h('summary', { class: 'small muted' }, `ごみ箱（${trash.length}）— 消した作品は${Store.TRASH_DAYS}日間ここに残ります`),
+          h('div', { class: 'trash-list' }, trash.map((t) => {
+            const left = Math.max(0, Store.TRASH_DAYS - Math.floor((Date.now() - t.deletedAt) / 86400000));
+            return h('div', { class: 'trash-row' },
+              h('div', null, h('strong', null, t.title), h('span', { class: 'small muted' }, `${UI.fmtNum(t.chars || 0)}字・${UI.relTime(t.deletedAt)}に削除・あと${left}日で完全に消えます`)),
+              btn('戻す', { small: true, onClick: async () => { await Store.restoreProject(t.id); render('home', {}); toast(`「${t.title}」を戻しました`); } }),
+              btn('', { icon: 'trash', small: true, ghost: true, title: '完全に削除', onClick: async () => {
+                if (!(await UI.confirm(`「${t.title}」を完全に削除します。元に戻せません。`, { danger: true, okLabel: '完全に削除' }))) return;
+                await Store.purgeProject(t.id);
+                render('home', {});
+              } }));
+          }))));
+      }
     },
   };
 
