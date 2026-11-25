@@ -175,6 +175,31 @@ Inkarnate や Wonderdraft のような「素材を置いて描く」ファンタ
 - スマートフォンでは道具と設定が下から出るシートになり、2本指で移動・拡大縮小できます
 - キー操作の一覧は「?」キーか、上の ⓘ ボタンで表示。主なキー：V 選択・H 移動・B 陸・N 海・R 起伏・G 地面・S 素材・F 散布・X 消す・L 道・A 領域・T 文字、[ ] で大きさ、Q／E で回転
 
+## アプリとして使う（ホーム画面・デスクトップから開く）
+綴りは「PWA（インストールできるWebアプリ）」に対応しています。https のサイトで公開すると、次のように**アプリとして入れられ、オフラインでも使えます**。
+
+1. このリポジトリを GitHub Pages などで公開する（Settings → Pages → 公開するブランチとフォルダ（ルート）を選ぶ）
+2. 公開された URL を開き、
+   - **パソコン（Chrome・Edge）**：アドレスバーの「インストール」ボタン、またはアプリ内の「アプリとして入れる」
+   - **Android（Chrome）**：メニューの「アプリをインストール」、またはアプリ内の「アプリとして入れる」
+   - **iPhone・iPad（Safari）**：共有ボタン →「ホーム画面に追加」
+3. 入れたあとは、ホーム画面やデスクトップのアイコンから開けます。一度開けば、電波のない所でも執筆・設定資料・地図などが使えます（AI と辞書のネット検索だけは通信が必要です）
+
+- 作品データは、入れたアプリでもブラウザと同じく端末の中に保存されます。ブラウザで書いた作品をアプリに移すときは、バックアップを書き出して読み込んでください
+- 新しい版を公開すると、次に開いたときに自動で取り込まれます
+- 1ファイル版（`dist/tsuzuri.html` を直接開く使い方）は、ブラウザの制限でアプリとしては入れられません
+
+### App Store・Google Play で配るには
+今の作りのまま「アプリの包み」をかぶせれば、ストア向けのアプリにもできます（このリポジトリでは、まだ用意していません）。
+
+| 配り先 | 方法 | 必要なもの |
+| --- | --- | --- |
+| iPhone・iPad（App Store） | Capacitor などで包む | Mac と Xcode、Apple Developer Program（年額）、審査 |
+| Android（Google Play） | Capacitor、または TWA（PWA をそのまま包む） | Google Play の開発者登録（初回のみ）、署名、審査 |
+| Windows・Mac のアプリ | Tauri や Electron で包む | 各OS向けの署名（配布の警告を出さないため） |
+
+ストア版にするときは、作品データの保存先（アプリ内の保存領域）と、AI の APIキーの扱い（各自のキーを入れてもらう今の形）を、そのまま使えます。
+
 ## データについて
 - 保存先：ブラウザの IndexedDB（使えない環境では localStorage）。入力すると自動保存されます
 - バックアップ：作品ごと、またはすべての作品を `.tsuzuri.json` で書き出し・読み込み
@@ -207,7 +232,8 @@ js/mapengine.js     地図の地形生成・描画
 js/mapassets.js     地図の素材（ベクターで描画）
 js/ai.js            Claude API 連携（公式 SDK をブラウザで読み込み）
 js/views/*.js       各画面（執筆・設定資料・相関図・アイデア／プロット・地図・プレビュー・辞書）
-tools/build.mjs     1ファイル版 dist/tsuzuri.html の作成
+tools/build.mjs     1ファイル版 dist/tsuzuri.html と、オフライン用の sw.js の作成
+manifest.webmanifest, icons/, sw.js   アプリ（PWA）として入れるためのファイル（sw.js は build で作り直す）
 tests/              テスト
 ```
 
@@ -219,4 +245,5 @@ npm run e2e         # ブラウザでの動作確認（Playwright が必要。�
 node tests/e2e-ai-mock.js   # AI機能の結合テスト（APIキー不要）
 node tests/e2e-sweep.js     # 全画面を巡回し、null などの表示崩れがないか確認
 node tests/e2e-security.js  # CSP・細工したデータの読み込み・ネット辞書の安全確認（先に npm run build）
+node tests/e2e-pwa.js       # アプリ（PWA）として入れられるか・オフラインで使えるか
 ```

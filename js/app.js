@@ -388,10 +388,18 @@
           '作品データはこの端末のブラウザ内（' + ({ idb: 'IndexedDB', ls: 'localStorage', mem: 'メモリのみ・再読み込みで消えます' }[Store.mode]) +
           '）に保存されます。ブラウザのデータ消去で消えるため、定期的にバックアップを書き出してください。' +
           (Store.mode === 'idb' ? (Store.persisted ? '（ブラウザに「消さないで」と頼んであります）' : '（このブラウザでは、容量が少なくなると消される場合があります）') : ''));
+        const appInfo = App.standalone() ? 'アプリとして開いています。オフラインでも使えます。'
+          : App.canInstall() ? 'このブラウザでは、アプリとして入れられます（ホーム画面やデスクトップから開け、オフラインでも使えます）。'
+            : App.isIOS() ? 'iPhone・iPad では、Safari の共有ボタン →「ホーム画面に追加」で、アプリのように使えます。'
+              : /^https?:$/.test(location.protocol) ? 'Chrome・Edge では、アドレスバーの「インストール」ボタンからアプリとして入れられます。'
+                : '1ファイル版（ファイルを直接開いた状態）ではアプリとして入れられません。https のサイト（GitHub Pages など）で公開すると入れられます。';
         return h('div', { class: 'stack' }, info,
           h('div', { class: 'row wrap' },
             btn('すべての作品をバックアップ', { icon: 'save', onClick: App.exportAll }),
-            btn('バックアップから読み込む', { icon: 'upload', onClick: App.importBackup })));
+            btn('バックアップから読み込む', { icon: 'upload', onClick: App.importBackup })),
+          h('h3', { class: 'form-section' }, 'アプリとして使う'),
+          h('p', { class: 'muted small' }, appInfo),
+          App.canInstall() ? h('div', { class: 'row' }, btn('アプリとして入れる', { icon: 'download', primary: true, onClick: App.install })) : null);
       },
     };
     modal({ title: '設定', body, wide: true });
@@ -447,7 +455,8 @@
             await Store.saveProject(p);
             App.openProject(p.id, 'write');
           } }),
-          btn('バックアップから読み込む', { icon: 'upload', ghost: true, onClick: App.importBackup }))));
+          btn('バックアップから読み込む', { icon: 'upload', ghost: true, onClick: App.importBackup }),
+          App.canInstall() ? btn('アプリとして入れる', { icon: 'download', ghost: true, title: 'ホーム画面やデスクトップから開けるアプリとして入れます（オフラインでも使えます）', onClick: App.install }) : null)));
       const listEl = h('section', { class: 'project-grid' });
       const notice = h('div');
       wrap.appendChild(notice);
@@ -513,8 +522,42 @@
     },
   };
 
+  // ───── アプリとして入れる（PWA） ─────
+  let installEvent = null;
+  App.standalone = () => (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  App.canInstall = () => !!installEvent && !App.standalone();
+  App.install = async function () {
+    if (!installEvent) return false;
+    installEvent.prompt();
+    const r = await installEvent.userChoice.catch(() => null);
+    installEvent = null;
+    if (App.route === 'home') render('home', {});
+    return !!(r && r.outcome === 'accepted');
+  };
+  App.isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function setupPWA() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      installEvent = e;
+      if (App.route === 'home') render('home', {});
+    });
+    window.addEventListener('appinstalled', () => { installEvent = null; toast('アプリとして入れました'); });
+    // サービスワーカーは http(s) で開いたときだけ（file:// の1ファイル版では使えない）
+    if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (!w) return;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'activated' && navigator.serviceWorker.controller) toast('新しい版を取り込みました。次に開いたときから反映されます');
+        });
+      });
+    }).catch(() => { /* 使えない環境では何もしない */ });
+  }
+
   // ───── 起動 ─────
   async function start() {
+    setupPWA();
     App.applySettings();
     await Store.init();
     window.addEventListener('popstate', () => {
