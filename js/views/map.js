@@ -24,6 +24,15 @@
     { id: 'path', label: '道・川', icon: 'route', key: 'l', hint: 'ドラッグでフリーハンド、クリックで点を打ってダブルクリック／Enterで確定' },
     { id: 'area', label: '領域', icon: 'polygon', key: 'a', hint: 'ドラッグで囲むか、クリックで頂点を打ち、始点をクリック／Enterで確定' },
     { id: 'label', label: '文字', icon: 'text', key: 't', hint: 'クリックした所に地名などの文字を置きます' },
+    { id: 'measure', label: '距離', icon: 'ruler', key: 'm', hint: 'クリックで点を打つか、ドラッグで道をなぞると、道のりと旅の日数を表示します。ダブルクリック／Enter で終わり、Esc で消します' },
+  ];
+
+  // 旅の速さ（1日に進む距離と、1時間に進む距離）。道具の設定で変えられる
+  const TRAVEL = [
+    { id: 'walk', label: '徒歩', kmd: 30, kmh: 4 },
+    { id: 'horse', label: '馬', kmd: 60, kmh: 10 },
+    { id: 'cart', label: '馬車・隊商', kmd: 25, kmh: 4 },
+    { id: 'ship', label: '帆船', kmd: 150, kmh: 7 },
   ];
 
   const PATH_KINDS = {
@@ -67,7 +76,9 @@
     stamp: { a: 'castle', cat: '町・建物', s: 1, r: 0, randVar: true, randFlip: true },
     scatter: { set: 'forest', size: 22, density: 1, scale: 1 }, erase: { size: 16 },
     path: { kind: 'river', w: 1 }, area: { color: AREA_COLORS[0], opacity: 0.22 }, label: { style: 'region' },
+    travel: {},
   }, UI.lsGet('tsuzuri.mapPref', null) || {});
+  if (!PREF.travel || typeof PREF.travel !== 'object') PREF.travel = {};
   function savePref() { UI.lsSet('tsuzuri.mapPref', PREF); }
 
   function P() { return NS.App.project; }
@@ -346,6 +357,7 @@
 
   function setTool(id, fromUser) {
     if (M.draft) finishDraft();
+    if (id !== 'measure' && id !== 'pan') M.measure = null;
     PREF.tool = id;
     savePref();
     M.toolbar.querySelectorAll('.map-tool').forEach((b) => {
@@ -368,13 +380,27 @@
     path: '指でなぞって線を描くか、タップで点を打って「確定」',
     area: '指で囲むか、タップで頂点を打って「確定」',
     label: 'タップした所に文字を置きます',
+    measure: 'タップで点を打つか、指で道をなぞると、道のりと旅の日数を表示します',
   };
   function updateHint() {
     const t = TOOLS.find((x) => x.id === PREF.tool);
     const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
     M.hint.textContent = t ? ((coarse && TOUCH_HINTS[t.id]) || t.hint) : '';
     clear(M.draftBar);
-    M.draftBar.hidden = !M.draft;
+    M.draftBar.hidden = !M.draft && !(M.measure && M.measure.pts.length);
+    if (!M.draft && M.measure && M.measure.pts.length) {
+      const ms = M.measure;
+      const info = ms.pts.length >= 2 ? routeInfo(ms.pts) : null;
+      const sum = !info ? '次の点をクリック' : info.landKm < 0.5 ? `${fmtKm(info.km)}・帆船 ${fmtTrip(info.km, TRAVEL[3])}`
+        : `${fmtKm(info.km)}・${TRAVEL.slice(0, 2).map((t) => t.label + ' ' + fmtTrip(info.eff, t)).join('・')}`;
+      M.draftBar.append(...[
+        h('span', { class: 'small measure-sum' }, sum),
+        ms.done ? null : btn('終わり', { small: true, primary: true, icon: 'check', onClick: () => { ms.done = true; updateHint(); renderInspector(); draw(); } }),
+        ms.pts.length >= 2 && !layerLocked('paths') ? btn('道にする', { small: true, title: 'この経路を「道」として地図に残す', onClick: measureToPath }) : null,
+        btn('消す', { small: true, ghost: true, onClick: () => { M.measure = null; updateHint(); renderInspector(); draw(); } }),
+      ].filter(Boolean));
+      return;
+    }
     if (M.draft) {
       M.draftBar.append(
         h('span', { class: 'small' }, PREF.tool === 'path' ? `点 ${M.draft.length}個` : `頂点 ${M.draft.length}個`),
@@ -696,7 +722,16 @@
     c.addEventListener('pointercancel', onUp);
     c.addEventListener('pointerleave', () => { M.hover = null; draw(true); });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
-    c.addEventListener('dblclick', (e) => { if (M.draft) { e.preventDefault(); finishDraft(); } });
+    c.addEventListener('dblclick', (e) => {
+      if (M.draft) { e.preventDefault(); finishDraft(); return; }
+      if (PREF.tool === 'measure' && M.measure && !M.measure.done) {
+        e.preventDefault();
+        M.measure.done = true;
+        updateHint();
+        renderInspector();
+        draw();
+      }
+    });
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
       const w = toWorld(e);
@@ -752,6 +787,18 @@
     if (mod && e.key.toLowerCase() === 'v') { pasteSel(); return; }
     if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); M.sel = M.map.stamps.map((s) => ({ k: 'stamp', id: s.id })); renderInspector(); draw(); return; }
     if (e.key === ' ') { M.space = true; M.canvas.classList.add('panning'); e.preventDefault(); return; }
+    if (M.measure && PREF.tool === 'measure') {
+      if (e.key === 'Escape') { M.measure = null; updateHint(); renderInspector(); draw(); return; }
+      if (e.key === 'Enter') { M.measure.done = true; updateHint(); renderInspector(); draw(); return; }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        M.measure.pts.pop();
+        M.measure.done = false;
+        if (!M.measure.pts.length) M.measure = null;
+        updateHint(); renderInspector(); draw();
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       if (M.draft) { M.draft = null; updateHint(); draw(); } else { M.sel = []; M.vertex = null; renderInspector(); draw(); }
       return;
@@ -865,6 +912,10 @@
       M.drag = { kind: 'freehand' };
       return;
     }
+    if (tool === 'measure') {
+      M.drag = { kind: 'measure', start: w, active: false, pts: [[round1(w.x), round1(w.y)]] };
+      return;
+    }
     if (tool === 'label') {
       if (layerLocked('labels')) { toast('文字レイヤーが隠れているか、ロックされています'); return; }
       pushUndo();
@@ -940,7 +991,7 @@
         const cur = hd ? (hd.kind === 'rotate' ? 'grab' : 'nwse-resize') : '';
         if (M.canvas.style.cursor !== cur) M.canvas.style.cursor = cur;
       }
-      if (M.draft || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw(true);
+      if (M.draft || (PREF.tool === 'measure' && M.measure && !M.measure.done) || ['stamp', 'scatter', 'erase', 'land', 'water', 'relief', 'ground'].includes(PREF.tool)) draw(true);
       return;
     }
     if (d.kind === 'scale' || d.kind === 'rotate') {
@@ -1027,6 +1078,13 @@
     } else if (d.kind === 'box') {
       d.end = w;
       draw();
+    } else if (d.kind === 'measure') {
+      if (!d.active && Math.hypot(w.sx - d.start.sx, w.sy - d.start.sy) > 6) d.active = true;
+      if (d.active) {
+        const last = d.pts[d.pts.length - 1];
+        if (Math.hypot(w.x - last[0], w.y - last[1]) * M.zoom > 4) d.pts.push([round1(w.x), round1(w.y)]);
+        draw();
+      }
     }
   }
 
@@ -1050,6 +1108,23 @@
         M.draft = [f.pts[0]];
         updateHint();
       }
+      draw();
+    } else if (d.kind === 'measure') {
+      if (d.active && d.pts.length >= 2) {
+        // なぞった道のり：続きから足す（終わっていれば新しく測る）
+        const pts = simplify(d.pts, 0.8 / Math.max(0.3, M.zoom) + 0.3);
+        if (!M.measure || M.measure.done) M.measure = { pts, done: true };
+        else { M.measure.pts = M.measure.pts.concat(pts); M.measure.done = true; }
+      } else {
+        const pt = d.pts[0];
+        if (!M.measure || M.measure.done) M.measure = { pts: [pt], done: false };
+        else {
+          const last = M.measure.pts[M.measure.pts.length - 1];
+          if (Math.hypot(last[0] - pt[0], last[1] - pt[1]) * M.zoom > 3) M.measure.pts.push(pt);
+        }
+      }
+      updateHint();
+      renderInspector();
       draw();
     } else if (d.kind === 'scale' || d.kind === 'rotate') {
       if (d.moved) { commit(); renderInspector(); }
@@ -1158,6 +1233,178 @@
   }
 
   function round1(v) { return Math.round(v * 10) / 10; }
+
+  // ───── 距離と旅の日数 ─────
+  /** 2点間の距離（km）。世界地図は球面上の最短距離（大圏距離）で測る */
+  function kmBetween(a, b) {
+    const m = M.map;
+    const kmPerCell = m.style.kmPerCell || 4;
+    if (m.style.world || m.style.grid === 'latlon') {
+      const R = (kmPerCell * m.gw) / (2 * Math.PI); // 地図の横幅＝赤道一周
+      const lon1 = (a[0] / M.W) * 2 * Math.PI;
+      const lon2 = (b[0] / M.W) * 2 * Math.PI;
+      const lat1 = (0.5 - a[1] / M.Hpx) * Math.PI;
+      const lat2 = (0.5 - b[1] / M.Hpx) * Math.PI;
+      const s1 = Math.sin((lat2 - lat1) / 2);
+      const s2 = Math.sin((lon2 - lon1) / 2);
+      const q = s1 * s1 + Math.cos(lat1) * Math.cos(lat2) * s2 * s2;
+      return 2 * R * Math.asin(Math.min(1, Math.sqrt(q)));
+    }
+    return Math.hypot(b[0] - a[0], b[1] - a[1]) * kmPerCell / m.cell;
+  }
+  function routeKm(pts) {
+    let km = 0;
+    for (let i = 1; i < pts.length; i++) km += kmBetween(pts[i - 1], pts[i]);
+    return km;
+  }
+  function speedOf(t) {
+    const v = PREF.travel[t.id] || {};
+    return { kmd: v.kmd > 0 ? v.kmd : t.kmd, kmh: v.kmh > 0 ? v.kmh : t.kmh };
+  }
+  function fmtKm(km) {
+    if (km < 1) return Math.round(km * 1000) + ' m';
+    if (km < 10) return (Math.round(km * 10) / 10) + ' km';
+    return Math.round(km).toLocaleString('ja-JP') + ' km';
+  }
+  /** 「約3時間」「約2.5日」「約2か月」 */
+  function fmtTrip(km, t) {
+    const sp = speedOf(t);
+    const days = km / sp.kmd;
+    if (days < 1) {
+      const hr = km / sp.kmh;
+      if (hr < 1) return '約' + Math.max(1, Math.round(hr * 60)) + '分';
+      return '約' + (hr < 10 ? Math.round(hr * 2) / 2 : Math.round(hr)) + '時間';
+    }
+    if (days < 10) return '約' + (Math.round(days * 2) / 2) + '日';
+    if (days < 60) return '約' + Math.round(days) + '日';
+    return '約' + (Math.round(days / 30 * 2) / 2) + 'か月';
+  }
+  // 地形ごとの歩きにくさ（道の上を1とした倍率）
+  const TERRAIN = {
+    road: { label: '道', color: '#b0793b' },
+    plain: { label: '平地', color: '#a9c27a' },
+    forest: { label: '森', color: '#3f7a46' },
+    rough: { label: '湿地・砂漠・雪など', color: '#c9b27e' },
+    hill: { label: '丘', color: '#9b8a62' },
+    mtn: { label: '山', color: '#6d5a4a' },
+    sea: { label: '海・湖', color: '#5d8fb8' },
+  };
+  const BIOME_COST = [1.2, 1.5, 1.4, 2.0, 1.6, 2.0, 1.2, 1.5, 1.1, 1.3];
+  const ROAD_KINDS = ['highway', 'road', 'trail', 'rail'];
+  function roadHash() {
+    const lines = M.map.lines;
+    const key = lines.length + ':' + lines.reduce((a, l) => a + (ROAD_KINDS.includes(l.kind) ? l.points.length * 7 + l.points[0][0] : 0), 0);
+    if (M.roadHashKey === key && M.roadHash) return M.roadHash;
+    const hs = new Map();
+    const cs = 8;
+    lines.forEach((l) => {
+      if (!ROAD_KINDS.includes(l.kind) || l.points.length < 2) return;
+      sampleSpline(l.points, false, 3).forEach((pt) => {
+        const k = Math.floor(pt[0] / cs) + ',' + Math.floor(pt[1] / cs);
+        if (!hs.has(k)) hs.set(k, []);
+        hs.get(k).push(pt);
+      });
+    });
+    M.roadHash = { hs, cs };
+    M.roadHashKey = key;
+    return M.roadHash;
+  }
+  function nearRoad(rh, x, y, r) {
+    const cx = Math.floor(x / rh.cs);
+    const cy = Math.floor(y / rh.cs);
+    const n = Math.ceil(r / rh.cs);
+    for (let j = cy - n; j <= cy + n; j++) {
+      for (let i = cx - n; i <= cx + n; i++) {
+        const list = rh.hs.get(i + ',' + j);
+        if (list && list.some((pt) => Math.hypot(pt[0] - x, pt[1] - y) <= r)) return true;
+      }
+    }
+    return false;
+  }
+  /** 経路が通る地形を調べ、地形を考えた「実際に歩く距離（倍率をかけた距離）」を出す */
+  function routeInfo(pts, allRoad) {
+    const m = M.map;
+    const parts = { road: 0, plain: 0, forest: 0, rough: 0, hill: 0, mtn: 0, sea: 0 };
+    let eff = 0;
+    const rh = allRoad ? null : roadHash();
+    const rr = Math.max(4, m.cell * 0.9);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const segKm = kmBetween(a, b);
+      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (m.cell * 0.5)));
+      for (let k = 0; k < n; k++) {
+        const t = (k + 0.5) / n;
+        const x = a[0] + (b[0] - a[0]) * t;
+        const y = a[1] + (b[1] - a[1]) * t;
+        const km = segKm / n;
+        const hh = E.sampleH(M.H, m.gw, m.gh, m.cell, x, y);
+        if (hh <= 0) { parts.sea += km; continue; }
+        const gx = Math.max(0, Math.min(m.gw - 1, Math.floor(x / m.cell)));
+        const gy = Math.max(0, Math.min(m.gh - 1, Math.floor(y / m.cell)));
+        const bio = M.B[gy * m.gw + gx] || 0;
+        const relief = hh > 0.42 ? 'mtn' : hh > 0.3 ? 'hill' : '';
+        const onRoad = allRoad || nearRoad(rh, x, y, rr);
+        let f;
+        if (onRoad) {
+          f = relief === 'mtn' ? 1.5 : relief === 'hill' ? 1.15 : 1;
+          parts.road += km;
+        } else {
+          f = (BIOME_COST[bio] || 1.2) * (relief === 'mtn' ? 2.2 : relief === 'hill' ? 1.3 : 1);
+          const cat = relief || (bio === 1 || bio === 5 ? 'forest' : [2, 3, 4, 7, 9].includes(bio) ? 'rough' : 'plain');
+          parts[cat] += km;
+        }
+        eff += km * Math.min(4, f);
+      }
+    }
+    const total = Object.keys(parts).reduce((a, k) => a + parts[k], 0);
+    return { km: total, parts, eff, landKm: total - parts.sea, seaKm: parts.sea };
+  }
+  /** 通る地形の割合の帯 */
+  function terrainBar(info) {
+    const keys = Object.keys(TERRAIN).filter((k) => info.parts[k] > info.km * 0.005);
+    const bar = h('div', { class: 'terrain-bar', role: 'img', 'aria-label': '通る地形：' + keys.map((k) => TERRAIN[k].label + Math.round(info.parts[k] / info.km * 100) + '%').join('、') },
+      keys.map((k) => h('span', { style: { width: (info.parts[k] / info.km * 100) + '%', background: TERRAIN[k].color }, title: TERRAIN[k].label })));
+    const legend = h('div', { class: 'terrain-legend small' }, keys.map((k) => h('span', null,
+      h('i', { style: { background: TERRAIN[k].color } }), `${TERRAIN[k].label} ${Math.round(info.parts[k] / info.km * 100)}%`)));
+    return h('div', { class: 'terrain-box' }, bar, legend);
+  }
+  /** 旅の日数の表（道具の設定と、選んだ道の詳細に出す） */
+  function tripTable(info, only) {
+    const list = (only ? TRAVEL.filter((t) => only.includes(t.id)) : TRAVEL);
+    const rows = [];
+    list.forEach((t) => {
+      const sp = speedOf(t);
+      if (t.id === 'ship') {
+        if (info.seaKm < 0.5 && info.landKm > 0) return;
+        rows.push(h('tr', null, h('th', null, t.label), h('td', null, h('b', null, fmtTrip(info.seaKm || info.km, t)), info.landKm > 0.5 ? h('div', { class: 'muted' }, `海・湖の区間 ${fmtKm(info.seaKm)}`) : null)));
+        return;
+      }
+      if (info.landKm < 0.5) return;
+      const flat = fmtTrip(info.landKm, t);
+      const real = fmtTrip(info.eff, t);
+      rows.push(h('tr', null, h('th', null, t.label), h('td', null, h('b', null, real), real !== flat ? h('div', { class: 'muted' }, `平らな道なら${flat}`) : null)));
+    });
+    const box = h('div', { class: 'trip-box' }, h('table', { class: 'trip-table small' }, h('tbody', null, rows)));
+    if (info.seaKm >= 0.5 && info.landKm >= 0.5 && !(only && !only.includes('ship'))) box.appendChild(h('p', { class: 'small muted' }, '陸の旅の日数には、海・湖の上は含めていません。'));
+    else if (info.seaKm >= 0.5 && info.landKm >= 0.5) box.appendChild(h('p', { class: 'small muted' }, `うち海・湖の上 ${fmtKm(info.seaKm)}（日数には含めていません）`));
+    box.appendChild(h('p', { class: 'small muted' }, '1日に進む距離：' + list.map((t) => t.label + speedOf(t).kmd + 'km').join('・')));
+    return box;
+  }
+  function measureToPath() {
+    if (!M.measure || M.measure.pts.length < 2) return;
+    if (layerLocked('paths')) { toast('道・川のレイヤーが隠れているか、ロックされています'); return; }
+    pushUndo();
+    const ln = { id: UI.uid('ln'), kind: 'road', points: M.measure.pts.map((p) => p.slice()), name: '', w: 1, wobble: PATH_KINDS.road.wobble };
+    M.map.lines.push(ln);
+    M.measure = null;
+    commit();
+    setTool('select');
+    M.sel = [{ k: 'path', id: ln.id }];
+    renderInspector();
+    draw();
+    toast('道にしました。「選択」で種類（街道・小道・航路など）を変えられます');
+  }
 
   function findObj(k, id) {
     return (M.map[listOf(k)] || []).find((x) => x.id === id) || null;
@@ -2254,6 +2501,7 @@
       ctx.setLineDash([]);
       (M.draft || []).forEach((pt) => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(pt[0], pt[1], 3.5 / z, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
     }
+    drawMeasure(ctx);
     if (M.hover && !M.space && !(M.drag && M.drag.kind === 'pan')) {
       const t = PREF.tool;
       let r = 0;
@@ -2281,6 +2529,71 @@
         }
       }
     }
+    ctx.restore();
+  }
+
+  /** 距離を測っている線と、合計の道のり */
+  function drawMeasure(ctx) {
+    const z = M.zoom;
+    const ms = M.measure;
+    const d = M.drag && M.drag.kind === 'measure' && M.drag.active ? M.drag : null;
+    let pts = ms ? ms.pts.slice() : [];
+    if (d) pts = (ms && !ms.done ? pts : []).concat(d.pts);
+    else if (ms && !ms.done && M.hover && PREF.tool === 'measure') pts.push([M.hover.x, M.hover.y]);
+    if (!pts.length) return;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const line = () => { ctx.beginPath(); pts.forEach((pt, i) => (i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1]))); ctx.stroke(); };
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 5 / z;
+    line();
+    ctx.strokeStyle = '#c4382a';
+    ctx.lineWidth = 2.2 / z;
+    ctx.setLineDash([7 / z, 5 / z]);
+    line();
+    ctx.setLineDash([]);
+    // 打った点と、途中までの距離
+    let acc = 0;
+    const fixed = ms ? ms.pts : [];
+    fixed.forEach((pt, i) => {
+      if (i) acc += kmBetween(fixed[i - 1], pt);
+      ctx.fillStyle = i === 0 ? '#c4382a' : '#fff';
+      ctx.strokeStyle = '#c4382a';
+      ctx.lineWidth = 1.6 / z;
+      ctx.beginPath();
+      ctx.arc(pt[0], pt[1], (i === 0 ? 4.5 : 3.5) / z, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (i && i < fixed.length - 1 && fixed.length <= 12) measureTag(ctx, pt, fmtKm(acc), true);
+    });
+    if (pts.length >= 2) {
+      const info = routeInfo(pts);
+      const trip = info.landKm < 0.5 ? TRAVEL[3].label + fmtTrip(info.km, TRAVEL[3]) : TRAVEL[0].label + fmtTrip(info.eff, TRAVEL[0]);
+      measureTag(ctx, pts[pts.length - 1], fmtKm(info.km) + '・' + trip, false);
+    }
+    ctx.restore();
+  }
+  function measureTag(ctx, pt, text, small) {
+    const z = M.zoom;
+    const fs = (small ? 10 : 12.5) / z;
+    ctx.save();
+    ctx.font = `${small ? 500 : 700} ${fs}px "Noto Sans JP", "Hiragino Sans", sans-serif`;
+    const w = ctx.measureText(text).width;
+    const pad = 5 / z;
+    const x = pt[0] + 9 / z;
+    const y = pt[1] - (small ? 8 : 14) / z;
+    ctx.fillStyle = small ? 'rgba(255,255,255,0.88)' : '#c4382a';
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1 / z;
+    const hgt = fs + pad * 1.4;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y - hgt / 2, w + pad * 2, hgt, 4 / z); else ctx.rect(x, y - hgt / 2, w + pad * 2, hgt);
+    ctx.fill();
+    if (small) ctx.stroke();
+    ctx.fillStyle = small ? '#7a2219' : '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + pad, y + fs * 0.05);
     ctx.restore();
   }
 
@@ -2454,6 +2767,36 @@
       }))));
       parts.push(UI.field('塗りの濃さ', range(PREF.area.opacity, 0, 0.7, 0.02, (v) => { PREF.area.opacity = v; savePref(); }, (v) => Math.round(v * 100) + '%')));
     }
+    if (t.id === 'measure') {
+      const ms = M.measure;
+      if (ms && ms.pts.length >= 2) {
+        const info = routeInfo(ms.pts);
+        parts.push(h('div', { class: 'measure-total' }, h('span', { class: 'muted small' }, '道のり'), h('strong', null, fmtKm(info.km))), terrainBar(info), tripTable(info),
+          h('p', { class: 'small muted' }, '日数は、通る地形（山・森・湿地など）と、描いてある道を通るかどうかを考えた目安です。'));
+        if (M.map.style.world || M.map.style.grid === 'latlon') parts.push(h('p', { class: 'small muted' }, '世界地図では、地球のような球の上での距離として測ります（高緯度ほど、地図の見た目より近くなります）。'));
+      } else {
+        parts.push(h('p', { class: 'small' }, '出発地をクリックし、曲がり角ごとにクリックしていくと、道のりと旅の日数が出ます。'));
+      }
+      const speedRow = (tr) => {
+        const sp = speedOf(tr);
+        return h('label', { class: 'speed-row small' }, h('span', null, tr.label), h('input', {
+          class: 'input input-num', type: 'number', min: 1, max: 2000, step: 1, value: sp.kmd, 'aria-label': tr.label + '：1日に進む距離（km）',
+          onchange: (e) => {
+            const v = Math.round(+e.target.value);
+            PREF.travel[tr.id] = Object.assign({}, PREF.travel[tr.id], { kmd: v > 0 && v <= 2000 ? v : tr.kmd });
+            savePref();
+            renderInspector();
+            updateHint();
+            draw();
+          },
+        }), h('span', { class: 'muted' }, 'km／日'));
+      };
+      const det = h('details', { class: 'speed-box' }, h('summary', { class: 'small' }, '旅の速さを変える'), ...TRAVEL.map(speedRow),
+        h('p', { class: 'small muted' }, '目安：徒歩は1日30km前後、馬は乗り継がなければ60km前後、荷を積んだ馬車や隊商は25km前後、帆船は風しだいで1日100〜200km。'),
+        btn('標準に戻す', { small: true, ghost: true, onClick: () => { PREF.travel = {}; savePref(); renderInspector(); updateHint(); draw(); } }));
+      parts.push(det);
+      parts.push(h('p', { class: 'small muted' }, `この地図の縮尺：1マス＝${M.map.style.kmPerCell || 4}km（地図の設定で変えられます）`));
+    }
     if (t.id === 'label') {
       parts.push(h('div', { class: 'swatch-grid' }, Object.keys(LABEL_STYLES).map((k) => h('button', {
         type: 'button', class: 'swatch-btn' + (PREF.label.style === k ? ' active' : ''), onclick: () => { PREF.label.style = k; savePref(); renderInspector(); },
@@ -2556,6 +2899,12 @@
       parts.push(UI.field('太さ', range(obj.w || 1, 0.3, 5, 0.1, (v) => { beginEdit(); obj.w = v; changed(); }, (v) => Math.round(v * 100) + '%')));
       parts.push(UI.field('自然な揺らぎ', range(obj.wobble != null ? obj.wobble : 0.3, 0, 1.5, 0.05, (v) => { beginEdit(); obj.wobble = v; changed(); }, (v) => Math.round(v * 100) + '%')));
       parts.push(UI.field('名前（メモ）', h('input', { class: 'input', type: 'text', value: obj.name || '', oninput: (e) => { obj.name = e.target.value; commit(); } }), '地図に名前を書くには「文字」道具を使います'));
+      const sp = sampleSpline(obj.points, false, 4);
+      const isRoad = ROAD_KINDS.includes(obj.kind);
+      const info = routeInfo(sp, isRoad);
+      if (obj.kind === 'route') { info.seaKm = info.km; info.landKm = 0; }
+      parts.push(h('div', { class: 'measure-total' }, h('span', { class: 'muted small' }, '長さ'), h('strong', null, '約' + fmtKm(info.km))),
+        ['border', 'wall', 'river', 'stream'].includes(obj.kind) ? null : tripTable(info, obj.kind === 'route' ? ['ship'] : ['walk', 'horse', 'cart']));
       parts.push(h('p', { class: 'muted small' }, `頂点 ${obj.points.length}個。頂点をドラッグで動かし、選んで Delete で削除できます。`));
       parts.push(btn('向きを反転（川の上流・下流）', { small: true, onClick: () => { beginEdit(); obj.points.reverse(); changed(); } }));
     } else if (k === 'area') {

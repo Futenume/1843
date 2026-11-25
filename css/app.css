@@ -983,3 +983,23 @@ kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px sol
   .ng-card .ng-del { grid-column: 3; grid-row: 1; }
   .ng-card .ng-reason { grid-column: 1 / 4; grid-row: 3; }
 }
+
+/* ───── 地図：距離と旅の日数 ───── */
+.map-canvas[data-tool="measure"] { cursor: crosshair; }
+.measure-sum { font-weight: 600; color: var(--ink); }
+.measure-total { display: flex; align-items: baseline; gap: 8px; }
+.measure-total strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.trip-table { border-collapse: collapse; width: 100%; }
+.trip-table th { text-align: left; font-weight: 500; padding: 4px 10px 4px 0; white-space: nowrap; vertical-align: top; width: 6.5em; }
+.trip-table td { padding: 4px 0; font-variant-numeric: tabular-nums; }
+.trip-table td b { font-weight: 700; }
+.trip-table td .muted { font-size: 11px; }
+.speed-box summary { cursor: pointer; color: var(--accent); }
+.speed-box[open] { display: flex; flex-direction: column; gap: 6px; }
+.speed-row { display: grid; grid-template-columns: 6.5em 6em auto; align-items: center; gap: 6px; }
+.terrain-box { display: flex; flex-direction: column; gap: 5px; }
+.terrain-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.terrain-bar span { display: block; height: 100%; }
+.terrain-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--ink-2); }
+.terrain-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+.trip-box { display: flex; flex-direction: column; gap: 4px; }
