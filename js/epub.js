@@ -94,7 +94,8 @@
         h1 = Math.imul(h1 ^ str.charCodeAt(i), 16777619) >>> 0;
         h2 = Math.imul(h2 + str.charCodeAt(i) + round, 2246822519) >>> 0;
       }
-      hex.push((h1 ^ h2 ^ (round * 0x9e3779b9)).toString(16).padStart(8, '0'));
+      // >>> 0 で符号なしに（マイナスの値だと「-」が入って UUID の形にならない）
+      hex.push(((h1 ^ h2 ^ Math.imul(round, 0x9e3779b9)) >>> 0).toString(16).padStart(8, '0'));
     }
     const s = hex.join('');
     return `${s.slice(0, 8)}-${s.slice(8, 12)}-4${s.slice(13, 16)}-a${s.slice(17, 20)}-${s.slice(20, 32)}`;

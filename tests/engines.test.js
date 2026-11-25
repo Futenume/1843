@@ -549,6 +549,8 @@ test('EPUB：ZIP の形（mimetype が先頭・無圧縮）、目次、縦書き
   assert.ok(text.includes('<dcterms:modified') === false && text.includes('2026-01-02T03:04:05Z'));
   // 同じ作品なら同じ識別子
   assert.equal(Epub.uuidFrom('p1'), Epub.uuidFrom('p1'));
+  // どんな ID でも正しい UUID の形（以前は「-」が混じることがあった）
+  for (let i = 0; i < 500; i++) assert.match(Epub.uuidFrom('p' + i.toString(36) + 'x' + i * 7919), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.notEqual(Epub.uuidFrom('p1'), Epub.uuidFrom('p2'));
   // CRC32 の既知の値
   assert.equal(Epub.crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
