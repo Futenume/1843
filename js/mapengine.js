@@ -839,11 +839,21 @@
       map.lines = map.lines.concat(towns.lines);
     }
     if (opts.names && pr.world) map.labels = autoWorldLabels(map, H, seed);
+    // 国（国境・国名・首都）
+    let countries = null;
+    if (opts.countries && !pr.blank) {
+      countries = autoCountries(map, H, B, seed, { count: opts.countryCount || 0, capitals: !towns });
+      map.areas = countries.areas;
+      map.lines = map.lines.concat(countries.borders);
+      // 国名と重なるので、大陸の名前は外し、海の名前だけ残す
+      map.labels = map.labels.filter((lb) => lb.style !== 'region').concat(countries.labels);
+    }
     if (opts.stamps !== false) map.stamps = autoStamps(map, H, B, seed);
-    if (towns) {
-      // 町の周りの木や山はどける
-      const near = (st) => towns.stamps.some((t) => Math.hypot(t.x - st.x, t.y - st.y) < 18);
-      map.stamps = map.stamps.filter((st) => !near(st)).concat(towns.stamps).sort((a, b) => a.y - b.y);
+    const placed = (towns ? towns.stamps : []).concat(countries ? countries.stamps : []);
+    if (placed.length) {
+      // 町や首都の周りの木や山はどける
+      const near = (st) => placed.some((t) => Math.hypot(t.x - st.x, t.y - st.y) < 18);
+      map.stamps = map.stamps.filter((st) => !near(st)).concat(placed).sort((a, b) => a.y - b.y);
     }
     if (opts.compass !== false) map.stamps.push({ id: sid(), a: 'compass', x: gw * cell - 56, y: 68, s: 1, r: 0, f: false, v: 0 });
     return map;
@@ -1226,6 +1236,413 @@
     return rivers;
   }
 
+  // ───── 国を自動で分ける ─────
+  const COUNTRY_SUFFIX = ['王国', '王国', '王国', '公国', '帝国', '共和国', '連邦', '大公国', '首長国', '皇国', '自由都市連合', '神聖国'];
+  // 地形の色（黄土・緑）に埋もれないよう、赤・紫・青寄りを多めに
+  const COUNTRY_COLORS = ['#d1495b', '#8e5ccc', '#3a7fc1', '#e0823a', '#2a9d8f', '#c2589c', '#5a6fd6', '#b8682e', '#7fae3e', '#d4a017', '#4f9fbf', '#9c3d54'];
+
+  /**
+   * 陸を、山の尾根や大きな川を境にしながら、いくつかの国に分ける。
+   * opts: { count（0なら自動）, names（国名）, capitals（首都の印） }
+   * 戻り値：{ areas, borders, labels, stamps, count }。どれも gen:'country' の印つき（作り直すときに入れ替える）
+   */
+  function autoCountries(map, H, B, seed, opts) {
+    opts = opts || {};
+    const { gw, gh, cell } = map;
+    const N = gw * gh;
+    const rnd = mulberry32(((seed >>> 0) || 1) + 7919);
+    const name = makeNamer((seed >>> 0) + 313);
+    const world = !!(map.style && map.style.world);
+    const masses = landMasses(H, gw, gh, 1);
+    const totalLand = masses.reduce((a, m) => a + m.n, 0);
+    const empty = { areas: [], borders: [], labels: [], stamps: [], count: 0 };
+    if (totalLand < 40) return empty;
+    let want = opts.count > 0 ? Math.round(opts.count) : Math.round(Math.max(world ? 6 : 3, Math.min(world ? 14 : 8, totalLand / (world ? 2400 : 1900))));
+    want = Math.max(1, Math.min(24, want));
+
+    // 川のマス（国境になりやすい）
+    const wet = new Uint8Array(N);
+    (map.lines || []).forEach((ln) => {
+      if (ln.kind !== 'river') return;
+      ln.points.forEach(([px, py], i) => {
+        if (i < 2) return; // 源流のあたりは境にしない
+        const x = Math.floor(px / cell);
+        const y = Math.floor(py / cell);
+        if (x >= 0 && y >= 0 && x < gw && y < gh) wet[y * gw + x] = 1;
+      });
+    });
+
+    // 国の中心（種）：大きな陸ほど多く、互いに離して置く
+    const big = masses.filter((m) => m.n >= Math.max(60, totalLand * 0.03));
+    if (!big.length) big.push(masses[0]);
+    const bigLand = big.reduce((a, m) => a + m.n, 0);
+    let quota = big.map((m) => Math.max(1, Math.round(want * m.n / bigLand)));
+    // 合計を want に合わせる（大きい陸から増減）
+    let sumQ = quota.reduce((a, b) => a + b, 0);
+    for (let i = 0; sumQ > want && i < 200; i++) { const j = quota.indexOf(Math.max(...quota)); if (quota[j] <= 1) break; quota[j]--; sumQ--; }
+    for (let i = 0; sumQ < want && i < 200; i++) { quota[i % quota.length]++; sumQ++; }
+    const seeds = [];
+    big.forEach((m, mi) => {
+      const cand = [];
+      for (let i = 0; i < m.cells.length; i += 2) {
+        const k = m.cells[i];
+        const h = H[k];
+        if (h < 0.02 || h > 0.4) continue;
+        if (B && (B[k] === 4 || B[k] === 7)) continue;
+        cand.push(k);
+      }
+      if (!cand.length) cand.push(m.cells[0]);
+      const mine = [];
+      for (let q = 0; q < quota[mi]; q++) {
+        let best = -1;
+        let bs = -Infinity;
+        for (let t = 0; t < Math.min(cand.length, 700); t++) {
+          const k = cand[Math.floor(rnd() * cand.length)];
+          const x = k % gw;
+          const y = (k / gw) | 0;
+          let d = Infinity;
+          mine.forEach((o) => { d = Math.min(d, Math.hypot(o.x - x, o.y - y)); });
+          // 最初の国は陸の中ほど、次からは既にある国から遠い所
+          const sc = mine.length ? d - H[k] * 20 + rnd() * 3 : -Math.hypot(x - m.cx, y - m.cy) * 0.6 - H[k] * 20 + rnd() * 6;
+          if (sc > bs) { bs = sc; best = k; }
+        }
+        if (best >= 0) mine.push({ k: best, x: best % gw, y: (best / gw) | 0 });
+      }
+      mine.forEach((o) => seeds.push(o));
+    });
+    const n = seeds.length;
+    const strength = seeds.map(() => 0.78 + rnd() * 0.5); // 大きな国と小さな国ができるように
+
+    // 広がり方（多方向からの最短経路）。山・川は越えにくく、海はもっと越えにくい
+    const CD = coastDistance(H, gw, gh);
+    const costAt = (k) => {
+      const h = H[k];
+      if (h <= 0) return CD[k] <= 2.5 ? 6 : 14;
+      const x = k % gw;
+      const y = (k / gw) | 0;
+      let c = 1 + (h > 0.4 ? 2 + (h - 0.4) * 40 : 0) + (wet[k] ? 7 : 0);
+      c *= 0.75 + vnoise(x * 0.09 + seed * 0.001, y * 0.09) * 0.5;
+      return c;
+    };
+    const lab = new Int16Array(N).fill(-1);
+    const dist = new Float64Array(N).fill(Infinity); // 64ビット（取り出すときの比較で誤差が出ないように）
+    const heap = [];
+    const push = (d, k, r) => {
+      heap.push([d, k, r]);
+      let i = heap.length - 1;
+      while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; const t = heap[i]; heap[i] = heap[p]; heap[p] = t; i = p; }
+    };
+    const pop = () => {
+      const top = heap[0];
+      const last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        let i = 0;
+        for (;;) {
+          const l = i * 2 + 1; const r = l + 1; let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          const t = heap[i]; heap[i] = heap[m]; heap[m] = t; i = m;
+        }
+      }
+      return top;
+    };
+    seeds.forEach((o, r) => { dist[o.k] = 0; push(0, o.k, r); });
+    const limit = world ? 900 : 600; // これより遠い島は、どの国にも属さない
+    while (heap.length) {
+      const [d, k, r] = pop();
+      if (d > dist[k] || lab[k] >= 0) continue;
+      lab[k] = r;
+      const x = k % gw;
+      const y = (k / gw) | 0;
+      const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const [dx, dy] of nb) {
+        const nx = x + dx; const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+        const nk = ny * gw + nx;
+        if (lab[nk] >= 0) continue;
+        const nd = d + costAt(nk) * strength[r];
+        if (nd < dist[nk] && nd < limit) { dist[nk] = nd; push(nd, nk, r); }
+      }
+    }
+    // 海は岸の近く（2マス）だけを国の範囲に含める（塗りは陸だけに描く）
+    for (let k = 0; k < N; k++) if (H[k] <= 0 && CD[k] > 2.5) lab[k] = -1;
+
+    // 飛び地の小さなかけら（陸続きなのに離れた数マス）は、周りの国に入れる
+    const seen = new Uint8Array(N);
+    for (let k0 = 0; k0 < N; k0++) {
+      if (seen[k0] || lab[k0] < 0 || H[k0] <= 0) continue;
+      const r = lab[k0];
+      const comp = [k0];
+      seen[k0] = 1;
+      const nbCount = new Map();
+      let touchesSea = false;
+      for (let i = 0; i < comp.length; i++) {
+        const k = comp[i];
+        const x = k % gw;
+        const y = (k / gw) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx; const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+          const nk = ny * gw + nx;
+          if (H[nk] <= 0) { touchesSea = true; continue; }
+          if (lab[nk] === r) { if (!seen[nk]) { seen[nk] = 1; comp.push(nk); } }
+          else if (lab[nk] >= 0) nbCount.set(lab[nk], (nbCount.get(lab[nk]) || 0) + 1);
+        }
+      }
+      if (comp.length < 30 && nbCount.size) {
+        let to = -1; let bc = -1;
+        nbCount.forEach((c, l) => { if (c > bc) { bc = c; to = l; } });
+        // 島ぜんぶが1つの国なら飛び地のまま。陸続きのかけらだけ入れ替える
+        if (to >= 0 && (!touchesSea || comp.length < 12)) comp.forEach((k) => { lab[k] = to; });
+      }
+    }
+
+    // 国の大きさ（陸のマス数）
+    const size = new Array(n).fill(0);
+    for (let k = 0; k < N; k++) if (H[k] > 0 && lab[k] >= 0) size[lab[k]]++;
+
+    // 隣り合う国（色分けのため）
+    const adj = seeds.map(() => new Set());
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const k = y * gw + x;
+        const a = lab[k];
+        if (a < 0) continue;
+        if (x + 1 < gw) { const b = lab[k + 1]; if (b >= 0 && b !== a) { adj[a].add(b); adj[b].add(a); } }
+        if (y + 1 < gh) { const b = lab[k + gw]; if (b >= 0 && b !== a) { adj[a].add(b); adj[b].add(a); } }
+      }
+    }
+    const colorIdx = new Array(n).fill(-1);
+    const order = seeds.map((_, i) => i).sort((a, b) => adj[b].size - adj[a].size);
+    const offset = Math.floor(rnd() * COUNTRY_COLORS.length);
+    order.forEach((r) => {
+      const used = new Set(Array.from(adj[r]).map((q) => colorIdx[q]));
+      let c = 0;
+      while (used.has(c) && c < COUNTRY_COLORS.length - 1) c++;
+      colorIdx[r] = c;
+    });
+
+    // 国名
+    const bySize = seeds.map((_, i) => i).sort((a, b) => size[b] - size[a]);
+    const names = new Array(n).fill('');
+    const stems = new Array(n).fill('');
+    bySize.forEach((r, i) => {
+      const stem = name();
+      stems[r] = stem;
+      let suf;
+      if (i === 0 && n >= 4) suf = rnd() < 0.6 ? '帝国' : '王国';
+      else if (size[r] < totalLand * 0.04) suf = ['公国', '大公国', '自由都市連合', '首長国'][Math.floor(rnd() * 4)];
+      else suf = COUNTRY_SUFFIX[Math.floor(rnd() * COUNTRY_SUFFIX.length)];
+      names[r] = stem + suf;
+    });
+
+    // 輪郭：国ごとのマスの外周をたどる（塗りは陸の形で切り抜くので、海側に少しはみ出してよい）
+    const areas = [];
+    const W1 = gw + 1;
+    const groupIds = seeds.map(() => sid());
+    for (let r = 0; r < n; r++) {
+      if (!size[r]) continue;
+      const inR = (x, y) => x >= 0 && y >= 0 && x < gw && y < gh && lab[y * gw + x] === r;
+      // 外周の向きつきの辺（国を左手に見て回る）
+      const next = new Map();
+      const addE = (ax, ay, bx, by) => {
+        const a = ay * W1 + ax;
+        if (!next.has(a)) next.set(a, []);
+        next.get(a).push(by * W1 + bx);
+      };
+      for (let y = 0; y < gh; y++) {
+        for (let x = 0; x < gw; x++) {
+          if (!inR(x, y)) continue;
+          if (!inR(x, y - 1)) addE(x, y, x + 1, y);
+          if (!inR(x + 1, y)) addE(x + 1, y, x + 1, y + 1);
+          if (!inR(x, y + 1)) addE(x + 1, y + 1, x, y + 1);
+          if (!inR(x - 1, y)) addE(x, y + 1, x, y);
+        }
+      }
+      const loops = [];
+      next.forEach((list, start) => {
+        while (list.length) {
+          const loop = [start];
+          let cur = list.pop();
+          let prev = start;
+          let guard = 0;
+          while (cur !== start && guard++ < 200000) {
+            loop.push(cur);
+            const outs = next.get(cur);
+            if (!outs || !outs.length) break;
+            // 分かれ道（斜めに接する角）では、来た向きから見て右へ曲がる方を選ぶ
+            let pick = 0;
+            if (outs.length > 1) {
+              const px = prev % W1; const py = (prev / W1) | 0;
+              const cx = cur % W1; const cy = (cur / W1) | 0;
+              const dx = cx - px; const dy = cy - py;
+              pick = outs.findIndex((o) => { const ox = o % W1 - cx; const oy = ((o / W1) | 0) - cy; return dx * oy - dy * ox > 0; });
+              if (pick < 0) pick = 0;
+            }
+            prev = cur;
+            cur = outs.splice(pick, 1)[0];
+          }
+          if (loop.length >= 4) loops.push(loop.map((v) => [v % W1, (v / W1) | 0]));
+        }
+      });
+      loops.forEach((lp) => {
+        let a2 = 0;
+        for (let i = 0; i < lp.length; i++) { const p = lp[i]; const q = lp[(i + 1) % lp.length]; a2 += p[0] * q[1] - q[0] * p[1]; }
+        if (a2 <= 0 || a2 / 2 < 5) return; // 穴（内側の輪）や小さすぎる島は除く
+        // 閉じた輪は、始点から一番遠い点で2つに分けて間引く（始点と終点が同じだと間引けないため）
+        let far = 0; let fd = -1;
+        lp.forEach((p, i) => { const d = Math.hypot(p[0] - lp[0][0], p[1] - lp[0][1]); if (d > fd) { fd = d; far = i; } });
+        const simp = rdp(lp.slice(0, far + 1), 0.75).concat(rdp(lp.slice(far).concat([lp[0]]), 0.75).slice(1, -1));
+        if (simp.length < 3) return;
+        areas.push({
+          id: 'ar' + sid(), points: simp.map(([x, y]) => [Math.round(x * cell * 10) / 10, Math.round(y * cell * 10) / 10]),
+          color: COUNTRY_COLORS[colorIdx[r] % COUNTRY_COLORS.length], opacity: 0.36, name: names[r], land: true, group: groupIds[r], gen: 'country', _area: a2 / 2,
+        });
+      });
+    }
+    // 大きな輪から先に塗る
+    areas.sort((a, b) => b._area - a._area);
+    areas.forEach((a) => { delete a._area; });
+
+    // 国境：陸で、違う国のマスが接する辺をつないだ線
+    const adjV = new Map();
+    const addU = (a, b) => {
+      if (!adjV.has(a)) adjV.set(a, []);
+      if (!adjV.has(b)) adjV.set(b, []);
+      adjV.get(a).push(b);
+      adjV.get(b).push(a);
+    };
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const k = y * gw + x;
+        if (H[k] <= 0 || lab[k] < 0) continue;
+        if (x + 1 < gw && H[k + 1] > 0 && lab[k + 1] >= 0 && lab[k + 1] !== lab[k]) addU(y * W1 + x + 1, (y + 1) * W1 + x + 1);
+        if (y + 1 < gh && H[k + gw] > 0 && lab[k + gw] >= 0 && lab[k + gw] !== lab[k]) addU((y + 1) * W1 + x, (y + 1) * W1 + x + 1);
+      }
+    }
+    const usedE = new Set();
+    const ek = (a, b) => (a < b ? a + ':' + b : b + ':' + a);
+    const chains = [];
+    const walk = (start, first) => {
+      const ch = [start];
+      let prev = start;
+      let cur = first;
+      usedE.add(ek(start, first));
+      for (let guard = 0; guard < 100000; guard++) {
+        ch.push(cur);
+        const nb = adjV.get(cur);
+        if (nb.length !== 2) break;
+        const nx = nb[0] === prev ? nb[1] : nb[0];
+        if (usedE.has(ek(cur, nx))) break;
+        usedE.add(ek(cur, nx));
+        prev = cur;
+        cur = nx;
+      }
+      return ch;
+    };
+    adjV.forEach((nb, v) => { if (nb.length !== 2) nb.forEach((w) => { if (!usedE.has(ek(v, w))) chains.push(walk(v, w)); }); });
+    adjV.forEach((nb, v) => { nb.forEach((w) => { if (!usedE.has(ek(v, w))) chains.push(walk(v, w)); }); });
+    const borders = [];
+    chains.forEach((ch) => {
+      if (ch.length < 3) return;
+      const pts = rdp(ch.map((v) => [v % W1, (v / W1) | 0]), 0.7);
+      if (pts.length < 2) return;
+      borders.push({ id: 'ln' + sid(), kind: 'border', points: pts.map(([x, y]) => [Math.round(x * cell * 10) / 10, Math.round(y * cell * 10) / 10]), name: '', w: world ? 0.8 : 1, wobble: 0.12, gen: 'country' });
+    });
+
+    // 国名の位置：国の中で、国境や海岸から一番遠い所（山の上は少し避ける）
+    const inner = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      const x = k % gw;
+      const y = (k / gw) | 0;
+      const r = lab[k];
+      let edge = r < 0 || H[k] <= 0;
+      if (!edge) edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const nx = x + dx; const ny = y + dy; if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) return true; const nk = ny * gw + nx; return lab[nk] !== r || H[nk] <= 0; });
+      inner[k] = edge ? 0 : 1e9;
+    }
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      const k = y * gw + x;
+      if (!inner[k]) continue;
+      let v = inner[k];
+      if (x > 0) v = Math.min(v, inner[k - 1] + 1);
+      if (y > 0) v = Math.min(v, inner[k - gw] + 1);
+      if (x > 0 && y > 0) v = Math.min(v, inner[k - gw - 1] + 1.414);
+      if (x < gw - 1 && y > 0) v = Math.min(v, inner[k - gw + 1] + 1.414);
+      inner[k] = v;
+    }
+    for (let y = gh - 1; y >= 0; y--) for (let x = gw - 1; x >= 0; x--) {
+      const k = y * gw + x;
+      if (!inner[k]) continue;
+      let v = inner[k];
+      if (x < gw - 1) v = Math.min(v, inner[k + 1] + 1);
+      if (y < gh - 1) v = Math.min(v, inner[k + gw] + 1);
+      if (x < gw - 1 && y < gh - 1) v = Math.min(v, inner[k + gw + 1] + 1.414);
+      if (x > 0 && y < gh - 1) v = Math.min(v, inner[k + gw - 1] + 1.414);
+      inner[k] = v;
+    }
+    const bestAt = new Array(n).fill(-1);
+    const bestSc = new Array(n).fill(-Infinity);
+    for (let k = 0; k < N; k++) {
+      const r = lab[k];
+      if (r < 0 || H[k] <= 0) continue;
+      const sc = Math.min(inner[k], 14) - Math.max(0, H[k] - 0.35) * 25 + inner[k] * 0.02;
+      if (sc > bestSc[r]) { bestSc[r] = sc; bestAt[r] = k; }
+    }
+    const labels = [];
+    const stamps = [];
+    // 地図にもともとある町・城など（首都はこれと重ならない所に。名前のある町がある国には首都を足さない）
+    const settle = (map.stamps || []).filter((st) => st.gen !== 'country' && (st.name || st.entryId || /castle|city|town|village|port|fort|capital|palace|keep|tenshu/.test(st.a || '')));
+    const cellOf = (st) => {
+      const gx = Math.max(0, Math.min(gw - 1, Math.floor(st.x / cell)));
+      const gy = Math.max(0, Math.min(gh - 1, Math.floor(st.y / cell)));
+      return lab[gy * gw + gx];
+    };
+    for (let r = 0; r < n; r++) {
+      if (!size[r] || bestAt[r] < 0) continue;
+      const k = bestAt[r];
+      let fs = Math.round(Math.max(world ? 15 : 13, Math.min(world ? 28 : 30, Math.sqrt(size[r]) * (world ? 0.42 : 0.5))));
+      // 長い国名は少し小さく。地図の端からはみ出さないよう、文字の幅の分だけ内側へ
+      const len = names[r].length;
+      if (len > 6) fs = Math.max(12, Math.round(fs * 6 / len));
+      const halfW = (len * fs * 1.55) / 2 + 6;
+      const x = Math.max(halfW + cell * 2, Math.min(gw * cell - halfW - cell * 2, (k % gw + 0.5) * cell));
+      const y = Math.max(fs + cell * 3, Math.min(gh * cell - fs - cell * 3, (((k / gw) | 0) + 0.5) * cell));
+      let lbId = '';
+      if (opts.names !== false) {
+        lbId = 'lb' + sid();
+        labels.push({ id: lbId, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, text: names[r], style: 'region', size: fs, rotation: 0, vertical: false, curve: 0, gen: 'country', group: groupIds[r] });
+      }
+      areas.forEach((a) => { if (a.group === groupIds[r]) a.nameLabel = lbId; });
+      if (opts.capitals && !settle.some((st) => (st.name || st.entryId) && cellOf(st) === r)) {
+        // 首都：国の中の、平らで住みやすい所。国名の文字とは重ならない所に
+        const capName = name();
+        const capW = capName.length * 12 + 18; // 首都の印と、右に出る名前の幅の目安
+        const halfH = fs * 0.75 + 10;
+        const lx = x;
+        const ly = y;
+        let ck = -1; let cs = -Infinity;
+        for (let i = 0; i < 1500; i++) {
+          const kk = Math.floor(rnd() * N);
+          if (lab[kk] !== r || H[kk] <= 0.02 || H[kk] > 0.36) continue;
+          const px = (kk % gw + 0.5) * cell;
+          const py = (((kk / gw) | 0) + 0.5) * cell;
+          if (px > lx - halfW - capW - 8 && px < lx + halfW + 12 && Math.abs(py - ly) < halfH) continue; // 国名と首都名がかぶる
+          if (px + capW > gw * cell - cell * 2) continue; // 首都名が地図の端からはみ出す
+          if (settle.some((st) => Math.abs(st.x - px) < 60 + capW * 0.5 && Math.abs(st.y - py) < 26)) continue; // もとからある町と重なる
+          const dl = Math.hypot(px - lx, (py - ly) * 1.4);
+          const sc = Math.min(inner[kk], 8) - dl / (fs * 4) - H[kk] * 6 + (wet[kk] ? 2 : 0) + (CD[kk] > 0 ? 0 : 0);
+          if (sc > cs) { cs = sc; ck = kk; }
+        }
+        if (ck >= 0) {
+          stamps.push({ id: sid(), a: world ? 'sym-capital' : 'castle', x: (ck % gw + 0.5) * cell, y: (((ck / gw) | 0) + 0.8) * cell, s: world ? 0.9 : 0.75, r: 0, f: false, v: 0, name: capName, gen: 'country' });
+        }
+      }
+    }
+    return { areas, borders, labels, stamps, count: n };
+  }
+
   /** 折れ線の間引き（Ramer–Douglas–Peucker） */
   function rdp(pts, eps) {
     if (pts.length < 3) return pts.slice();
@@ -1299,7 +1716,7 @@
   }
 
   NS.MapEngine = {
-    BIOMES, PALETTES, PRESETS, SIZES, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
-    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
+    BIOMES, PALETTES, PRESETS, SIZES, COUNTRY_COLORS, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
+    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

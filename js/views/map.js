@@ -154,10 +154,13 @@
     const autoR = h('input', { type: 'checkbox', checked: true });
     const autoT = h('input', { type: 'checkbox', checked: true });
     const autoTLabel = h('span', null, '町と道を置く（仮の地名つき。あとで名前を変えられます）');
+    const autoC = h('input', { type: 'checkbox', checked: false });
+    let autoCTouched = false;
+    autoC.addEventListener('change', () => { autoCTouched = true; });
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: 195, 'aria-label': 'プレビュー' });
     const drawPreview = () => {
       const isWorld = !!(E.PRESETS[preset.value] || {}).world;
-      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: !regenerate && autoT.checked, compass: false });
+      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: !regenerate && autoT.checked, countries: !regenerate && autoC.checked, compass: false });
       const ph = Math.round(300 * tmp.gh / tmp.gw);
       if (preview.height !== ph) preview.height = ph;
       const n = tmp.gw * tmp.gh;
@@ -168,6 +171,29 @@
       const img = ctx.createImageData(preview.width, preview.height);
       E.renderTerrain(tmp, H, B, img, 0, 0, preview.width, preview.height, res);
       ctx.putImageData(img, 0, 0);
+      if (tmp.areas.length) {
+        // 国の塗り（陸の形で切り抜く）
+        const lay = document.createElement('canvas');
+        lay.width = preview.width;
+        lay.height = preview.height;
+        const lc = lay.getContext('2d');
+        lc.setTransform(res, 0, 0, res, 0, 0);
+        tmp.areas.forEach((ar) => {
+          lc.beginPath();
+          ar.points.forEach((pt, i) => (i ? lc.lineTo(pt[0], pt[1]) : lc.moveTo(pt[0], pt[1])));
+          lc.closePath();
+          lc.fillStyle = hexA(ar.color, 0.32);
+          lc.fill();
+        });
+        const mimg = lc.getImageData(0, 0, lay.width, lay.height);
+        for (let y = 0; y < lay.height; y++) {
+          for (let x = 0; x < lay.width; x++) {
+            if (E.sampleH(H, tmp.gw, tmp.gh, tmp.cell, x / res, y / res) <= 0) mimg.data[(y * lay.width + x) * 4 + 3] = 0;
+          }
+        }
+        lc.putImageData(mimg, 0, 0);
+        ctx.drawImage(lay, 0, 0);
+      }
       const pk = E.PALETTES[palette.value].assets;
       // 川（見本なので簡単に）
       const plt = E.PALETTES[palette.value];
@@ -182,11 +208,16 @@
           ctx.stroke();
           ctx.strokeStyle = `rgb(${plt.shallow.join(',')})`;
           ctx.lineWidth = (ln.kind === 'river' ? 2.2 : 1.4) * res;
+        } else if (ln.kind === 'border') {
+          ctx.strokeStyle = 'rgba(80,40,40,0.8)';
+          ctx.lineWidth = 0.8;
+          ctx.setLineDash([2.5, 2]);
         } else {
           ctx.strokeStyle = plt.road;
           ctx.lineWidth = Math.max(0.6, (ln.kind === 'highway' ? 2.4 : 1.4) * res);
         }
         ctx.stroke();
+        ctx.setLineDash([]);
       });
       tmp.stamps.forEach((st) => {
         const sp = AS.sprite(st.a, st.v, pk);
@@ -197,11 +228,13 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     };
     const redraw = UI.debounce(drawPreview, 150);
-    [preset, palette, land, seed, autoB, autoS, autoR, autoT].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+    [preset, palette, land, seed, autoB, autoS, autoR, autoT, autoC].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
     const syncTownLabel = () => {
       const pr = E.PRESETS[preset.value] || {};
       autoTLabel.textContent = pr.world ? '大陸と海に仮の名前を付ける（あとで変えられます）' : '町と道を置く（仮の地名つき。あとで名前を変えられます）';
       autoT.closest('label').hidden = !!pr.blank || !!regenerate;
+      autoC.closest('label').hidden = !!pr.blank || !!regenerate;
+      if (!autoCTouched) autoC.checked = !!pr.world; // 世界地図は国に分けて始める
     };
     preset.addEventListener('change', syncTownLabel);
     UI.modal({
@@ -216,7 +249,8 @@
           h('label', { class: 'check' }, autoB, '地面（森・砂漠・雪原など）を自動で塗る'),
           h('label', { class: 'check' }, autoS, '山・丘・森の素材を自動で置く'),
           h('label', { class: 'check' }, autoR, '川を自動で引く（山から海へ）'),
-          h('label', { class: 'check' }, autoT, autoTLabel)),
+          h('label', { class: 'check' }, autoT, autoTLabel),
+          h('label', { class: 'check' }, autoC, '国に分ける（国境・国名・首都。あとで作り直せます）')),
         h('div', { class: 'gen-preview-wrap' }, preview, h('p', { class: 'muted small' }, 'プレビュー'))),
       actions: [
         { label: 'キャンセル', ghost: true },
@@ -247,7 +281,7 @@
             renderInspector();
             return;
           }
-          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: autoT.checked, names: autoT.checked });
+          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: autoT.checked, names: autoT.checked, countries: autoC.checked });
           P().maps.push(m);
           NS.App.touch();
           NS.App.navigate('map', { id: m.id });
@@ -1391,6 +1425,37 @@
     box.appendChild(h('p', { class: 'small muted' }, '1日に進む距離：' + list.map((t) => t.label + speedOf(t).kmd + 'km').join('・')));
     return box;
   }
+  /** 面積（km²）。陸だけを塗る領域は陸の部分だけ。世界地図は緯度で面積が縮むのも考える */
+  function areaKm2(ar) {
+    const m = M.map;
+    if (!ar.points || ar.points.length < 3) return 0;
+    let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+    ar.points.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+    const gx0 = Math.max(0, Math.floor(x0 / m.cell));
+    const gy0 = Math.max(0, Math.floor(y0 / m.cell));
+    const gx1 = Math.min(m.gw - 1, Math.ceil(x1 / m.cell));
+    const gy1 = Math.min(m.gh - 1, Math.ceil(y1 / m.cell));
+    const span = (gx1 - gx0 + 1) * (gy1 - gy0 + 1);
+    const step = span > 40000 ? 3 : span > 10000 ? 2 : 1;
+    const kc = m.style.kmPerCell || 4;
+    const world = m.style.world || m.style.grid === 'latlon';
+    let sum = 0;
+    for (let gy = gy0; gy <= gy1; gy += step) {
+      const wy = (gy + 0.5) * m.cell;
+      const f = world ? Math.cos((0.5 - wy / M.Hpx) * Math.PI) : 1;
+      for (let gx = gx0; gx <= gx1; gx += step) {
+        const wx = (gx + 0.5) * m.cell;
+        if (ar.land && M.H[gy * m.gw + gx] <= 0) continue;
+        if (inPoly(wx, wy, ar.points)) sum += kc * kc * f * step * step;
+      }
+    }
+    return sum;
+  }
+  function fmtArea(km2) {
+    if (km2 >= 1e4) return (km2 >= 1e6 ? Math.round(km2 / 1e4) : Math.round(km2 / 1e3) / 10).toLocaleString('ja-JP') + '万 km²';
+    return Math.round(km2).toLocaleString('ja-JP') + ' km²';
+  }
+
   function measureToPath() {
     if (!M.measure || M.measure.pts.length < 2) return;
     if (layerLocked('paths')) { toast('道・川のレイヤーが隠れているか、ロックされています'); return; }
@@ -1462,6 +1527,10 @@
       o.id = k === 'stamp' ? E.sid() : UI.uid(k === 'label' ? 'lb' : k === 'path' ? 'ln' : 'ar');
       if (k === 'stamp' || k === 'label') { o.x += off; o.y += off; } else o.points = o.points.map((pt) => [pt[0] + off, pt[1] + off]);
       if (k === 'stamp') delete o.entryId;
+      // 複製は別の物として扱う（自動で作った国の一部でなくなる）
+      delete o.gen;
+      delete o.group;
+      delete o.nameLabel;
       M.map[listOf(k)].push(o);
       M.sel.push({ k, id: o.id });
     });
@@ -1569,7 +1638,12 @@
       }
     }
     if (!layerLocked('areas')) {
-      for (let i = m.areas.length - 1; i >= 0; i--) if (inPoly(x, y, m.areas[i].points)) return { k: 'area', id: m.areas[i].id };
+      const onLand = E.sampleH(M.H, m.gw, m.gh, m.cell, x, y) > 0;
+      for (let i = m.areas.length - 1; i >= 0; i--) {
+        const ar = m.areas[i];
+        if (ar.land && !onLand) continue; // 陸だけを塗る領域は、海をクリックしても選ばない
+        if (inPoly(x, y, ar.points)) return { k: 'area', id: ar.id };
+      }
     }
     return null;
   }
@@ -1797,7 +1871,11 @@
     }
     else { ctx.fillStyle = '#f4efe2'; ctx.fillRect(0, 0, M.W, M.Hpx); }
 
-    if (!layerHidden('areas')) m.areas.forEach((ar) => drawArea(ctx, ar));
+    if (!layerHidden('areas')) {
+      const landAreas = m.areas.filter((ar) => ar.land);
+      if (landAreas.length) drawLandAreas(ctx, landAreas, layerHidden('terrain') ? null : (opts.mask || M.mask));
+      m.areas.forEach((ar) => { if (!ar.land) drawArea(ctx, ar); });
+    }
     if (!layerHidden('paths')) {
       const order = ['river', 'stream', 'route', 'trail', 'road', 'highway', 'rail', 'wall', 'border'];
       const sorted = m.lines.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
@@ -1827,8 +1905,11 @@
     }
     if (st.grid && st.grid !== 'none' && !layerHidden('deco')) drawGrid(ctx, st, pl);
     if (!layerHidden('labels')) {
+      const shown = new Set();
       m.areas.forEach((ar) => {
         if (!ar.name || layerHidden('areas')) return;
+        if (ar.nameLabel != null && ar.nameLabel !== '') return; // 国名は「文字」として置いてある
+        if (ar.group) { if (shown.has(ar.group)) return; shown.add(ar.group); }
         const c = centroid(ar.points);
         drawText(ctx, ar.name, c[0], c[1], { size: 16, weight: 700, color: hexA(ar.color, 0.95), spacing: 0.4, halo: pl.halo, font: 'shippori' });
       });
@@ -1937,6 +2018,55 @@
   function inkOf(pl) { return pl.ink === '#f2ead8' ? '#1a1a1a' : pl.ink; }
 
   let riverLayer = null;
+  let areaLayer = null;
+  /** 陸だけを塗る領域（国など）：塗りと、内側の縁取りを、陸の形で切り抜いて描く */
+  function drawLandAreas(ctx, areas, mask) {
+    const paint = (c) => {
+      areas.forEach((ar) => {
+        if (ar.points.length < 3) return;
+        const pts = sampleSpline(ar.points, true, 3);
+        c.save();
+        c.beginPath();
+        c.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+        c.closePath();
+        const op = ar.opacity != null ? ar.opacity : 0.22;
+        c.fillStyle = hexA(ar.color, op);
+        c.fill();
+        // 国の形がわかるよう、境の内側をはっきりした色の帯で縁取る（地図帳の国の塗り分けのように）
+        c.clip();
+        c.lineJoin = 'round';
+        const bw = Math.max(4, M.map.cell * 2.2);
+        c.strokeStyle = hexA(ar.color, Math.min(0.6, op * 1.5));
+        c.lineWidth = bw * 2;
+        c.stroke();
+        c.strokeStyle = hexA(ar.color, Math.min(0.9, op * 2.4));
+        c.lineWidth = bw * 0.7;
+        c.stroke();
+        c.restore();
+      });
+    };
+    if (!mask) { paint(ctx); return; }
+    const cw = ctx.canvas.width;
+    const ch = ctx.canvas.height;
+    if (!areaLayer) areaLayer = document.createElement('canvas');
+    if (areaLayer.width !== cw || areaLayer.height !== ch) { areaLayer.width = cw; areaLayer.height = ch; }
+    const o = areaLayer.getContext('2d');
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.globalCompositeOperation = 'source-over';
+    o.clearRect(0, 0, cw, ch);
+    o.setTransform(ctx.getTransform());
+    paint(o);
+    o.globalCompositeOperation = 'destination-in';
+    o.imageSmoothingEnabled = true;
+    o.drawImage(mask, 0, 0, M.W, M.Hpx);
+    o.globalCompositeOperation = 'source-over';
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(areaLayer, 0, 0);
+    ctx.restore();
+  }
   /** 川をまとめて別の層に描き、陸地マスクで切り抜いてから重ねる */
   function drawRivers(ctx, rivers, pl, mask) {
     if (!mask) { rivers.forEach((ln) => drawPath(ctx, ln, pl)); return; }
@@ -2908,12 +3038,31 @@
       parts.push(h('p', { class: 'muted small' }, `頂点 ${obj.points.length}個。頂点をドラッグで動かし、選んで Delete で削除できます。`));
       parts.push(btn('向きを反転（川の上流・下流）', { small: true, onClick: () => { beginEdit(); obj.points.reverse(); changed(); } }));
     } else if (k === 'area') {
-      parts.push(UI.field('名前', h('input', { class: 'input', type: 'text', value: obj.name || '', dataset: { focus: '1' }, placeholder: '例：エルミナ王国', oninput: (e) => { beginEdit(); obj.name = e.target.value; changed(); } })));
-      parts.push(UI.field('色', h('div', { class: 'swatches' }, AREA_COLORS.map((c) => h('button', {
+      // 同じ国の飛び地（島など）と、地図に置いた国名もいっしょに変える
+      const mates = () => (obj.group ? M.map.areas.filter((a) => a.group === obj.group) : [obj]);
+      const linked = () => (obj.nameLabel ? M.map.labels.find((lb) => lb.id === obj.nameLabel) : null);
+      parts.push(UI.field('名前', h('input', { class: 'input', type: 'text', value: obj.name || '', dataset: { focus: '1' }, placeholder: '例：エルミナ王国', oninput: (e) => {
+        beginEdit();
+        mates().forEach((a) => { a.name = e.target.value; });
+        const lb = linked();
+        if (lb) lb.text = e.target.value;
+        changed();
+      } }), linked() ? '地図の国名（文字）も変わります' : null));
+      const swatchColors = AREA_COLORS.concat(E.COUNTRY_COLORS || []).filter((c, i, a) => a.indexOf(c) === i);
+      parts.push(UI.field('色', h('div', { class: 'swatches' }, swatchColors.map((c) => h('button', {
         type: 'button', class: 'swatch' + (obj.color === c ? ' active' : ''), style: { background: c }, 'aria-label': c,
-        onclick: () => { beginEdit(); obj.color = c; changed(true); },
+        onclick: () => { beginEdit(); mates().forEach((a) => { a.color = c; }); changed(true); },
       })))));
-      parts.push(UI.field('塗りの濃さ', range(obj.opacity != null ? obj.opacity : 0.22, 0, 0.8, 0.02, (v) => { beginEdit(); obj.opacity = v; changed(); }, (v) => Math.round(v * 100) + '%')));
+      parts.push(UI.field('塗りの濃さ', range(obj.opacity != null ? obj.opacity : 0.22, 0, 0.8, 0.02, (v) => { beginEdit(); mates().forEach((a) => { a.opacity = v; }); changed(); }, (v) => Math.round(v * 100) + '%')));
+      parts.push(h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: !!obj.land, onchange: (e) => { beginEdit(); mates().forEach((a) => { a.land = e.target.checked; }); changed(); } }),
+        '陸だけを塗る（海にはみ出さない）'));
+      const km2 = mates().reduce((a, ar) => a + areaKm2(ar), 0);
+      if (km2 > 0) {
+        const JP = 377975;
+        const ratio = km2 / JP;
+        const cmp = ratio >= 0.95 && ratio <= 1.05 ? '日本とほぼ同じ' : ratio > 1 ? `日本の約${ratio < 10 ? Math.round(ratio * 10) / 10 : Math.round(ratio)}倍` : `日本の約${Math.max(1, Math.round(ratio * 100))}%`;
+        parts.push(h('div', { class: 'measure-total' }, h('span', { class: 'muted small' }, '面積'), h('strong', null, '約' + fmtArea(km2)), h('span', { class: 'muted small' }, cmp)));
+      }
     }
     parts.push(actions);
     const title = { stamp: '素材', label: '文字', path: '線：' + ((PATH_KINDS[obj.kind] || {}).label || ''), area: '領域' }[k];
@@ -2962,6 +3111,94 @@
     });
   }
 
+  /** 国に分ける（自動で作った国は、作り直すと入れ替わる。自分で描いた領域・国境・文字はそのまま） */
+  function countriesDialog() {
+    const m = M.map;
+    const had = m.areas.some((a) => a.gen === 'country') || m.lines.some((l) => l.gen === 'country') || m.labels.some((l) => l.gen === 'country');
+    const count = h('select', { class: 'input' }, h('option', { value: 0 }, '自動（陸の広さに合わせる）'),
+      [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 20].map((n) => h('option', { value: n }, n + 'か国')));
+    let seed = (m.seed || 1) + (M.countrySeed || 0);
+    const names = h('input', { type: 'checkbox', checked: true });
+    const caps = h('input', { type: 'checkbox', checked: !m.stamps.some((s) => s.a === 'castle' && s.name) });
+    const preview = h('canvas', { class: 'gen-preview', width: 300, height: Math.round(300 * m.gh / m.gw), 'aria-label': 'プレビュー' });
+    let result = null;
+    const run = () => {
+      result = E.autoCountries(m, M.H, M.B, seed, { count: +count.value, names: names.checked, capitals: caps.checked });
+      // プレビュー：今の地図の上に国を塗る
+      const ctx = preview.getContext('2d');
+      const k = preview.width / M.W;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, preview.width, preview.height);
+      ctx.drawImage(M.base, 0, 0, preview.width, preview.height);
+      const lay = document.createElement('canvas');
+      lay.width = preview.width;
+      lay.height = preview.height;
+      const lc = lay.getContext('2d');
+      lc.setTransform(k, 0, 0, k, 0, 0);
+      result.areas.forEach((ar) => {
+        lc.beginPath();
+        ar.points.forEach((pt, i) => (i ? lc.lineTo(pt[0], pt[1]) : lc.moveTo(pt[0], pt[1])));
+        lc.closePath();
+        lc.fillStyle = hexA(ar.color, 0.45);
+        lc.fill();
+      });
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.globalCompositeOperation = 'destination-in';
+      lc.drawImage(M.mask, 0, 0, preview.width, preview.height);
+      ctx.drawImage(lay, 0, 0);
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      ctx.strokeStyle = 'rgba(60,30,30,0.85)';
+      ctx.lineWidth = 1 / k;
+      ctx.setLineDash([3 / k, 2 / k]);
+      result.borders.forEach((ln) => { ctx.beginPath(); ln.points.forEach((pt, i) => (i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1]))); ctx.stroke(); });
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#2b2118';
+      ctx.font = '600 9px "Noto Sans JP", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      result.labels.forEach((lb) => ctx.fillText(lb.text, lb.x * k, lb.y * k));
+      info.textContent = `${result.count}か国：` + result.labels.map((lb) => lb.text).join('・');
+    };
+    const info = h('p', { class: 'small muted' });
+    [count, names, caps].forEach((el) => el.addEventListener('change', run));
+    UI.modal({
+      title: '国に分ける', wide: true,
+      body: h('div', { class: 'gen-dialog' },
+        h('div', { class: 'stack' },
+          h('p', { class: 'small muted' }, '陸を、山の尾根や大きな川を境にしながら国に分け、色・国境・国名を付けます。国名は仮のカタカナで、あとで「選択」から変えられます。'),
+          UI.field('国の数', count),
+          h('label', { class: 'check' }, names, '国名を付ける'),
+          h('label', { class: 'check' }, caps, '首都の印を置く'),
+          btn('別の分け方', { icon: 'dice', small: true, onClick: () => { seed = Math.floor(Math.random() * 1e6); run(); } }),
+          had ? h('p', { class: 'small warn' }, '前に自動で作った国（塗り・国境・国名・首都）は、新しいものに入れ替わります。自分で描いた領域や文字はそのままです。') : null),
+        h('div', { class: 'gen-preview-wrap' }, preview, info)),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: had ? '入れ替える' : '国に分ける', primary: true, onClick: () => {
+          if (!result) return;
+          pushUndo();
+          m.areas = m.areas.filter((a) => a.gen !== 'country').concat(result.areas);
+          m.lines = m.lines.filter((l) => l.gen !== 'country').concat(result.borders);
+          m.labels = m.labels.filter((l) => l.gen !== 'country').concat(result.labels);
+          const caps2 = result.stamps;
+          if (caps2.length) {
+            const near = (st) => caps2.some((c) => Math.hypot(c.x - st.x, c.y - st.y) < 16) && AS.BY_ID[st.a] && ['山・丘', '木・植物'].includes(AS.BY_ID[st.a].cat) && !st.name;
+            m.stamps = m.stamps.filter((st) => st.gen !== 'country' && !near(st)).concat(caps2);
+          } else {
+            m.stamps = m.stamps.filter((st) => st.gen !== 'country');
+          }
+          sortStamps();
+          M.sel = [];
+          commit();
+          renderInspector();
+          draw();
+          toast(`${result.count}か国に分けました。国を選ぶと、名前・色・面積を確認できます`);
+        } },
+      ],
+    });
+    setTimeout(run, 20);
+  }
+
   function mapPane() {
     const p = P();
     const m = M.map;
@@ -2995,6 +3232,7 @@
       h('div', { class: 'row wrap' },
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),
+        btn('国に分ける', { icon: 'flag', small: true, title: '陸を、山や川を境にして国に分け、国境・国名・首都を付けます', onClick: countriesDialog }),
         btn('画像で書き出す', { icon: 'image', small: true, onClick: exportDialog })),
       h('div', { class: 'row wrap' },
         btn('地図を複製', { icon: 'copy', small: true, ghost: true, onClick: () => {
@@ -3013,7 +3251,7 @@
         } })),
       h('details', { class: 'hint-details' }, h('summary', { class: 'small' }, '操作のヒント'), h('ul', { class: 'hint-list small muted' },
         h('li', null, 'ホイール／ピンチで拡大縮小、スペース＋ドラッグ・2本指で移動'),
-        h('li', null, '道具のキー：V 選択・H 移動・B 陸・N 海・R 起伏・G 地面・S 素材・F 散布・X 消す・L 道川・A 領域・T 文字'),
+        h('li', null, '道具のキー：V 選択・H 移動・B 陸・N 海・R 起伏・G 地面・S 素材・F 散布・X 消す・L 道川・A 領域・T 文字・M 距離'),
         h('li', null, 'Q / E で回転、[ ] で大きさ、Ctrl+D で複製、Ctrl+Z で元に戻す'),
         h('li', null, '何もない所をドラッグで範囲選択、Shift+クリックで追加選択'))));
   }

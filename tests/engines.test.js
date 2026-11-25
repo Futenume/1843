@@ -445,3 +445,36 @@ test('町と道の自動配置：道は水の上を通らない／世界地図�
   assert.ok(w.labels.filter((l) => /大陸$/.test(l.text)).length >= 3);
   assert.ok(w.labels.some((l) => /(海|洋)$/.test(l.text)));
 });
+
+test('国に分ける：国の数・陸だけの塗り・国境・国名・作り直しの印', () => {
+  for (const [preset, size, seed] of [['world', 'w', 3], ['continent', 'm', 11], ['archipelago', 'm', 5]]) {
+    const m = MapEngine.newMap('t', { preset, size, seed, stamps: false });
+    const n = m.gw * m.gh;
+    const H = MapEngine.decodeHeights(m.height, n);
+    const B = MapEngine.decodeBiomes(m.biome, n);
+    const r = MapEngine.autoCountries(m, H, B, seed, { count: 5, capitals: true });
+    assert.equal(r.count, 5, preset + '：指定した数の国');
+    const groups = new Set(r.areas.map((a) => a.group));
+    assert.equal(groups.size, 5, preset + '：どの国にも塗りがある');
+    assert.ok(r.areas.every((a) => a.land && a.gen === 'country' && /^#[0-9a-f]{6}$/i.test(a.color) && a.points.length >= 3));
+    assert.equal(r.labels.length, 5);
+    assert.ok(r.labels.every((l) => /(王国|公国|帝国|共和国|連邦|首長国|皇国|連合|神聖国)$/.test(l.text) && l.x > 0 && l.x < m.gw * m.cell));
+    // 国名の文字（塗りと結びつく）
+    r.areas.forEach((a) => assert.ok(r.labels.some((l) => l.id === a.nameLabel)));
+    if (preset !== 'archipelago') assert.ok(r.borders.length >= (preset === 'world' ? 1 : 2) && r.borders.every((b) => b.kind === 'border' && b.points.length >= 2));
+    // 国境は陸の上だけ
+    r.borders.forEach((b) => b.points.forEach(([x, y]) => {
+      const gx = Math.min(m.gw - 1, Math.floor(x / m.cell));
+      const gy = Math.min(m.gh - 1, Math.floor(y / m.cell));
+      let land = false;
+      for (let dy = -1; dy <= 0; dy++) for (let dx = -1; dx <= 0; dx++) { const k = (gy + dy) * m.gw + gx + dx; if (k >= 0 && H[k] > 0) land = true; }
+      assert.ok(land, '国境の点が陸に接する');
+    }));
+  }
+  // 世界地図は最初から国に分けられる（大陸名は外し、海の名前は残す）
+  const w = MapEngine.newMap('世界', { preset: 'world', seed: 9, names: true, countries: true });
+  assert.ok(w.areas.length >= 6);
+  assert.ok(!w.labels.some((l) => /大陸$/.test(l.text)));
+  assert.ok(w.labels.some((l) => /(海|洋)$/.test(l.text)));
+  assert.ok(w.stamps.some((s) => s.a === 'sym-capital' && s.name));
+});
