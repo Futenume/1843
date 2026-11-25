@@ -110,6 +110,9 @@ function assert(cond, msg) {
   assert(await page.locator('.entry-item', { hasText: 'アレン・ウォーカー' }).count() === 1, '人物を追加できる');
   await page.locator('.lore-tab', { hasText: '年表' }).click();
   assert(await page.evaluate(() => document.querySelector('.tl-fields').getBoundingClientRect().width) > 200, '年表の入力欄が表示される');
+  await page.locator('.lore-tab', { hasText: '世界観' }).click();
+  assert(await page.locator('.ng-card').count() === 2, '世界観ルール：NGワードが1語ずつ表示される');
+  assert((await page.locator('.ng-card').nth(1).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');
 
   console.log('アイデア・プロット');
   await page.locator('.nav-item[data-route="ideas"]').click();

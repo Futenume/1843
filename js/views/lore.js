@@ -23,14 +23,14 @@
       { section: '基本' },
       { key: 'role', label: '役割', placeholder: '主人公／ヒロイン／師匠 など' },
       { key: 'gender', label: '性別' },
-      { key: 'age', label: '年齢', placeholder: '17 または 16〜17', hint: '本文の「〇歳」と照合します', check: true },
+      { key: 'age', label: '年齢', placeholder: '例：17（16〜17 のような幅も可）', hint: '本文の「〇歳」と照合します', check: true },
       { key: 'birthday', label: '誕生日' },
       { key: 'height', label: '身長' },
       { key: 'firstPerson', label: '一人称', placeholder: '俺 ／ 僕 など（複数は／で区切る）', hint: '台詞の一人称と照合します', check: true },
       { key: 'speech', label: '口調・口癖', type: 'textarea', placeholder: '語尾に「〜だぜ」、目上には敬語 など（AIチェックで参照します）' },
       { section: '外見' },
-      { key: 'hair', label: '髪', placeholder: '黒のショートヘア', hint: '髪色の描写と照合します', check: true },
-      { key: 'eyes', label: '瞳', placeholder: '琥珀色', hint: '瞳の色の描写と照合します', check: true },
+      { key: 'hair', label: '髪', placeholder: '例：黒のショートヘア', hint: '髪色の描写と照合します', check: true },
+      { key: 'eyes', label: '瞳', placeholder: '例：琥珀色', hint: '瞳の色の描写と照合します', check: true },
       { key: 'looks', label: '外見の特徴', type: 'textarea', placeholder: '体格、服装、傷跡など' },
       { section: '内面・背景' },
       { key: 'personality', label: '性格', type: 'textarea' },
@@ -549,18 +549,29 @@
 
     box.appendChild(h('h3', { class: 'form-section' }, '作中で使わない言葉（NGワード）', h('span', { class: 'check-note' }, '本文から自動検出')));
     box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。台詞の中は常にチェックし、地の文は「対象」と語り手の設定に従います。'));
-    const ngBox = h('div', { class: 'table-like' });
-    const renderNg = () => {
+    const ngBox = h('div', { class: 'ng-list' });
+    const SCOPES = [['auto', '台詞＋語り手しだい'], ['all', '台詞も地の文も'], ['dialogue', '台詞だけ']];
+    const mini = (label, input) => h('label', { class: 'mini-field' }, h('span', { class: 'mini-label' }, label), input);
+    // 中身のある行を消すときは確かめる（この画面には「元に戻す」がないため）
+    const confirmRemove = async (filled, what) => !filled || UI.confirm(`この${what}を削除します。`, { danger: true, okLabel: '削除' });
+    const renderNg = (focusLast) => {
       clear(ngBox);
-      ngBox.appendChild(h('div', { class: 'tl-head ng-row' }, h('span', null, '言葉'), h('span', null, '理由'), h('span', null, '言い換え'), h('span', null, '対象'), h('span')));
-      p.rules.ng.forEach((r, i) => ngBox.appendChild(h('div', { class: 'ng-row' },
-        textInput(r.word, (v) => { r.word = v; touch(); }, { placeholder: 'メートル' }),
-        textInput(r.reason, (v) => { r.reason = v; touch(); }, { placeholder: 'この世界の単位は「歩」' }),
-        textInput(r.suggestion, (v) => { r.suggestion = v; touch(); }, { placeholder: '歩' }),
-        h('select', { class: 'input', 'aria-label': 'チェックする範囲', title: 'チェックする範囲', onchange: (e) => { r.scope = e.target.value; touch(); } },
-          [['auto', '台詞＋語り手しだい'], ['all', '台詞も地の文も'], ['dialogue', '台詞だけ']].map(([v, l]) => h('option', { value: v, selected: (r.scope || 'auto') === v }, l))),
-        btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: () => { p.rules.ng.splice(i, 1); touch(); renderNg(); renderTabs(); } }))));
-      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '', scope: 'auto' }); touch(); renderNg(); renderTabs(); } }));
+      if (!p.rules.ng.length) ngBox.appendChild(h('p', { class: 'muted small' }, 'まだ登録がありません。'));
+      p.rules.ng.forEach((r, i) => {
+        const word = textInput(r.word, (v) => { r.word = v; touch(); }, { placeholder: '言葉', class: 'ng-word' });
+        ngBox.appendChild(h('div', { class: 'ng-card' },
+          mini('作中で使わない言葉', word),
+          mini('言い換え（なくても可）', textInput(r.suggestion, (v) => { r.suggestion = v; touch(); }, { placeholder: '言い換え' })),
+          mini('チェックする範囲', h('select', { class: 'input', onchange: (e) => { r.scope = e.target.value; touch(); } },
+            SCOPES.map(([v, l]) => h('option', { value: v, selected: (r.scope || 'auto') === v }, l)))),
+          h('div', { class: 'ng-del' }, btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
+            if (!(await confirmRemove(r.word || r.reason || r.suggestion, 'NGワード'))) return;
+            p.rules.ng.splice(i, 1); touch(); renderNg(); renderTabs();
+          } })),
+          h('div', { class: 'ng-reason' }, mini('理由・メモ（なくても可）', textInput(r.reason, (v) => { r.reason = v; touch(); }, { placeholder: '例：この世界の長さの単位は「歩」' })))));
+        if (focusLast && i === p.rules.ng.length - 1) word.focus();
+      });
+      ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '', scope: 'auto' }); touch(); renderNg(true); renderTabs(); } }));
     };
     renderNg();
     box.appendChild(ngBox);
@@ -568,14 +579,23 @@
     box.appendChild(h('h3', { class: 'form-section' }, '表記統一ルール', h('span', { class: 'check-note' }, '添削で検出')));
     box.appendChild(h('p', { class: 'muted small' }, '作品内で表記を揃えたい語を登録します。例：「出来る→できる」「魔方陣→魔法陣」。'));
     const stBox = h('div', { class: 'table-like' });
-    const renderSt = () => {
+    const renderSt = (focusLast) => {
       clear(stBox);
-      stBox.appendChild(h('div', { class: 'tl-head kv-row' }, h('span', null, '置き換え前'), h('span', null, '置き換え後'), h('span')));
-      p.rules.style.forEach((r, i) => stBox.appendChild(h('div', { class: 'kv-row' },
-        textInput(r.from, (v) => { r.from = v; touch(); }, { placeholder: '魔方陣' }),
-        textInput(r.to, (v) => { r.to = v; touch(); }, { placeholder: '魔法陣' }),
-        btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: () => { p.rules.style.splice(i, 1); touch(); renderSt(); renderTabs(); } }))));
-      stBox.appendChild(btn('ルールを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.style.push({ from: '', to: '' }); touch(); renderSt(); renderTabs(); } }));
+      if (!p.rules.style.length) stBox.appendChild(h('p', { class: 'muted small' }, 'まだ登録がありません。'));
+      else stBox.appendChild(h('div', { class: 'tl-head st-row' }, h('span', null, '置き換え前'), h('span'), h('span', null, '置き換え後'), h('span')));
+      p.rules.style.forEach((r, i) => {
+        const from = textInput(r.from, (v) => { r.from = v; touch(); }, { placeholder: '置き換え前' });
+        stBox.appendChild(h('div', { class: 'st-row' },
+          from,
+          h('span', { class: 'st-arrow', 'aria-hidden': 'true' }, '→'),
+          textInput(r.to, (v) => { r.to = v; touch(); }, { placeholder: '置き換え後' }),
+          btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
+            if (!(await confirmRemove(r.from || r.to, '表記統一ルール'))) return;
+            p.rules.style.splice(i, 1); touch(); renderSt(); renderTabs();
+          } })));
+        if (focusLast && i === p.rules.style.length - 1) from.focus();
+      });
+      stBox.appendChild(btn('ルールを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.style.push({ from: '', to: '' }); touch(); renderSt(true); renderTabs(); } }));
     };
     renderSt();
     box.appendChild(stBox);
