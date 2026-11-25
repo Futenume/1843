@@ -400,7 +400,7 @@
     });
     M.canvas.dataset.tool = id;
     if (id !== 'select') { M.sel = []; M.vertex = null; }
-    if (fromUser && window.innerWidth < 900 && !['select', 'pan', 'erase'].includes(id)) setSheet(true);
+    if (fromUser && window.innerWidth < 900 && !['select', 'pan', 'erase', 'measure'].includes(id)) setSheet(true);
     renderInspector();
     updateHint();
     draw();
@@ -2711,7 +2711,9 @@
     ctx.font = `${small ? 500 : 700} ${fs}px "Noto Sans JP", "Hiragino Sans", sans-serif`;
     const w = ctx.measureText(text).width;
     const pad = 5 / z;
-    const x = pt[0] + 9 / z;
+    // 画面の右端からはみ出すときは、点の左側に出す
+    const viewRight = (M.cw - M.ox) / z;
+    const x = pt[0] + 9 / z + w + pad * 2 > viewRight - 4 / z ? pt[0] - 9 / z - w - pad * 2 : pt[0] + 9 / z;
     const y = pt[1] - (small ? 8 : 14) / z;
     ctx.fillStyle = small ? 'rgba(255,255,255,0.88)' : '#c4382a';
     ctx.strokeStyle = 'rgba(0,0,0,0.25)';

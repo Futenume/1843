@@ -446,7 +446,7 @@
       view.appendChild(wrap);
       wrap.appendChild(h('section', { class: 'home-hero' },
         h('h1', null, '綴り', h('small', null, '小説執筆スタジオ')),
-        h('p', { class: 'muted' }, '原稿・添削・設定資料・設定矛盾チェック・キャラ相関図・アイデア帳（伏線・読み方）・プロット・空想地図・プレビュー・辞書・投稿サイト用の書き出しを、ひとつの作品ごとにまとめて管理できます。データはこの端末のブラウザ内に保存されます。'),
+        h('p', { class: 'muted' }, '原稿（縦書きでも）・添削・設定資料・設定矛盾チェック・キャラ相関図・アイデア帳（伏線・読み方）・プロット・空想地図（世界地図・国・距離と旅の日数）・プレビュー・辞書・投稿サイト用の書き出し・電子書籍（EPUB）・原稿用紙での印刷を、ひとつの作品ごとにまとめて管理できます。データはこの端末のブラウザ内に保存されます。'),
         h('div', { class: 'row wrap' },
           btn('新しい作品', { icon: 'plus', primary: true, onClick: async () => {
             const t = await UI.prompt('新しい作品', '', { placeholder: '作品名', okLabel: '作成' });

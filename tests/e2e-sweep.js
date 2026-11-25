@@ -47,9 +47,44 @@ const BAD = /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/;
     await page.keyboard.press('Escape');
     await page.evaluate(() => Tsuzuri.Dict.openModal('黄昏')); await page.waitForTimeout(400); await scan('dict-modal');
     await page.keyboard.press('Escape');
+    // 新しい画面：書き出し・取り込み・原稿用紙・版の比較・名前
+    const wide = async (where) => {
+      const over = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1 || [...document.querySelectorAll('.modal')].some((m) => m.scrollWidth > m.clientWidth + 1));
+      if (over) found.push(`${label}/${where}: 横にはみ出しています`);
+    };
+    for (const [name, fn] of [
+      ['epub', () => Tsuzuri.PublishDialog.openEpub({})],
+      ['genko', () => Tsuzuri.Manuscript.open()],
+      ['import', () => Tsuzuri.ImportDialog.open()],
+    ]) {
+      await page.evaluate(fn); await page.waitForTimeout(400); await scan(name); await wide(name);
+      await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+    }
+    // 縦書き・集中モード
+    await page.locator('button[title^="縦書きで書く"]').click(); await page.waitForTimeout(300); await scan('vertical'); await wide('vertical');
+    await page.locator('button[title^="縦書きで書く"]').click(); await page.waitForTimeout(200);
+    await page.locator('button[title^="集中モード（本文"]').click(); await page.waitForTimeout(300); await scan('focus'); await wide('focus');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+    // 版の保存と比較
+    await page.evaluate(() => { const c = Tsuzuri.App.project.chapters[0]; c.snapshots.unshift({ at: Date.now() - 1000, body: c.body.slice(0, 100), label: '古い版', chars: 50 }); });
+    await page.locator('button[title="版の保存と履歴"]').click(); await page.waitForTimeout(200);
+    await page.getByRole('button', { name: '今と比べる' }).first().click(); await page.waitForTimeout(300); await scan('diff'); await wide('diff');
+    await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.waitForTimeout(150);
     for (const r of ['lore', 'ideas', 'plot', 'map']) {
       await page.evaluate((x) => Tsuzuri.App.navigate(x), r); await page.waitForTimeout(r === 'map' ? 1500 : 300); await scan(r);
     }
+    // 地図：距離を測る・国に分ける
+    await page.evaluate(() => { document.querySelector('.map-tool[data-tool="measure"]').click(); });
+    await page.waitForTimeout(200);
+    const cv = await page.locator('.map-canvas').boundingBox();
+    for (const [fx, fy] of [[0.35, 0.45], [0.55, 0.5], [0.6, 0.6]]) { await page.mouse.click(cv.x + cv.width * fx, cv.y + cv.height * fy); await page.waitForTimeout(100); }
+    await page.keyboard.press('Enter'); await page.waitForTimeout(200); await scan('map-measure'); await wide('map-measure');
+    await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === '国に分ける'); if (b) b.click(); });
+    await page.waitForTimeout(600); await scan('map-countries'); await wide('map-countries');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+    await page.evaluate(() => Tsuzuri.App.navigate('lore')); await page.waitForTimeout(300);
+    await page.getByRole('button', { name: '名前を考える' }).first().click(); await page.waitForTimeout(300); await scan('names'); await wide('names');
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
     // 設定資料：各タブと人物
     await page.evaluate(() => Tsuzuri.App.navigate('lore'));
     await page.waitForTimeout(300);
