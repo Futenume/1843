@@ -13,7 +13,7 @@
   const V = {};
   let S = null; // 画面の状態
   // 話を切り替えても保つ表示設定
-  const PREF = Object.assign({ panelTab: 'proof', hideChapters: null, hidePanel: null }, UI.lsGet('tsuzuri.editorPref', {}));
+  const PREF = Object.assign({ panelTab: 'proof', hideChapters: null, hidePanel: null, vertical: false, typewriter: true }, UI.lsGet('tsuzuri.editorPref', {}));
   const savePref = () => UI.lsSet('tsuzuri.editorPref', PREF);
   // この画面を開いている間の、話ごとのスクロール位置とカーソル
   const VIEWPOS = new Map();
@@ -51,7 +51,7 @@
     if (pos) {
       requestAnimationFrame(() => {
         if (!S || S.ch.id !== ch.id) return;
-        S.scroll.scrollTop = pos.scroll;
+        if (S.vertical) S.scroll.scrollLeft = pos.scrollX || 0; else S.scroll.scrollTop = pos.scroll;
         try { S.textarea.setSelectionRange(pos.caret, pos.caret); } catch (e) { /* 無視 */ }
       });
     }
@@ -60,8 +60,9 @@
   V.unmount = function () {
     if (!S) return;
     stopSpeak(true);
-    VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, caret: S.textarea.selectionStart });
+    VIEWPOS.set(S.ch.id, { scroll: S.scroll.scrollTop, scrollX: S.scroll.scrollLeft, caret: S.textarea.selectionStart });
     autoSnapshot();
+    setFocusMode(false);
     if (S.analysisTimer) clearTimeout(S.analysisTimer);
     if (S.onKey) document.removeEventListener('keydown', S.onKey);
     if (S.ro) S.ro.disconnect();
@@ -114,6 +115,8 @@
         btn('', { icon: 'dict', ghost: true, title: '辞書で調べる（選んだ語）', onClick: () => openDict() }),
         btn('', { icon: 'volume', ghost: true, title: '読み上げ（カーソルの位置から。耳で読み返す）', onClick: () => toggleSpeak() }),
         btn('', { icon: 'history', ghost: true, title: '版の保存と履歴', onClick: openHistory }),
+        S.vBtn = btn('', { icon: 'vertical', ghost: true, title: '縦書きで書く（もう一度押すと横書き）', onClick: () => setVertical(!S.vertical) }),
+        btn('', { icon: 'eye', ghost: true, title: '集中モード（本文だけを大きく表示。Esc で戻る）', onClick: () => setFocusMode(true) }),
         btn('', { icon: 'panel', ghost: true, title: '添削パネルを表示/隠す', onClick: () => togglePanel() })));
 
     S.findBar = h('div', { class: 'findbar', hidden: true });
@@ -129,7 +132,8 @@
     S.status = h('div', { class: 'editor-status' });
 
     S.speakBar = h('div', { class: 'speak-bar', hidden: true, role: 'region', 'aria-label': '読み上げ' });
-    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.speakBar, S.issueBar, S.status);
+    S.focusBar = h('div', { class: 'focus-bar', hidden: true });
+    const main = h('section', { class: 'editor-main' }, toolbar, S.findBar, S.scroll, S.speakBar, S.issueBar, S.status, S.focusBar);
 
     // パネル
     S.panelTabs = h('div', { class: 'tabs panel-tabs', role: 'tablist' });
@@ -160,16 +164,235 @@
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); App().saveNow().then(() => toast('保存しました')); }
       else if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }
       else if (e.key === 'Escape' && S.find.open && document.activeElement && S.findBar.contains(document.activeElement)) closeFind();
+      else if (e.key === 'Escape' && document.documentElement.classList.contains('focus-writing') && !document.querySelector('.modal-overlay')) setFocusMode(false);
     };
     document.addEventListener('keydown', S.onKey);
     S.ro = new ResizeObserver(() => fitTextarea());
     S.ro.observe(S.sheet);
 
+    S.textarea.addEventListener('input', typewriter);
+    S.textarea.addEventListener('keyup', (e) => { if (/Arrow|Enter|Page/.test(e.key)) typewriter(); });
+
     renderChapterList();
     renderBackdrop();
     renderStatus();
     renderPanel();
+    setVertical(supportsVertical() && !!PREF.vertical, true);
     fitTextarea();
+  }
+
+  // ───── 縦書きで書く ─────
+  let verticalOK = null;
+  /** テキストエリアを縦書きにできるブラウザか（古いブラウザでは、下線の位置がずれるので使わない） */
+  function supportsVertical() {
+    if (verticalOK != null) return verticalOK;
+    try {
+      const t = document.createElement('textarea');
+      t.cols = 20;
+      t.rows = 2;
+      t.style.cssText = 'writing-mode:vertical-rl;position:absolute;visibility:hidden;left:-9999px;top:0';
+      document.body.appendChild(t);
+      verticalOK = getComputedStyle(t).writingMode === 'vertical-rl' && t.offsetHeight > t.offsetWidth;
+      t.remove();
+    } catch (e) { verticalOK = false; }
+    return verticalOK;
+  }
+  function setVertical(on, quiet) {
+    if (on && !supportsVertical()) { toast('このブラウザでは縦書きで書けません。プレビューで縦書きを確かめてください', 'error'); on = false; }
+    const caret = S.textarea.selectionStart;
+    S.vertical = !!on;
+    S.scroll.classList.toggle('vertical', S.vertical);
+    S.layout.classList.toggle('writing-vertical', S.vertical);
+    if (S.vBtn) { S.vBtn.setAttribute('aria-pressed', S.vertical ? 'true' : 'false'); S.vBtn.classList.toggle('active', S.vertical); }
+    S.textarea.style.width = '';
+    S.textarea.style.height = '';
+    if (!quiet) { PREF.vertical = S.vertical; savePref(); }
+    fitTextarea();
+    if (!quiet) {
+      S.textarea.focus({ preventScroll: true });
+      try { S.textarea.setSelectionRange(caret, caret); } catch (e) { /* 無視 */ }
+      requestAnimationFrame(() => scrollToPos(caret));
+    }
+  }
+
+  /** 本文の位置（文字の番号）の画面上の四角。下線用の写しの文字から測る（写しを作り直さない） */
+  function caretRect(pos) {
+    const walker = document.createTreeWalker(S.backdrop, NodeFilter.SHOW_TEXT);
+    let acc = 0;
+    let node;
+    let last = null;
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue.length;
+      if (pos <= acc + len) {
+        const r = document.createRange();
+        const off = pos - acc;
+        if (off < len) { r.setStart(node, off); r.setEnd(node, off + 1); } else { r.setStart(node, Math.max(0, off - 1)); r.setEnd(node, off); }
+        const rects = r.getClientRects();
+        return rects.length ? rects[rects.length - 1] : r.getBoundingClientRect();
+      }
+      acc += len;
+      last = node;
+    }
+    return last ? last.parentNode.getBoundingClientRect() : null;
+  }
+  /** その位置が見えるようにスクロールする（横書きは上から1/3、縦書きは右から1/3の所へ） */
+  function scrollToPos(pos, frac) {
+    const r = caretRect(pos);
+    if (!r) return;
+    const box = S.scroll.getBoundingClientRect();
+    if (S.vertical) S.scroll.scrollLeft += r.right - (box.right - box.width * (frac != null ? frac : 1 / 3));
+    else S.scroll.scrollTop += r.top - (box.top + box.height * (frac != null ? frac : 1 / 3));
+  }
+
+  // ───── 執筆スプリント（時間を決めて書く）─────
+  // 画面を移っても続く（作品をまたいでは続けない）
+  const SPRINT = { end: 0, start: 0, startChars: 0, mins: 0, goal: 0, timer: 0, projectId: '' };
+  function writtenChars() {
+    const p = P();
+    if (!p) return 0;
+    let n = 0;
+    p.chapters.forEach((c) => { n += countOf(c, S && c.id === S.ch.id && S.textarea ? S.textarea.value : c.body); });
+    return n;
+  }
+  function sprintChip() {
+    const slot = h('span', { class: 'sprint-slot' });
+    fillSprintSlot(slot);
+    return slot;
+  }
+  function fillSprintSlot(slot) {
+    clear(slot);
+    if (!SPRINT.end) {
+      const b = btn('スプリント', { small: true, ghost: true, icon: 'clock', title: '時間を決めて集中して書く（執筆スプリント）' });
+      b.addEventListener('click', () => sprintMenu(b));
+      slot.appendChild(b);
+      return;
+    }
+    const left = Math.max(0, SPRINT.end - Date.now());
+    const mm = Math.floor(left / 60000);
+    const ss = Math.floor(left / 1000) % 60;
+    const done = writtenChars() - SPRINT.startChars;
+    const pct = SPRINT.goal ? Math.max(0, Math.min(100, Math.round(done / SPRINT.goal * 100))) : 0;
+    slot.appendChild(h('button', { type: 'button', class: 'sprint-chip', title: 'スプリント中（クリックで終える）', onclick: () => endSprint(true) },
+      icon('clock', 14), h('strong', null, `${mm}:${String(ss).padStart(2, '0')}`),
+      h('span', null, `${done >= 0 ? '+' : ''}${UI.fmtNum(done)}字${SPRINT.goal ? ' / ' + UI.fmtNum(SPRINT.goal) : ''}`),
+      SPRINT.goal ? h('span', { class: 'meter' }, h('span', { style: { width: pct + '%' } })) : null));
+  }
+  function tickSprint() {
+    document.querySelectorAll('.sprint-slot').forEach(fillSprintSlot);
+    if (SPRINT.end && Date.now() >= SPRINT.end) endSprint(false);
+  }
+  function sprintMenu(anchor) {
+    let goal = UI.lsGet('tsuzuri.sprintGoal', 0) || 0;
+    const goalIn = h('input', { class: 'input input-num', type: 'number', min: 0, step: 100, value: goal || '', placeholder: 'なし', 'aria-label': '目標の文字数',
+      oninput: (e) => { goal = Math.max(0, Math.round(+e.target.value || 0)); UI.lsSet('tsuzuri.sprintGoal', goal); } });
+    const start = (mins) => {
+      document.querySelectorAll('.popover').forEach((m) => m.remove());
+      Object.assign(SPRINT, { start: Date.now(), end: Date.now() + mins * 60000, mins, goal, startChars: writtenChars(), projectId: P().id });
+      clearInterval(SPRINT.timer);
+      SPRINT.timer = setInterval(tickSprint, 1000);
+      tickSprint();
+      toast(`${mins}分のスプリントを始めました。時間になったら知らせます`);
+      if (S) S.textarea.focus({ preventScroll: true });
+    };
+    const best = bestSprint();
+    UI.popover(anchor, h('div', { class: 'sprint-menu' },
+      h('div', { class: 'small muted' }, '時間を決めて、その間は書くことだけに集中します'),
+      h('div', { class: 'chips' }, [10, 15, 25, 45, 60].map((m) => h('button', { type: 'button', class: 'chip', onclick: () => start(m) }, m + '分'))),
+      h('label', { class: 'row small' }, '目標（なくても可）', goalIn, '字'),
+      best ? h('div', { class: 'small muted' }, `これまでの最高：1時間あたり ${UI.fmtNum(best.rate)}字（${best.mins}分で${UI.fmtNum(best.chars)}字）`) : null));
+  }
+  function bestSprint() {
+    const list = UI.lsGet('tsuzuri.sprints', []) || [];
+    let best = null;
+    list.forEach((x) => { const rate = Math.round(x.chars / Math.max(1, x.mins) * 60); if (x.chars > 0 && (!best || rate > best.rate)) best = Object.assign({ rate }, x); });
+    return best;
+  }
+  function chime() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ac = new AC();
+      [0, 0.18].forEach((t, i) => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = 'sine';
+        o.frequency.value = i ? 1046 : 784;
+        g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.12, ac.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.9);
+        o.connect(g).connect(ac.destination);
+        o.start(ac.currentTime + t);
+        o.stop(ac.currentTime + t + 1);
+      });
+      setTimeout(() => ac.close(), 1600);
+    } catch (e) { /* 音が出せなくても続ける */ }
+  }
+  function endSprint(early) {
+    if (!SPRINT.end) return;
+    const p = P();
+    const samePj = p && p.id === SPRINT.projectId;
+    const chars = samePj ? writtenChars() - SPRINT.startChars : 0;
+    const mins = early ? Math.max(1, Math.round((Date.now() - SPRINT.start) / 60000)) : SPRINT.mins;
+    const goal = SPRINT.goal;
+    clearInterval(SPRINT.timer);
+    Object.assign(SPRINT, { end: 0, timer: 0 });
+    tickSprint();
+    if (early && mins < 2 && chars <= 0) { toast('スプリントをやめました'); return; }
+    const prevBest = bestSprint();
+    const list = (UI.lsGet('tsuzuri.sprints', []) || []).concat([{ at: Date.now(), mins, chars }]).slice(-50);
+    UI.lsSet('tsuzuri.sprints', list);
+    const rate = Math.round(chars / Math.max(1, mins) * 60);
+    if (!early) chime();
+    const lines = [h('p', { class: 'sprint-result' }, h('strong', null, UI.fmtNum(Math.max(0, chars))), '字', h('span', { class: 'muted' }, `（${mins}分・1時間あたり ${UI.fmtNum(Math.max(0, rate))}字）`))];
+    if (goal) lines.push(h('p', null, chars >= goal ? `目標の ${UI.fmtNum(goal)}字 を達成しました。` : `目標の ${UI.fmtNum(goal)}字 まで、あと ${UI.fmtNum(goal - chars)}字でした。`));
+    if (prevBest && rate > prevBest.rate && chars > 0) lines.push(h('p', null, 'これまでで一番の速さです。'));
+    UI.modal({ title: early ? 'スプリントを終えました' : 'スプリント終了', body: h('div', null, lines), actions: [{ label: '閉じる', primary: true }] });
+  }
+
+  // ───── 集中モード ─────
+  function setFocusMode(on) {
+    const root = document.documentElement;
+    if (!on) {
+      if (!root.classList.contains('focus-writing')) return;
+      root.classList.remove('focus-writing');
+      if (S && S.focusBar) S.focusBar.hidden = true;
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      if (S) requestAnimationFrame(fitTextarea);
+      return;
+    }
+    root.classList.add('focus-writing');
+    S.focusStart = T.stats(S.textarea.value).charsNoSpace;
+    renderFocusBar();
+    S.focusBar.hidden = false;
+    try { if (document.documentElement.requestFullscreen && window.innerWidth >= 900) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) { /* 全画面にできなくても続ける */ }
+    requestAnimationFrame(() => { fitTextarea(); S.textarea.focus({ preventScroll: true }); typewriter(true); });
+  }
+  function renderFocusBar() {
+    if (!S || !S.focusBar) return;
+    const now = T.stats(S.textarea.value).charsNoSpace;
+    const diff = now - (S.focusStart || 0);
+    clear(S.focusBar);
+    S.focusBar.append(
+      h('span', { class: 'focus-count' }, h('strong', null, UI.fmtNum(now)), '字', diff ? h('span', { class: 'muted' }, `（${diff > 0 ? '+' : ''}${UI.fmtNum(diff)}）`) : null),
+      sprintChip(),
+      h('label', { class: 'check small', title: '書いている行を、いつも画面の同じ高さに保ちます' },
+        h('input', { type: 'checkbox', checked: !!PREF.typewriter, onchange: (e) => { PREF.typewriter = e.target.checked; savePref(); typewriter(true); } }), 'タイプライター'),
+      btn('戻る', { small: true, ghost: true, title: '集中モードを終える（Esc）', onClick: () => setFocusMode(false) }));
+  }
+  /** タイプライター：書いている行を画面の真ん中あたりに保つ（集中モードのとき） */
+  function typewriter(force) {
+    if (!S || !document.documentElement.classList.contains('focus-writing')) return;
+    if (S.twRaf) cancelAnimationFrame(S.twRaf);
+    S.twRaf = requestAnimationFrame(() => {
+      S.twRaf = 0;
+      if (!S) return;
+      renderFocusBar();
+      if (!PREF.typewriter && force !== true) return;
+      if (!PREF.typewriter) return;
+      // 写し（下線用）が新しい本文に追いつくのを待たずに、カーソル位置を測る
+      if (S.backdrop.textContent.length < S.textarea.value.length) renderBackdrop();
+      scrollToPos(S.textarea.selectionStart, S.vertical ? 0.5 : 0.45);
+    });
   }
 
   function tbtn(label, title, fn) {
@@ -194,6 +417,14 @@
   // テキストエリアの高さを本文に合わせる（スクロールは外側の .editor-scroll が担当）
   function fitTextarea() {
     if (!S) return;
+    if (S.vertical) {
+      // 縦書き：高さは画面に合わせ、行が増えると左へ伸びる
+      S.textarea.style.height = '';
+      S.textarea.style.width = S.backdrop.offsetWidth + 'px';
+      if (S.textarea.scrollWidth > S.textarea.clientWidth + 2) S.textarea.style.width = S.textarea.scrollWidth + 'px';
+      return;
+    }
+    S.textarea.style.width = '';
     S.textarea.style.height = S.backdrop.offsetHeight + 'px';
     if (S.textarea.scrollHeight > S.textarea.clientHeight + 2) S.textarea.style.height = S.textarea.scrollHeight + 'px';
   }
@@ -362,7 +593,8 @@
     if (mk) {
       const r = mk.getBoundingClientRect();
       const box = S.scroll.getBoundingClientRect();
-      if (r.top < box.top + 40 || r.bottom > box.bottom - 40) S.scroll.scrollTop += r.top - box.top - box.height / 3;
+      if (S.vertical) { if (r.left < box.left + 40 || r.right > box.right - 40) S.scroll.scrollLeft += r.right - (box.right - box.width / 3); }
+      else if (r.top < box.top + 40 || r.bottom > box.bottom - 40) S.scroll.scrollTop += r.top - box.top - box.height / 3;
     }
     const say = speakableText(S.textarea.value.slice(s.start, s.end));
     if (!/[^\s　…・「」『』（）()、。！？!?]/.test(say)) { sp.i++; speakNext(); return; }
@@ -571,9 +803,11 @@
     S.backdrop.textContent = text.slice(0, start);
     probe.textContent = text.slice(start, end) || '​';
     S.backdrop.appendChild(probe);
-    const top = probe.getBoundingClientRect().top - S.scroll.getBoundingClientRect().top + S.scroll.scrollTop;
+    const pr = probe.getBoundingClientRect();
+    const box = S.scroll.getBoundingClientRect();
     renderBackdrop();
-    S.scroll.scrollTop = Math.max(0, top - S.scroll.clientHeight / 3);
+    if (S.vertical) S.scroll.scrollLeft += pr.right - (box.right - box.width / 3);
+    else S.scroll.scrollTop += pr.top - (box.top + box.height / 3);
   }
 
   function replaceRange(start, end, str) {
@@ -861,6 +1095,7 @@
         '今日 ', h('strong', null, (today >= 0 ? '+' : '') + UI.fmtNum(today)), goal ? ' / ' + UI.fmtNum(goal) : '',
         goal ? h('span', { class: 'meter' }, h('span', { style: { width: pct + '%' } })) : null),
       S.selHint = h('span', { class: 'status-sel' }),
+      sprintChip(),
       h('span', { class: 'status-issues' }, issueSummary()));
     updateSelHint();
   }
