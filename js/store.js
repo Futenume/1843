@@ -164,6 +164,35 @@
       .map((r) => ({ word: str(r.word), reason: str(r.reason), suggestion: str(r.suggestion), scope: ['auto', 'all', 'dialogue'].includes(r.scope) ? r.scope : 'auto' }));
     p.rules.style = arr(p.rules.style).filter((r) => r && typeof r === 'object').map((r) => ({ from: str(r.from), to: str(r.to) }));
     p.rules.world = str(p.rules.world);
+    // 世界観ルール：通貨・単位・暦と時刻・文明の水準・設定メモ
+    const num = (v) => (Number.isFinite(+v) && +v > 0 ? +v : 0);
+    const cur = obj(p.rules.currency);
+    p.rules.currency = {
+      units: arr(cur.units).filter((u) => u && typeof u === 'object').slice(0, 20).map((u) => ({ name: str(u.name), value: num(u.value) })),
+      yen: num(cur.yen),
+      prices: arr(cur.prices).filter((x) => x && typeof x === 'object').slice(0, 100).map((x) => ({ item: str(x.item), price: str(x.price) })),
+      note: str(cur.note),
+    };
+    const un = obj(p.rules.units);
+    p.rules.units = {
+      list: arr(un.list).filter((u) => u && typeof u === 'object').slice(0, 30)
+        .map((u) => ({ kind: ['length', 'weight', 'volume'].includes(u.kind) ? u.kind : 'length', name: str(u.name), amount: num(u.amount) })),
+      note: str(un.note),
+    };
+    const cl = obj(p.rules.calendar);
+    p.rules.calendar = {
+      era: str(cl.era), yearNote: str(cl.yearNote),
+      months: arr(cl.months).slice(0, 24).map((x) => str(x)), weekdays: arr(cl.weekdays).slice(0, 14).map((x) => str(x)),
+      noWeek: cl.noWeek === true, noClock: cl.noClock === true, timeNote: str(cl.timeNote),
+    };
+    const tc = obj(p.rules.tech);
+    p.rules.tech = {
+      preset: str(tc.preset), cats: arr(tc.cats).map((x) => str(x)).filter((x) => /^[a-z]{2,20}$/.test(x)),
+      loanwords: tc.loanwords === true, allow: str(tc.allow), extra: str(tc.extra),
+    };
+    const bb = obj(p.rules.bible);
+    p.rules.bible = {};
+    Object.keys(bb).forEach((k) => { if (/^[a-z]{2,20}$/.test(k)) p.rules.bible[k] = str(bb[k]); });
     p.rules.narrator = ['auto', 'first', 'third', 'omniscient'].includes(p.rules.narrator) ? p.rules.narrator : 'auto';
     p.timeline = arr(p.timeline).filter((t) => t && typeof t === 'object');
     p.timeline.forEach((t) => { t.when = str(t.when); t.title = str(t.title); t.desc = str(t.desc); });

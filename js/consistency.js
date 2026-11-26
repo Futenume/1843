@@ -10,6 +10,8 @@
   const RULES = [
     { id: 'ng-word', name: '世界観NGワード', severity: 'warning', default: true, fix: true,
       desc: '設定資料の「世界観ルール」に登録した、作中に存在しない言葉を検出します。台詞は常に、地の文は語り手（一人称・三人称・神視点）に合わせてチェックします。' },
+    { id: 'world', name: '世界観ルール（通貨・単位・暦・文明）', severity: 'warning', default: true, fix: true,
+      desc: '設定資料の「世界観ルール」で決めた通貨・単位・暦・文明の水準に合わない言葉（メートル・〇円・月曜日・電話など）を検出し、この世界の言い方に換算した言い換えを提案します。' },
     { id: 'name-variant', name: '固有名詞の表記ゆれ', severity: 'error', default: true, fix: true,
       desc: '「斎藤／斉藤」「ヴァイス／バイス」など、登録名と表記が違う固有名詞を検出します。' },
     { id: 'first-person', name: '一人称の食い違い', severity: 'warning', default: true,
@@ -421,7 +423,19 @@
     const detected = narrSetting === 'auto' ? detectNarrator(text, a) : null;
     const narrator = { setting: narrSetting, effective: detected ? detected.kind : narrSetting, detected };
 
-    // 世界観NGワード（台詞は常に。地の文は語り手しだい）
+    // 台詞は常に。地の文は「範囲」と語り手しだい（NGワードと世界観ルールで共通）
+    const levelAt = (pos, scope) => {
+      const inDlg = !!a.inDialogue[pos];
+      if (inDlg) return { severity: 'warning', note: '（台詞）', inDlg };
+      if (scope === 'all') return { severity: 'warning', note: '（地の文）', inDlg };
+      if (scope === 'dialogue') return null;
+      if (narrator.effective === 'first') return { severity: 'warning', note: detected ? `（一人称「${detected.pronoun}」の語りの地の文）` : '（一人称の語りの地の文）', inDlg };
+      if (narrator.effective === 'third') return { severity: 'info', note: '（三人称の地の文。視点人物に寄り添う語りなら言い換えを。作品の外から語る神視点なら、語り手を「神視点」にするとこの指摘は出ません）', inDlg };
+      return null;
+    };
+
+    // 世界観NGワード
+    const ngRanges = [];
     if (enabled('ng-word')) {
       ((ctx.rules && ctx.rules.ng) || []).forEach((r) => {
         if (!r || !r.word) return;
@@ -430,22 +444,22 @@
         const base = `世界観NGワード「${r.word}」${r.reason ? '：' + r.reason : ''}${r.suggestion ? `（言い換え例：「${r.suggestion}」）` : ''}`;
         let mm;
         while ((mm = re.exec(m)) !== null) {
-          const inDlg = !!a.inDialogue[mm.index];
-          let severity = null;
-          let note = '';
-          if (inDlg) { severity = 'warning'; note = '（台詞）'; }
-          else if (scope === 'all') { severity = 'warning'; note = '（地の文）'; }
-          else if (scope === 'dialogue') severity = null;
-          else if (narrator.effective === 'first') {
-            severity = 'warning';
-            note = detected ? `（一人称「${detected.pronoun}」の語りの地の文）` : '（一人称の語りの地の文）';
-          } else if (narrator.effective === 'third') {
-            severity = 'info';
-            note = '（三人称の地の文。視点人物に寄り添う語りなら言い換えを。作品の外から語る神視点なら、語り手を「神視点」にするとこの指摘は出ません）';
-          }
-          if (!severity) continue;
-          add('ng-word', mm.index, mm.index + mm[0].length, base + note, r.suggestion || null, { severity, inDialogue: inDlg });
+          const lv = levelAt(mm.index, scope);
+          if (!lv) continue;
+          ngRanges.push([mm.index, mm.index + mm[0].length]);
+          add('ng-word', mm.index, mm.index + mm[0].length, base + lv.note, r.suggestion || null, { severity: lv.severity, inDialogue: lv.inDlg });
         }
+      });
+    }
+
+    // 世界観ルール（通貨・単位・暦と時刻・文明の水準・外来語）
+    if (enabled('world') && NS.WorldRules && ctx.rules && NS.WorldRules.active(ctx.rules)) {
+      NS.WorldRules.scan(m, ctx.rules, { names: index.list }).forEach((f) => {
+        if (ngRanges.some(([s0, e0]) => f.start < e0 && f.end > s0)) return; // NGワードと同じ所は1つにまとめる
+        const lv = levelAt(f.start, f.scope);
+        if (!lv) return;
+        const severity = f.severity === 'info' || lv.severity === 'info' ? 'info' : 'warning';
+        add('world', f.start, f.end, f.message + (f.scope === 'all' && !lv.inDlg ? '' : lv.note), f.suggestion, { severity, inDialogue: lv.inDlg, worldKind: f.kind });
       });
     }
 

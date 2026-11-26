@@ -614,3 +614,52 @@ test('時間がかかりすぎない：とても長い漢字の並び・閉じ�
   // ふつうのルビ・傍点はこれまでどおり
   assert.equal(Text.rubyToHtml('東京《とうきょう》と《《強調》》'), '<ruby>東京<rt>とうきょう</rt></ruby>と<em class="boten">強調</em>');
 });
+
+test('世界観ルール：単位・お金・暦・時計・文明・外来語を、この世界の言い方に換算して指摘する', () => {
+  require('../js/worldrules.js');
+  const { WorldRules: W } = globalThis.Tsuzuri;
+  assert.equal(W.parseNum('二百五十'), 250);
+  assert.equal(W.parseNum('一万二千'), 12000);
+  assert.equal(W.parseNum('２５０'), 250);
+  assert.equal(W.kanji(12030), '一万二千三十');
+  const rules = {
+    units: { list: [{ kind: 'length', name: '歩', amount: 0.75 }, { kind: 'length', name: '里', amount: 4000 }, { kind: 'weight', name: '斤', amount: 600 }] },
+    currency: { units: [{ name: '金貨', value: 10000 }, { name: '銀貨', value: 100 }, { name: '銅貨', value: 1 }], yen: 100 },
+    calendar: { era: '王国暦', weekdays: ['光の日', '風の日', '火の日', '水の日', '木の日', '金の日', '土の日'], months: Array.from({ length: 12 }, (_, i) => (i + 1) + 'の月'), noClock: true },
+    tech: { cats: ['electric', 'clock', 'firearm'], loanwords: true },
+  };
+  const t = '「百メートル先だ」五キロ歩いた。十キロの荷物。三千メートル。千円。関東一円。円形。白金貨。月曜日。西暦。三月。三ヶ月。三時。一時は。十分だ。十分後。電話。砂時計。時計。拳銃。ドア。ドアノブ。リオ。センチメンタル。インチキ。';
+  const got = {};
+  W.scan(t, rules, { names: ['リオ'] }).forEach((f) => { got[t.slice(f.start, f.end)] = f.suggestion; });
+  assert.equal(got['百メートル'], '約百三十歩');
+  assert.equal(got['五キロ'], '一里あまり');
+  assert.equal(got['十キロ'], '約十七斤', '「十キロの荷物」は重さ');
+  assert.equal(got['三千メートル'], '一里足らず');
+  assert.equal(got['千円'], '銅貨十枚');
+  assert.ok('白金貨' in got && got['月曜日'] === '光の日' && got['西暦'] === '王国暦' && got['三月'] === '3の月');
+  assert.ok('三時' in got && '十分' in got && got['電話'] === '伝令' && '時計' in got && '拳銃' in got && got['ドア'] === '戸');
+  // 拾ってはいけないもの
+  ['関東一円', '一円', '円形', '三ヶ月', 'ヶ月', '一時', '砂時計', 'ドアノブ', 'リオ', 'センチ', 'インチ'].forEach((w) => assert.ok(!(w in got), w + ' は指摘しない'));
+  assert.equal(Object.keys(got).filter((k) => k === '十分').length, 1, '「十分だ」は時間ではない');
+  // 決めていない種類は指摘しない
+  assert.equal(W.scan('百メートルと千円', { units: { list: [{ kind: 'weight', name: '斤', amount: 600 }] } }).length, 0);
+  assert.equal(W.active({}), false);
+});
+
+test('世界観ルール：設定矛盾チェックに組み込み（台詞は常に・地の文は語り手しだい・NGワードと重ならない）', () => {
+  const { Consistency } = globalThis.Tsuzuri;
+  const rules = { ng: [{ word: 'メートル', suggestion: '歩' }], units: { list: [{ kind: 'length', name: '歩', amount: 0.75 }] }, tech: { cats: ['electric'] } };
+  const text = '「百メートル先だ」\n　彼は電話を取った。二十メートル先に。';
+  const omni = Consistency.check(text, { entries: [], rules, narrator: 'omniscient' }).issues;
+  const first = Consistency.check(text, { entries: [], rules, narrator: 'first' }).issues;
+  const w = (list) => list.filter((i) => i.ruleId === 'world').map((i) => i.text);
+  const ng = (list) => list.filter((i) => i.ruleId === 'ng-word').map((i) => i.text);
+  // NGワード「メートル」があるので、単位の指摘はそこと重ならない（電話だけ）
+  assert.deepEqual(w(omni), ['電話'], '神視点：地の文の単位は指摘しないが、この世界にない物（電話）は指摘する');
+  assert.deepEqual(ng(omni), ['メートル']);
+  assert.deepEqual(ng(first), ['メートル', 'メートル']);
+  // NGワードがなければ、単位の指摘が換算つきで出る
+  const res = Consistency.check(text, { entries: [], rules: { units: rules.units }, narrator: 'first' }).issues.filter((i) => i.ruleId === 'world');
+  assert.deepEqual(res.map((i) => [i.text, i.suggestion]), [['百メートル', '約百三十歩'], ['二十メートル', '約二十七歩']]);
+  assert.ok(res.every((i) => i.fixable));
+});
