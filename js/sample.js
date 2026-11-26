@@ -92,9 +92,25 @@
 
     p.rules.world = '剣と魔法の中世風ファンタジー。火薬・電気・機械はない。長さの単位は「歩（ほ）」「里（り）」を使う。';
     p.rules.ng = [
-      { word: 'メートル', reason: 'この世界の長さの単位は「歩」', suggestion: '歩' },
       { word: 'スマホ', reason: '電気製品は存在しない', suggestion: '', scope: 'all' },
     ];
+    // 世界観ルール：通貨・単位・暦と時刻・文明の水準・設定メモ
+    p.rules.currency = {
+      units: [{ name: '金貨', value: 10000 }, { name: '銀貨', value: 100 }, { name: '銅貨', value: 1 }], yen: 100, note: '',
+      prices: [{ item: 'パン1個', price: '銅貨2枚' }, { item: '宿1泊（食事つき）', price: '銀貨1枚' }, { item: '見習い騎士のひと月の給金', price: '銀貨8枚' }, { item: '鍛えた剣1振り', price: '銀貨30枚' }],
+    };
+    p.rules.units = { list: [{ kind: 'length', name: '歩', amount: 0.75 }, { kind: 'length', name: '里', amount: 4000 }, { kind: 'weight', name: '斤', amount: 600 }], note: '' };
+    p.rules.calendar = {
+      era: '王国暦', yearNote: '一年は十二の月。年の初めは雪解けの頃',
+      months: ['雪解けの月', '芽吹きの月', '花の月', '若葉の月', '雨の月', '陽の月', '星の月', '実りの月', '収穫の月', '紅葉の月', '霧の月', '白の月'],
+      weekdays: [], noWeek: true, noClock: true, timeNote: '一日を十二の鐘で数える（一の鐘＝日の出）',
+    };
+    p.rules.tech = { preset: 'medieval', cats: ['electric', 'vehicle', 'firearm', 'clock', 'record', 'material', 'medicine', 'paper'], loanwords: false, allow: '', extra: '' };
+    p.rules.bible = {
+      magic: '星晶石を媒介に、詠唱して使う。使うと体力を消耗し、使いすぎると数日動けなくなる。死者を生き返らせることはできない。',
+      religion: '星の女神を信仰している。星降りの夜は「女神の涙」と呼ばれる。',
+      politics: 'エルミナ王国は国王と騎士団が治める。騎士は見習い → 従騎士 → 騎士の順に昇格する。',
+    };
     p.rules.style = [{ from: '魔方陣', to: '魔法陣' }];
     p.timeline = [
       { id: UI.uid('t'), when: '王国暦312年', title: '星降りの夜', desc: '無数の流星が降り注ぎ、黒霧の森が生まれた' },

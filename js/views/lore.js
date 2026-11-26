@@ -113,6 +113,53 @@
       if (e.notes) lines.push(`  - メモ: ${e.notes.replace(/\n/g, ' ')}`);
       return lines;
     },
+    /** 世界観ルール（通貨・単位・暦・文明・設定メモ）を Markdown の行に */
+    worldLines(p) {
+      const W = NS.WorldRules;
+      const r = p.rules;
+      const out = [];
+      const coins = (r.currency.units || []).filter((u) => u.name && u.value > 0).sort((a, b) => b.value - a.value);
+      if (coins.length || r.currency.prices.some((x) => x.item && x.price)) {
+        out.push('## 通貨・物価', '');
+        if (coins.length) out.push('- ' + coins.map((u, i) => (i === 0 ? `${u.name}1枚` : `${u.name}${Math.round(coins[0].value / u.value * 100) / 100}枚`)).join(' ＝ '));
+        if (r.currency.yen > 0 && coins.length) out.push(`- ${coins[coins.length - 1].name}1枚 ≒ ${r.currency.yen}円（読者向けの目安）`);
+        r.currency.prices.filter((x) => x.item && x.price).forEach((x) => out.push(`- ${x.item}：${x.price}`));
+        out.push('');
+      }
+      const units = (r.units.list || []).filter((u) => u.name && u.amount > 0);
+      if (units.length) {
+        out.push('## 単位', '');
+        units.forEach((u) => out.push(`- ${W.KIND_LABEL[u.kind]}：${W.describeAmount(u)}`));
+        out.push('');
+      }
+      const c = r.calendar;
+      if (c.era || c.months.length || c.weekdays.length || c.noWeek || c.noClock || c.timeNote || c.yearNote) {
+        out.push('## 暦と時刻', '');
+        if (c.era) out.push(`- 年の数え方：${c.era}`);
+        if (c.months.length) out.push(`- 月の名前：${c.months.join('、')}`);
+        if (c.weekdays.length) out.push(`- 曜日：${c.weekdays.join('、')}`);
+        if (c.noWeek) out.push('- 曜日はない');
+        if (c.noClock) out.push('- 時計はない');
+        if (c.timeNote) out.push(`- 時刻の言い方：${c.timeNote}`);
+        if (c.yearNote) out.push(`- ${c.yearNote.replace(/\n/g, ' ')}`);
+        out.push('');
+      }
+      const t = r.tech;
+      if (t.cats.length || t.loanwords || t.extra) {
+        out.push('## 文明の水準（この世界にないもの）', '');
+        if (W.TECH_PRESETS[t.preset]) out.push(`- 時代の目安：${W.TECH_PRESETS[t.preset].label}`);
+        W.TECH.filter((x) => t.cats.includes(x.id)).forEach((x) => out.push(`- ${x.label}はない（${x.words.slice(0, 5).map((w) => w[0]).join('・')}など）`));
+        if (t.extra) out.push(`- ほかにないもの：${t.extra}`);
+        if (t.loanwords) out.push('- カタカナの外来語は控える');
+        if (t.allow) out.push(`- この世界にはあるもの：${t.allow}`);
+        out.push('');
+      }
+      BIBLE.forEach(([key, label]) => {
+        const v = r.bible[key];
+        if (v && v.trim()) out.push(`## ${label}`, '', v.trim(), '');
+      });
+      return out;
+    },
     toMarkdown(p) {
       const out = ['# ' + p.title + '　設定資料', ''];
       if (p.synopsis) out.push('## あらすじ', '', p.synopsis, '');
@@ -124,6 +171,7 @@
         out.push('');
       });
       if (p.rules.world) out.push('## 世界観', '', p.rules.world, '');
+      LoreFormat.worldLines(p).forEach((x) => out.push(x));
       out.push('## 語り手', '', (NS.Consistency.NARRATORS[p.rules.narrator || 'auto'] || ''), '');
       if (p.rules.ng.length) {
         out.push('## 作中で使わない言葉', '');
@@ -578,42 +626,278 @@
   }
 
   // ───── 世界観ルール ─────
+  // 世界の設定メモ（AI の設定チェックでも参照する）
+  const BIBLE = [
+    ['magic', '魔法・特別な力', '例：誰が使えるか／使うと何を失うか（代償）／できないこと（限界）／呪文や道具は要るか'],
+    ['religion', '宗教・信仰', '例：信じられている神や教え／祈りや祭りの習わし／信仰と政治の関係'],
+    ['politics', '政治・身分', '例：国の治め方（王政・議会など）／身分の上下とその呼び方／税や兵役'],
+    ['races', '種族・民族', '例：人間以外の種族／寿命や体の特徴／種族どうしの仲'],
+    ['language', '言葉・文字', '例：話されている言葉の数／読み書きできる人の割合／方言や古い言葉'],
+    ['geography', '地理・気候', '例：季節の巡り／暑い所・寒い所／旅の手段と日数（地図の「距離」で測れます）'],
+    ['life', '暮らし・食べ物', '例：主食／一日の食事の回数／住まい・服装／娯楽'],
+    ['law', '法律・禁忌', '例：重い罪と罰／してはいけないこと（タブー）／誰が裁くか'],
+    ['manners', '呼び方・礼儀', '例：目上への呼びかけ（陛下・閣下・殿）／挨拶の仕方／名前の付け方'],
+  ];
+  const CURRENCY_TEMPLATES = [
+    ['金貨・銀貨・銅貨（1：100：10000）', [['金貨', 10000], ['銀貨', 100], ['銅貨', 1]], 100],
+    ['金貨・銀貨・銅貨（1：10：100）', [['金貨', 100], ['銀貨', 10], ['銅貨', 1]], 1000],
+    ['和風（両・分・朱・文）', [['両', 4000], ['分', 1000], ['朱', 250], ['文', 1]], 25],
+  ];
+  const UNIT_TEMPLATES = [
+    ['ファンタジー風（歩・里・斤・杯）', [['length', '歩', 0.75], ['length', '里', 4000], ['weight', '斤', 600], ['volume', '杯', 0.25]]],
+    ['和風（尺・間・町・里・貫・升）', [['length', '尺', 0.303], ['length', '間', 1.818], ['length', '町', 109.1], ['length', '里', 3927], ['weight', '斤', 600], ['weight', '貫', 3750], ['volume', '合', 0.18], ['volume', '升', 1.8]]],
+  ];
+  const UNIT_SCALES = { length: [['m', 1], ['km', 1000], ['cm', 0.01]], weight: [['g', 1], ['kg', 1000]], volume: [['L', 1], ['mL', 0.001]] };
+  const PRICE_ITEMS = ['パン1個', '酒1杯', '宿1泊（食事つき）', '剣1振り', '馬1頭', '職人の日当', '兵士のひと月の給金', '本1冊'];
+  const roundShow = (v) => (v >= 100 ? UI.fmtNum(Math.round(v)) : String(Math.round(v * 100) / 100));
+
   function rulesPane() {
     const p = P();
-    const box = h('div', { class: 'entry-form' });
+    const W = NS.WorldRules;
+    const box = h('div', { class: 'entry-form rules-pane' });
     box.appendChild(h('h2', { class: 'pane-title' }, '世界観ルール'));
-    box.appendChild(UI.field('世界観の説明', textInput(p.rules.world, (v) => { p.rules.world = v; touch(); }, {
-      textarea: true, rows: 6, placeholder: '例：剣と魔法の世界。火薬や電気は存在しない。魔法は詠唱が必要で、使うと体力を消耗する。…',
-    }), 'AIの設定矛盾チェックで参照します'));
+    const nav = h('nav', { class: 'rules-nav', 'aria-label': '世界観ルールの項目' });
+    box.appendChild(nav);
+    box.appendChild(h('p', { class: 'muted small' }, '決めた所だけで構いません。「本文チェック」の印がある項目は、執筆画面の「設定チェック」で本文と照らし合わせ、この世界の言い方に直す案を出します。'));
+    const mini = (label, input) => h('label', { class: 'mini-field' }, h('span', { class: 'mini-label' }, label), input);
+    const numInput = (value, onInput, opts) => h('input', Object.assign({ class: 'input input-num', type: 'number', min: 0, step: 'any', value: value || '', oninput: (e) => onInput(+e.target.value || 0) }, opts || {}));
+    const confirmRemove = async (filled, what) => !filled || UI.confirm(`この${what}を削除します。`, { danger: true, okLabel: '削除' });
+    const section = (id, short, title, checked, note) => {
+      const sec = h('section', { class: 'rules-sec', id: 'rules-' + id },
+        h('h3', { class: 'form-section' }, title, checked ? h('span', { class: 'check-note' }, '本文チェック') : note ? h('span', { class: 'check-note' }, note) : null));
+      nav.appendChild(h('button', { type: 'button', class: 'chip', onclick: () => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, short));
+      box.appendChild(sec);
+      return sec;
+    };
 
-    // 語り手（地の文の視点）
+    // 概要と語り手
+    const secBase = section('base', '概要', '世界観の説明・語り手', false);
+    secBase.appendChild(UI.field('世界観の説明', textInput(p.rules.world, (v) => { p.rules.world = v; touch(); }, {
+      textarea: true, rows: 5, placeholder: '例：剣と魔法の世界。火薬や電気は存在しない。魔法は詠唱が必要で、使うと体力を消耗する。…',
+    }), 'AIの設定矛盾チェックで参照します'));
     const C = NS.Consistency;
     const narrHelp = h('p', { class: 'muted small' });
     const updateNarrHelp = () => {
       const v = p.rules.narrator || 'auto';
       narrHelp.textContent = {
         auto: '話ごとに本文から判定します。地の文に「僕は」「私の」などがよく出てくれば一人称、そうでなければ三人称とみなします。',
-        first: '主人公など作中の人物が語るので、地の文に出てくるNGワードも指摘します。',
-        third: '作中の人物に寄り添った三人称なので、地の文のNGワードは「参考」として控えめに指摘します。',
-        omniscient: '作品の外にいる語り手なので、地の文のNGワード（読者向けの「メートル」など）は指摘しません。台詞だけチェックします。',
+        first: '主人公など作中の人物が語るので、地の文に出てくるNGワードや現実の単位も指摘します。',
+        third: '作中の人物に寄り添った三人称なので、地の文のNGワードや現実の単位は「参考」として控えめに指摘します。',
+        omniscient: '作品の外にいる語り手なので、地の文のNGワードや現実の単位（読者向けの「メートル」など）は指摘しません。台詞と、この世界にない物（電話など）だけチェックします。',
       }[v];
     };
     const narrSel = h('select', {
       class: 'input', onchange: (e) => { p.rules.narrator = e.target.value; touch(); updateNarrHelp(); },
     }, Object.keys(C.NARRATORS).map((k) => h('option', { value: k, selected: (p.rules.narrator || 'auto') === k }, C.NARRATORS[k])));
     updateNarrHelp();
-    box.appendChild(h('h3', { class: 'form-section' }, '語り手（地の文の視点）'));
-    box.appendChild(UI.field('この作品の語り手', narrSel));
-    box.appendChild(narrHelp);
-    box.appendChild(h('p', { class: 'muted small' }, '話ごとに語り手が違う場合は、執筆画面の「設定チェック」タブで、その話だけ変えられます。'));
+    secBase.appendChild(UI.field('この作品の語り手（地の文の視点）', narrSel));
+    secBase.appendChild(narrHelp);
+    secBase.appendChild(h('p', { class: 'muted small' }, '話ごとに語り手が違う場合は、執筆画面の「設定チェック」タブで、その話だけ変えられます。'));
+    secBase.appendChild(UI.field('作品のあらすじ', textInput(p.synopsis, (v) => { p.synopsis = v; touch(); }, { textarea: true, rows: 3, placeholder: 'AIチェックの参考になります' })));
 
-    box.appendChild(h('h3', { class: 'form-section' }, '作中で使わない言葉（NGワード）', h('span', { class: 'check-note' }, '本文から自動検出')));
-    box.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。台詞の中は常にチェックし、地の文は「対象」と語り手の設定に従います。'));
+    // 通貨
+    const cur = p.rules.currency;
+    const secCur = section('currency', '通貨', '通貨・物価', true);
+    secCur.appendChild(h('p', { class: 'muted small' }, '硬貨や紙幣の名前と、いちばん小さいお金で何枚分かを決めます。本文の「〇円」「ドル」や、決めていない硬貨（「白金貨」など）を指摘します。'));
+    const curList = h('div', { class: 'rule-rows' });
+    const curSummary = h('p', { class: 'rule-summary' });
+    const curConv = h('div', { class: 'converter' });
+    const coinList = () => cur.units.filter((u) => u.name && u.value > 0).sort((a, b) => b.value - a.value);
+    const updCur = () => {
+      const list = coinList();
+      curSummary.textContent = list.length >= 2 ? list.map((u, i) => (i === 0 ? `${u.name}1枚` : `${u.name}${roundShow(list[0].value / u.value)}枚`)).join(' ＝ ') : '';
+      renderCurConv();
+    };
+    const renderCur = (focusLast) => {
+      clear(curList);
+      cur.units.forEach((u, i) => {
+        const name = textInput(u.name, (v) => { u.name = v.trim(); touch(); updCur(); }, { placeholder: '例：金貨' });
+        curList.appendChild(h('div', { class: 'cur-row' },
+          mini('お金の名前', name),
+          mini('最小のお金で何枚分', numInput(u.value, (v) => { u.value = v; touch(); updCur(); }, { min: 1, 'aria-label': 'いちばん小さいお金で何枚分' })),
+          h('div', { class: 'row-del' }, btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
+            if (!(await confirmRemove(u.name, 'お金'))) return;
+            cur.units.splice(i, 1); touch(); renderCur();
+          } }))));
+        if (focusLast && i === cur.units.length - 1) name.focus();
+      });
+      curList.appendChild(h('div', { class: 'row wrap' },
+        btn('お金を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { cur.units.push({ name: '', value: cur.units.length ? 1 : 1 }); touch(); renderCur(true); } }),
+        ...CURRENCY_TEMPLATES.map(([label, list, yen]) => btn('ひな形：' + label, { small: true, ghost: true, onClick: async () => {
+          if (cur.units.some((u) => u.name) && !(await UI.confirm('今のお金の設定を、ひな形で置き換えます。'))) return;
+          cur.units = list.map(([name, value]) => ({ name, value }));
+          if (!cur.yen) cur.yen = yen;
+          touch(); renderCur(); renderYen();
+        } }))));
+      updCur();
+    };
+    const yenBox = h('div');
+    const renderYen = () => {
+      clear(yenBox);
+      const small = coinList().slice(-1)[0];
+      yenBox.appendChild(UI.field(`${small ? small.name : 'いちばん小さいお金'}1枚は、およそ何円？（なくても可）`,
+        h('div', { class: 'row' }, numInput(cur.yen, (v) => { cur.yen = v; touch(); renderCurConv(); }, { 'aria-label': '円での目安' }), h('span', { class: 'small muted' }, '円')),
+        '入れると、本文の「千円」などを、この世界のお金に換算した言い換えにします'));
+    };
+    let convAmount = 1;
+    let convCoin = '';
+    function renderCurConv() {
+      clear(curConv);
+      const list = coinList();
+      if (!list.length) return;
+      if (!list.some((u) => u.name === convCoin)) convCoin = list[0].name;
+      const from = list.find((u) => u.name === convCoin);
+      const base = convAmount * from.value;
+      curConv.append(
+        h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
+          numInput(convAmount, (v) => { convAmount = v; renderCurConv(); }, { 'aria-label': '枚数' }),
+          h('select', { class: 'input', 'aria-label': 'お金の種類', onchange: (e) => { convCoin = e.target.value; renderCurConv(); } }, list.map((u) => h('option', { value: u.name, selected: u.name === convCoin }, u.name))),
+          h('span', { class: 'small muted' }, '枚は')),
+        h('div', { class: 'conv-out small' }, list.filter((u) => u !== from).map((u) => h('span', null, `${u.name} ${roundShow(base / u.value)}枚`)),
+          cur.yen > 0 ? h('span', { class: 'muted' }, `およそ ${UI.fmtNum(Math.round(base * cur.yen))}円`) : null));
+      const inp = curConv.querySelector('input');
+      if (inp && document.activeElement && document.activeElement.closest && document.activeElement.closest('.converter') === curConv) inp.focus();
+    }
+    renderYen();
+    renderCur();
+    secCur.append(curList, curSummary, yenBox, curConv);
+    // 物価の目安
+    const priceBox = h('div', { class: 'rule-rows' });
+    const renderPrices = () => {
+      clear(priceBox);
+      cur.prices.forEach((x, i) => priceBox.appendChild(h('div', { class: 'st-row' },
+        textInput(x.item, (v) => { x.item = v; touch(); }, { placeholder: '品物' }),
+        h('span', { class: 'st-arrow', 'aria-hidden': 'true' }, '…'),
+        textInput(x.price, (v) => { x.price = v; touch(); }, { placeholder: '例：銅貨5枚' }),
+        btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
+          if (!(await confirmRemove(x.item || x.price, '品物'))) return;
+          cur.prices.splice(i, 1); touch(); renderPrices();
+        } }))));
+      priceBox.appendChild(h('div', { class: 'row wrap' },
+        btn('品物を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { cur.prices.push({ item: '', price: '' }); touch(); renderPrices(); } }),
+        cur.prices.length ? null : btn('よくある品物を並べる', { small: true, ghost: true, onClick: () => { cur.prices = PRICE_ITEMS.map((item) => ({ item, price: '' })); touch(); renderPrices(); } })));
+    };
+    renderPrices();
+    secCur.append(h('div', { class: 'mini-label' }, '物価の目安（値段がぶれないように。AIのチェックでも参照します）'), priceBox);
+
+    // 単位
+    const un = p.rules.units;
+    const secUnit = section('units', '単位', '長さ・重さ・量の単位', true);
+    secUnit.appendChild(h('p', { class: 'muted small' }, 'この世界の単位と、現実でいうとどれくらいかを決めます。本文の「百メートル」は「約百三十歩」、「三千メートル」は「一里足らず」のように換算した言い換えを出します（決めた種類だけをチェックします）。'));
+    const unitList = h('div', { class: 'rule-rows' });
+    const unitConv = h('div', { class: 'converter' });
+    const renderUnits = (focusLast) => {
+      clear(unitList);
+      un.list.forEach((u, i) => {
+        const scales = UNIT_SCALES[u.kind];
+        let scale = scales.find(([, f]) => u.amount && u.amount / f >= 1 && u.amount / f < 1000) || scales[0];
+        if (u.kind === 'length' && u.amount && u.amount < 1) scale = scales[2];
+        const amt = numInput(u.amount ? Math.round(u.amount / scale[1] * 1000) / 1000 : '', (v) => { u.amount = v * scale[1]; touch(); renderUnitConv(); }, { 'aria-label': '現実の量' });
+        const name = textInput(u.name, (v) => { u.name = v.trim(); touch(); renderUnitConv(); }, { placeholder: '例：歩' });
+        unitList.appendChild(h('div', { class: 'unit-row' },
+          mini('種類', h('select', { class: 'input', onchange: (e) => { u.kind = e.target.value; u.amount = 0; touch(); renderUnits(); } },
+            Object.keys(W.KIND_LABEL).map((k) => h('option', { value: k, selected: u.kind === k }, W.KIND_LABEL[k])))),
+          mini('単位の名前', name),
+          mini('現実でいうと', h('div', { class: 'row nowrap' }, amt, h('select', { class: 'input input-unit', 'aria-label': '現実の単位', onchange: (e) => {
+            const f = scales.find(([k]) => k === e.target.value);
+            const shown = +amt.value || 0;
+            scale = f;
+            u.amount = shown * f[1];
+            touch(); renderUnitConv();
+          } }, scales.map(([k]) => h('option', { value: k, selected: k === scale[0] }, k))))),
+          h('div', { class: 'row-del' }, btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
+            if (!(await confirmRemove(u.name, '単位'))) return;
+            un.list.splice(i, 1); touch(); renderUnits();
+          } }))));
+        if (focusLast && i === un.list.length - 1) name.focus();
+      });
+      unitList.appendChild(h('div', { class: 'row wrap' },
+        btn('単位を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { un.list.push({ kind: 'length', name: '', amount: 0 }); touch(); renderUnits(true); } }),
+        ...UNIT_TEMPLATES.map(([label, list]) => btn('ひな形：' + label, { small: true, ghost: true, onClick: async () => {
+          if (un.list.some((u) => u.name) && !(await UI.confirm('今の単位の設定を、ひな形で置き換えます。'))) return;
+          un.list = list.map(([kind, name, amount]) => ({ kind, name, amount }));
+          touch(); renderUnits();
+        } }))));
+      renderUnitConv();
+    };
+    let ucVal = 100;
+    let ucUnit = 'm';
+    const REAL_PICK = [['m', 'length', 1], ['km', 'length', 1000], ['cm', 'length', 0.01], ['g', 'weight', 1], ['kg', 'weight', 1000], ['L', 'volume', 1]];
+    function renderUnitConv() {
+      clear(unitConv);
+      const good = un.list.filter((u) => u.name && u.amount > 0);
+      if (!good.length) return;
+      const kinds = new Set(good.map((u) => u.kind));
+      const picks = REAL_PICK.filter(([, k]) => kinds.has(k));
+      if (!picks.some(([k]) => k === ucUnit)) ucUnit = picks[0][0];
+      const [, kind, f] = picks.find(([k]) => k === ucUnit);
+      const rows = W.unitTable(ucVal * f, kind, good);
+      unitConv.append(
+        h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
+          numInput(ucVal, (v) => { ucVal = v; renderUnitConv(); }, { 'aria-label': '現実の量' }),
+          h('select', { class: 'input', 'aria-label': '現実の単位', onchange: (e) => { ucUnit = e.target.value; renderUnitConv(); } }, picks.map(([k]) => h('option', { value: k, selected: k === ucUnit }, k))),
+          h('span', { class: 'small muted' }, 'は')),
+        h('div', { class: 'conv-out small' }, rows.map((r) => h('span', null, `${roundShow(r.value)} ${r.name}`)),
+          h('span', { class: 'muted' }, '本文では：' + (W.convertUnit(ucVal * f, kind, good, true, '') || ''))));
+    }
+    renderUnits();
+    secUnit.append(unitList, unitConv);
+
+    // 暦と時刻
+    const cal = p.rules.calendar;
+    const secCal = section('calendar', '暦・時刻', '暦と時刻', true);
+    secCal.appendChild(h('p', { class: 'muted small' }, '年の数え方・月や曜日の名前・時計のあるなしを決めます。本文の「西暦」「月曜日」「三月」、時計のない世界の「三時」「十分後」を指摘します。'));
+    const listCount = h('span', { class: 'small muted' });
+    const wdCount = h('span', { class: 'small muted' });
+    const splitList = (v) => String(v || '').split(/[、,，\s]+/).map((x) => x.trim()).filter(Boolean);
+    const showCount = () => {
+      listCount.textContent = cal.months.length ? `${cal.months.length}個${cal.months.length === 12 ? '（「一月〜十二月」をこの名前に言い換えます）' : '（12個にすると、本文の「〇月」を言い換えます）'}` : '';
+      wdCount.textContent = cal.weekdays.length ? `${cal.weekdays.length}個${cal.weekdays.length === 7 ? '（月曜→1つめ…日曜→7つめに言い換えます）' : ''}` : '';
+    };
+    secCal.append(
+      UI.field('年の数え方', textInput(cal.era, (v) => { cal.era = v.trim(); touch(); }, { placeholder: '例：王国暦' }), '入れると、本文の「西暦」「令和」などを指摘します'),
+      UI.field('月の名前（「、」で区切る）', textInput(cal.months.join('、'), (v) => { cal.months = splitList(v); touch(); showCount(); }, { placeholder: '例：霜の月、雪解けの月、芽吹きの月、…（12個）' }), listCount),
+      UI.field('曜日の名前（「、」で区切る）', textInput(cal.weekdays.join('、'), (v) => { cal.weekdays = splitList(v); touch(); showCount(); }, { placeholder: '例：光の日、風の日、火の日、水の日、木の日、金の日、土の日' }), wdCount),
+      h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: cal.noWeek, onchange: (e) => { cal.noWeek = e.target.checked; touch(); } }), 'この世界には曜日がない'),
+      h('label', { class: 'check small' }, h('input', { type: 'checkbox', checked: cal.noClock, onchange: (e) => { cal.noClock = e.target.checked; touch(); } }), 'この世界には時計がない（「三時」「十分後」「五秒」を指摘）'),
+      UI.field('時刻の言い方（なくても可）', textInput(cal.timeNote, (v) => { cal.timeNote = v; touch(); }, { placeholder: '例：一日を十二の鐘で数える（一の鐘＝日の出）' })),
+      UI.field('季節・一年のメモ（なくても可）', textInput(cal.yearNote, (v) => { cal.yearNote = v; touch(); }, { textarea: true, rows: 2, placeholder: '例：一年は360日。春分の日が新年。夏至に収穫祭' })));
+    showCount();
+
+    // 文明の水準
+    const tc = p.rules.tech;
+    const secTech = section('tech', '文明', '文明の水準（この世界にないもの）', true);
+    secTech.appendChild(h('p', { class: 'muted small' }, 'この世界にないもの（電気・自動車・銃など）を選ぶと、本文に出てきたときに指摘します。物そのものがないので、地の文でも指摘します。'));
+    const catBox = h('div', { class: 'tech-grid' });
+    const renderCats = () => {
+      clear(catBox);
+      W.TECH.forEach((c) => catBox.appendChild(h('label', { class: 'tech-item' },
+        h('input', { type: 'checkbox', checked: tc.cats.includes(c.id), onchange: (e) => {
+          tc.cats = e.target.checked ? tc.cats.concat([c.id]) : tc.cats.filter((x) => x !== c.id);
+          tc.preset = 'custom'; presetSel.value = 'custom'; touch();
+        } }),
+        h('span', null, h('strong', null, c.label + 'がない'), h('span', { class: 'small muted' }, c.words.slice(0, 6).map((w) => w[0]).join('・') + (c.words.length > 6 ? '…' : ''))))));
+    };
+    const presetSel = h('select', { class: 'input', 'aria-label': '文明の水準', onchange: (e) => {
+      const pr = W.TECH_PRESETS[e.target.value];
+      tc.preset = e.target.value;
+      if (pr) { tc.cats = pr.cats.slice(); tc.loanwords = pr.loan; loanChk.checked = pr.loan; }
+      touch(); renderCats();
+    } }, Object.keys(W.TECH_PRESETS).map((k) => h('option', { value: k, selected: tc.preset === k }, W.TECH_PRESETS[k].label)), h('option', { value: 'custom', selected: !W.TECH_PRESETS[tc.preset] }, '自分で選ぶ'));
+    const loanChk = h('input', { type: 'checkbox', checked: tc.loanwords, onchange: (e) => { tc.loanwords = e.target.checked; touch(); } });
+    renderCats();
+    secTech.append(
+      UI.field('時代の目安', presetSel, '選ぶと、下の「ないもの」がまとめて選ばれます。あとから1つずつ変えられます'),
+      catBox,
+      h('label', { class: 'check small' }, loanChk, 'カタカナの外来語を控える（和風・時代もの向け。「ドア→戸・扉」「チャンス→好機」など約120語）'),
+      UI.field('この世界にはある言葉（指摘しない）', textInput(tc.allow, (v) => { tc.allow = v; touch(); }, { placeholder: '例：時計、ガラス、ランプ（「、」で区切る）' })),
+      UI.field('ほかに、この世界にないもの', textInput(tc.extra, (v) => { tc.extra = v; touch(); }, { placeholder: '例：紅茶、煙草、じゃがいも（「、」で区切る）' }), '食べ物や動物など、この世界にないものも足せます'));
+
+    // NGワード・表記統一
+    const secNg = section('ng', 'NGワード', '作中で使わない言葉（NGワード）', true);
+    secNg.appendChild(h('p', { class: 'muted small' }, '例：中世風の世界なのに「メートル」「スマホ」、和風の世界なのに「ドア」など。言い換えを入れると一発で修正できます。台詞の中は常にチェックし、地の文は「対象」と語り手の設定に従います。'));
     const ngBox = h('div', { class: 'ng-list' });
     const SCOPES = [['auto', '台詞＋語り手しだい'], ['all', '台詞も地の文も'], ['dialogue', '台詞だけ']];
-    const mini = (label, input) => h('label', { class: 'mini-field' }, h('span', { class: 'mini-label' }, label), input);
-    // 中身のある行を消すときは確かめる（この画面には「元に戻す」がないため）
-    const confirmRemove = async (filled, what) => !filled || UI.confirm(`この${what}を削除します。`, { danger: true, okLabel: '削除' });
     const renderNg = (focusLast) => {
       clear(ngBox);
       if (!p.rules.ng.length) ngBox.appendChild(h('p', { class: 'muted small' }, 'まだ登録がありません。'));
@@ -634,10 +918,10 @@
       ngBox.appendChild(btn('NGワードを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.ng.push({ word: '', reason: '', suggestion: '', scope: 'auto' }); touch(); renderNg(true); renderTabs(); } }));
     };
     renderNg();
-    box.appendChild(ngBox);
+    secNg.appendChild(ngBox);
 
-    box.appendChild(h('h3', { class: 'form-section' }, '表記統一ルール', h('span', { class: 'check-note' }, '添削で検出')));
-    box.appendChild(h('p', { class: 'muted small' }, '作品内で表記を揃えたい語を登録します。例：「出来る→できる」「魔方陣→魔法陣」。'));
+    const secSt = section('style', '表記統一', '表記統一ルール', false, '添削で検出');
+    secSt.appendChild(h('p', { class: 'muted small' }, '作品内で表記を揃えたい語を登録します。例：「出来る→できる」「魔方陣→魔法陣」。'));
     const stBox = h('div', { class: 'table-like' });
     const renderSt = (focusLast) => {
       clear(stBox);
@@ -658,10 +942,47 @@
       stBox.appendChild(btn('ルールを追加', { icon: 'plus', small: true, ghost: true, onClick: () => { p.rules.style.push({ from: '', to: '' }); touch(); renderSt(true); renderTabs(); } }));
     };
     renderSt();
-    box.appendChild(stBox);
+    secSt.appendChild(stBox);
 
-    box.appendChild(h('h3', { class: 'form-section' }, '作品のあらすじ'));
-    box.appendChild(textInput(p.synopsis, (v) => { p.synopsis = v; touch(); }, { textarea: true, rows: 4, placeholder: 'AIチェックの参考になります' }));
+
+    // 世界の設定メモ
+    const bible = p.rules.bible;
+    const secBible = section('bible', '設定メモ', '世界の設定メモ', false, 'AIチェックで参照');
+    secBible.appendChild(h('p', { class: 'muted small' }, '書きながら迷わないように、世界の決まりをまとめておく場所です。書いた項目は、AIの設定チェックで本文と照らし合わせます。空欄の項目は使いません。'));
+    BIBLE.forEach(([key, label, hint]) => {
+      const ta = textInput(bible[key], (v) => { bible[key] = v; touch(); }, { textarea: true, rows: 2, placeholder: hint });
+      secBible.appendChild(h('details', { class: 'bible-item', open: !!(bible[key] && bible[key].trim()) },
+        h('summary', null, label, bible[key] && bible[key].trim() ? h('span', { class: 'small muted' }, '（記入あり）') : null), ta));
+    });
+
+    // 全話を調べる
+    const secScan = section('scan', '全話を調べる', '全話を調べる', false);
+    const scanOut = h('div', { class: 'scan-out' });
+    const KIND_NAME = { unit: '単位', money: 'お金', coin: '硬貨', calendar: '暦', clock: '時刻', tech: '文明', loan: '外来語', ng: 'NGワード' };
+    const runScan = () => {
+      clear(scanOut);
+      const hits = [];
+      const only = { 'ng-word': true, world: true, 'name-variant': false, 'first-person': false, calls: false, appearance: false, age: false, timeline: false };
+      p.chapters.forEach((c, ci) => {
+        const res = NS.Consistency.check(c.body, { entries: p.entries, rules: p.rules, chapterNo: ci + 1, narrator: c.narrator || p.rules.narrator || 'auto', enabled: only });
+        res.issues.forEach((it) => hits.push({ c, ci, it, kind: it.ruleId === 'ng-word' ? 'ng' : it.worldKind }));
+      });
+      if (!hits.length) { scanOut.appendChild(h('p', { class: 'small' }, '世界観ルールに合わない所は見つかりませんでした。')); return; }
+      const counts = {};
+      hits.forEach((x) => { counts[x.kind] = (counts[x.kind] || 0) + 1; });
+      scanOut.appendChild(h('p', { class: 'small' }, h('strong', null, `${hits.length}か所`), '　' + Object.keys(counts).map((k) => `${KIND_NAME[k] || k} ${counts[k]}`).join('・')));
+      scanOut.appendChild(h('div', { class: 'hit-list' }, hits.slice(0, 150).map((x) => h('button', {
+        type: 'button', class: 'hit-row scan-row',
+        onclick: () => { NS.App.navigate('write', { id: x.c.id }); setTimeout(() => NS.Views.write.focusRange && NS.Views.write.focusRange(x.it.start, x.it.end), 80); },
+      },
+      h('span', { class: 'muted small' }, `第${x.ci + 1}話`),
+      h('span', null, x.c.body.slice(Math.max(0, x.it.start - 10), x.it.start), h('mark', null, x.it.text), x.c.body.slice(x.it.end, x.it.end + 12),
+        x.it.suggestion ? h('span', { class: 'scan-sug' }, ' → ' + x.it.suggestion) : null,
+        h('span', { class: 'small muted scan-msg' }, x.it.message))))));
+      if (hits.length > 150) scanOut.appendChild(h('p', { class: 'small muted' }, `ほか ${hits.length - 150}か所`));
+    };
+    secScan.append(h('p', { class: 'muted small' }, 'いまの世界観ルールで全話を調べ、合わない所を一覧にします。設定を変えたら、もう一度押して確かめられます。クリックすると、その場所へ移動します。'),
+      btn('全話を調べる', { icon: 'search', small: true, onClick: runScan }), scanOut);
     return box;
   }
 
