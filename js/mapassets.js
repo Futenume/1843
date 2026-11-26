@@ -1020,6 +1020,521 @@
     for (let k = 0; k < 4; k++) line(ctx, -0.8, -4 - k * 2.8, 0.2, -4 - k * 2.8);
   }
 
+  // ───── 追加の素材（鉱山・市場・修道院・闘技場・墓地・滝・オアシス・竜・古戦場・海の生き物） ─────
+  /** 足もとの薄い影 */
+  function groundShadow(ctx, C, cx, rx, ry, a) {
+    ctx.save();
+    ctx.globalAlpha = a || 0.14;
+    ctx.fillStyle = C.ink;
+    ctx.beginPath();
+    ctx.ellipse(cx, 0.6, rx, ry, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function mine(ctx, rnd, C) {
+    groundShadow(ctx, C, 1.5, 13.5, 2.4);
+    const mound = (c) => {
+      c.moveTo(-13, 0);
+      c.quadraticCurveTo(-11.5, -7.5, -5.5, -10.5);
+      c.quadraticCurveTo(0, -13.5 + jit(rnd, 0.8), 5.5, -10.8);
+      c.quadraticCurveTo(11, -7, 13, 0);
+      c.closePath();
+    };
+    ctx.beginPath(); mound(ctx); fs(ctx, C.rock);
+    ctx.save();
+    ctx.beginPath(); mound(ctx); ctx.clip();
+    ctx.beginPath(); ctx.ellipse(10, -2, 7.5, 13, -0.35, 0, TAU); fs(ctx, C.rockShade);
+    ctx.strokeStyle = C.hatch;
+    ctx.lineWidth = 0.45;
+    for (let k = 0; k < 4; k++) line(ctx, 6 + k * 1.7, -9 + k * 1.4, 7 + k * 1.9, -5 + k * 1.2);
+    ctx.restore();
+    ctx.beginPath(); mound(ctx); fs(ctx, null, C.ink, 0.95);
+    // 岩の割れ目
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.45;
+    line(ctx, -9, -4, -7.5, -6.2);
+    line(ctx, -6.5, -8.5, -4.6, -9.6);
+    // 坑道の入口（黒い口と木の枠）
+    ctx.beginPath();
+    ctx.moveTo(-3.4, 0);
+    ctx.lineTo(-3.4, -5.4);
+    ctx.lineTo(3.4, -5.4);
+    ctx.lineTo(3.4, 0);
+    ctx.closePath();
+    fs(ctx, C.ink);
+    ctx.fillStyle = C.wood;
+    [[-4.3, -6.2, 1.3, 6.2], [3, -6.2, 1.3, 6.2], [-5, -7.2, 10, 1.4]].forEach(([x, y, w, hh]) => {
+      ctx.beginPath(); ctx.rect(x, y, w, hh); fs(ctx, C.wood, C.ink, 0.55);
+    });
+    // 線路（手前へ広がる）と枕木
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.5;
+    line(ctx, -1.4, 0, -2.6, 3.6);
+    line(ctx, 1.4, 0, 2.6, 3.6);
+    ctx.strokeStyle = C.woodShade;
+    ctx.lineWidth = 0.6;
+    for (let k = 0; k < 3; k++) { const y = 0.9 + k * 1.15; const w = 1.9 + k * 0.45; line(ctx, -w, y, w, y); }
+    // トロッコと鉱石
+    poly(ctx, [[6.4, 1.6], [11, 1.6], [11.8, -1.6], [5.6, -1.6]], true);
+    fs(ctx, C.stoneShade, C.ink, 0.6);
+    ctx.fillStyle = C.gold;
+    [[7.2, -2.1], [8.7, -2.6], [10.2, -2.1]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 0.95, 0, TAU); fs(ctx, C.gold, C.ink, 0.45); });
+    ctx.fillStyle = C.ink;
+    [[7.3, 2], [10.1, 2]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 0.75, 0, TAU); ctx.fill(); });
+  }
+
+  function market(ctx, rnd, C) {
+    groundShadow(ctx, C, 0, 11, 2.2, 0.12);
+    const cols = [C.red, C.roof2, C.field2];
+    const stall = (x, y, w, col) => {
+      ctx.strokeStyle = C.ink;
+      ctx.lineWidth = 0.6;
+      line(ctx, x - w + 0.5, y - 2, x - w + 0.5, y - 5.6);
+      line(ctx, x + w - 0.5, y - 2, x + w - 0.5, y - 5.6);
+      poly(ctx, [[x - w, y], [x + w, y], [x + w, y - 2.2], [x - w, y - 2.2]], true);
+      fs(ctx, C.wood, C.ink, 0.6);
+      poly(ctx, [[x, y], [x + w, y], [x + w, y - 2.2], [x, y - 2.2]], true);
+      fs(ctx, C.woodShade);
+      poly(ctx, [[x - w, y], [x + w, y], [x + w, y - 2.2], [x - w, y - 2.2]], true);
+      fs(ctx, null, C.ink, 0.6);
+      // 品物
+      [C.gold, C.red, C.leaf, C.gold].forEach((g, i) => {
+        ctx.beginPath(); ctx.arc(x - w + 1.3 + i * (w * 2 - 2.6) / 3, y - 2.8, 0.75, 0, TAU); fs(ctx, g, C.ink, 0.4);
+      });
+      // しま模様の日よけ（下の縁は波形）
+      const top = y - 8;
+      const bot = y - 5.4;
+      const n = 4;
+      for (let i = 0; i < n; i++) {
+        const a0 = -w - 0.9 + (i / n) * (2 * w + 1.8);
+        const a1 = -w - 0.9 + ((i + 1) / n) * (2 * w + 1.8);
+        const b0 = -w + 0.6 + (i / n) * (2 * w - 1.2);
+        const b1 = -w + 0.6 + ((i + 1) / n) * (2 * w - 1.2);
+        poly(ctx, [[x + a0, bot], [x + a1, bot], [x + b1, top], [x + b0, top]], true);
+        fs(ctx, i % 2 ? C.paper : col);
+      }
+      ctx.beginPath();
+      ctx.moveTo(x - w - 0.9, bot);
+      for (let i = 0; i < n; i++) {
+        const a0 = -w - 0.9 + (i / n) * (2 * w + 1.8);
+        const a1 = -w - 0.9 + ((i + 1) / n) * (2 * w + 1.8);
+        ctx.quadraticCurveTo(x + (a0 + a1) / 2, bot + 1.6, x + a1, bot);
+      }
+      ctx.lineTo(x + w - 0.6, top);
+      ctx.lineTo(x - w + 0.6, top);
+      ctx.closePath();
+      fs(ctx, null, C.ink, 0.6);
+      // 波形の部分にも色
+      for (let i = 0; i < n; i++) {
+        const a0 = -w - 0.9 + (i / n) * (2 * w + 1.8);
+        const a1 = -w - 0.9 + ((i + 1) / n) * (2 * w + 1.8);
+        ctx.beginPath();
+        ctx.moveTo(x + a0, bot);
+        ctx.quadraticCurveTo(x + (a0 + a1) / 2, bot + 1.6, x + a1, bot);
+        ctx.closePath();
+        fs(ctx, i % 2 ? C.paper : col, C.ink, 0.45);
+      }
+    };
+    const k = Math.floor(rnd() * 3);
+    stall(-5, -3, 3.4, cols[k % 3]);
+    stall(4.8, -3.6, 3.2, cols[(k + 1) % 3]);
+    stall(-0.2, 2, 3.6, cols[(k + 2) % 3]);
+  }
+
+  function monastery(ctx, rnd, C) {
+    groundShadow(ctx, C, 1, 13, 2.4);
+    // 糸杉
+    const cypress = (x, y, hh) => {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x - 2.2, y - hh * 0.45, x, y - hh);
+      ctx.quadraticCurveTo(x + 2.2, y - hh * 0.45, x, y);
+      ctx.closePath();
+      fs(ctx, C.conifer, C.ink, 0.6);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 2.2, y - hh * 0.45, x, y - hh);
+      ctx.quadraticCurveTo(x + 0.9, y - hh * 0.45, x, y);
+      ctx.closePath();
+      fs(ctx, C.coniferShade);
+    };
+    cypress(11.5, -1, 9);
+    house(ctx, C, 2.5, -1.2, 10, 5.5, C.roof, C.roofShade, 3.2);
+    // 礼拝堂の丸窓
+    ctx.beginPath(); ctx.arc(2.5, -9.2, 1, 0, TAU); fs(ctx, C.ink);
+    towerShape(ctx, C, -6.2, 0, 4.4, 13.5, C.roof2, C.roof2Shade, {});
+    // 鐘の窓
+    ctx.beginPath();
+    ctx.moveTo(-7.1, -10.4); ctx.lineTo(-7.1, -11.8); ctx.arc(-6.2, -11.8, 0.9, Math.PI, 0); ctx.lineTo(-5.3, -10.4); ctx.closePath();
+    fs(ctx, C.ink);
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.65;
+    line(ctx, -6.2, -19, -6.2, -21.4);
+    line(ctx, -7.1, -20.4, -5.3, -20.4);
+    // 手前の低い塀と門
+    poly(ctx, [[-12.5, 2.4], [12.5, 2.4], [12.5, 0.2], [-12.5, 0.2]], true);
+    fs(ctx, C.wall, C.ink, 0.6);
+    poly(ctx, [[3, 2.4], [12.5, 2.4], [12.5, 0.2], [3, 0.2]], true);
+    fs(ctx, C.wallShade);
+    poly(ctx, [[-12.5, 2.4], [12.5, 2.4], [12.5, 0.2], [-12.5, 0.2]], true);
+    fs(ctx, null, C.ink, 0.6);
+    ctx.beginPath();
+    ctx.moveTo(-1.2, 2.4); ctx.lineTo(-1.2, 1.2); ctx.arc(0, 1.2, 1.2, Math.PI, 0); ctx.lineTo(1.2, 2.4); ctx.closePath();
+    fs(ctx, C.ink);
+    cypress(-11, 0.6, 8);
+  }
+
+  function arena(ctx, rnd, C) {
+    const rx = 12;
+    const ry = 4.4;
+    const hh = 6.8;
+    groundShadow(ctx, C, 1, 13, 4.6, 0.12);
+    // 上から見えるすり鉢（客席と砂の舞台）
+    ctx.beginPath(); ctx.ellipse(0, -hh, rx, ry, 0, 0, TAU); fs(ctx, C.stone, C.ink, 0.8);
+    ctx.beginPath(); ctx.ellipse(0, -hh + 0.9, rx * 0.66, ry * 0.58, 0, 0, TAU); fs(ctx, C.sand, C.ink, 0.6);
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(0, -hh + 0.9, rx * 0.66, ry * 0.58, 0, 0, TAU); ctx.clip();
+    ctx.beginPath(); ctx.ellipse(0, -hh - 1.2, rx * 0.66, ry * 0.58, 0, 0, TAU); fs(ctx, C.sandShade);
+    ctx.restore();
+    ctx.strokeStyle = C.hatch;
+    ctx.lineWidth = 0.4;
+    ctx.beginPath(); ctx.ellipse(0, -hh + 0.4, rx * 0.84, ry * 0.8, 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+    // 手前の外壁
+    const front = (c) => {
+      c.moveTo(rx, -hh);
+      c.lineTo(rx, 0);
+      c.ellipse(0, 0, rx, ry, 0, 0, Math.PI, false);
+      c.lineTo(-rx, -hh);
+      c.ellipse(0, -hh, rx, ry, 0, Math.PI, 0, true);
+      c.closePath();
+    };
+    ctx.beginPath(); front(ctx); fs(ctx, C.wall);
+    ctx.save();
+    ctx.beginPath(); front(ctx); ctx.clip();
+    ctx.fillStyle = C.wallShade;
+    ctx.fillRect(4.5, -hh - ry - 1, rx, hh + ry * 2 + 2);
+    // 階の境目
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.45;
+    ctx.beginPath(); ctx.ellipse(0, -hh * 0.5, rx, ry, 0, 0, Math.PI); ctx.stroke();
+    // アーチの列（2段）
+    ctx.fillStyle = C.ink;
+    for (let tier = 0; tier < 2; tier++) {
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI * (0.08 + 0.84 * (i + 0.5) / n);
+        const x = Math.cos(a) * rx;
+        const yb = Math.sin(a) * ry - tier * hh * 0.5 - 0.6;
+        const w = 0.75 * Math.sin(a) + 0.15;
+        const ah = hh * 0.5 - 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x - w, yb);
+        ctx.lineTo(x - w, yb - ah + w);
+        ctx.arc(x, yb - ah + w, w, Math.PI, 0);
+        ctx.lineTo(x + w, yb);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    ctx.beginPath(); front(ctx); fs(ctx, null, C.ink, 0.8);
+    // 旗
+    ctx.lineWidth = 0.55;
+    [[-rx + 1.5, -hh - 1.4], [rx - 1.5, -hh - 1.4]].forEach(([x, y]) => {
+      line(ctx, x, y + 1.4, x, y - 3.4);
+      poly(ctx, [[x, y - 3.4], [x + 2.6, y - 2.8], [x, y - 2.1]], true);
+      fs(ctx, C.red, C.ink, 0.4);
+    });
+  }
+
+  function graveyard(ctx, rnd, C) {
+    groundShadow(ctx, C, 0, 12, 3, 0.12);
+    const items = [[-7, -3.2, 'r'], [-1.2, -3.8, 'c'], [5, -3.1, 'r'], [-4, 0.4, 'c'], [2, 0.8, 'r'], [8.3, 0.2, 'c'], [-9.6, 0.9, 'r']];
+    items.map(([x, y, t]) => [x + jit(rnd, 0.6), y + jit(rnd, 0.3), t, 0.85 + rnd() * 0.3]).sort((a, b) => a[1] - b[1]).forEach(([x, y, t, s]) => {
+      if (t === 'r') {
+        const w = 1.6 * s;
+        const hh = 3.4 * s;
+        ctx.beginPath();
+        ctx.moveTo(x - w, y); ctx.lineTo(x - w, y - hh); ctx.arc(x, y - hh, w, Math.PI, 0); ctx.lineTo(x + w, y); ctx.closePath();
+        fs(ctx, C.stone);
+        ctx.beginPath();
+        ctx.moveTo(x + 0.2, y); ctx.lineTo(x + 0.2, y - hh - w + 0.1); ctx.arc(x, y - hh, w, -Math.PI / 2 + 0.12, 0); ctx.lineTo(x + w, y); ctx.closePath();
+        fs(ctx, C.stoneShade);
+        ctx.beginPath();
+        ctx.moveTo(x - w, y); ctx.lineTo(x - w, y - hh); ctx.arc(x, y - hh, w, Math.PI, 0); ctx.lineTo(x + w, y); ctx.closePath();
+        fs(ctx, null, C.ink, 0.6);
+        ctx.strokeStyle = C.hatch;
+        ctx.lineWidth = 0.4;
+        line(ctx, x - w * 0.5, y - hh * 0.75, x + w * 0.3, y - hh * 0.75);
+      } else {
+        const a = 0.55 * s;
+        const b = 1.9 * s;
+        const hgt = 5.6 * s;
+        poly(ctx, [[x - a, y], [x - a, y - hgt * 0.57], [x - b, y - hgt * 0.57], [x - b, y - hgt * 0.75], [x - a, y - hgt * 0.75], [x - a, y - hgt],
+          [x + a, y - hgt], [x + a, y - hgt * 0.75], [x + b, y - hgt * 0.75], [x + b, y - hgt * 0.57], [x + a, y - hgt * 0.57], [x + a, y]], true);
+        fs(ctx, C.wall, C.ink, 0.55);
+      }
+      // 土の盛り上がり
+      ctx.strokeStyle = C.hatch;
+      ctx.lineWidth = 0.4;
+      line(ctx, x - 1.6, y + 0.5, x + 1.8, y + 0.5);
+    });
+    // 手前の柵
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.5;
+    line(ctx, -12, 3.1, 12, 3.1);
+    line(ctx, -12, 2.1, 12, 2.1);
+    for (let x = -12; x <= 12.01; x += 2.4) line(ctx, x, 1.3, x, 3.9);
+  }
+
+  function waterfall(ctx, rnd, C) {
+    groundShadow(ctx, C, 1, 13, 2.2, 0.12);
+    const cliff = [[-13, 0], [-12, -8], [-8.5, -12.5], [-3.2, -13.6], [3.2, -14], [8, -12.2], [12, -8.4], [13, 0]];
+    poly(ctx, cliff, true);
+    fs(ctx, C.rock, C.ink, 0.9);
+    poly(ctx, [[3.2, -14], [8, -12.2], [12, -8.4], [13, 0], [5, 0]], true);
+    fs(ctx, C.rockShade);
+    ctx.strokeStyle = C.hatch;
+    ctx.lineWidth = 0.45;
+    for (let k = 0; k < 4; k++) line(ctx, 6.5 + k * 1.5, -10.5 + k * 1.6, 7.2 + k * 1.6, -6.5 + k * 1.5);
+    ctx.strokeStyle = C.ink;
+    line(ctx, -9, -6, -7, -8.4);
+    line(ctx, -10.5, -2.5, -8.6, -4);
+    poly(ctx, cliff, true);
+    fs(ctx, null, C.ink, 0.9);
+    // 上の川
+    poly(ctx, [[-3.6, -13.7], [3.6, -14.05], [2.6, -15.4], [-2.4, -15.2]], true);
+    fs(ctx, C.water, C.ink, 0.5);
+    // 落ちる水
+    poly(ctx, [[-3.3, -13.7], [3.3, -14], [3.9, -1.2], [-3.9, -1.2]], true);
+    fs(ctx, C.water);
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.7;
+    for (let k = 0; k < 5; k++) {
+      const x = -2.6 + k * 1.3;
+      line(ctx, x + jit(rnd, 0.2), -13.2 + rnd() * 1.5, x * 1.15, -2.4 - rnd() * 2);
+    }
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.6;
+    line(ctx, -3.3, -13.7, -3.9, -1.2);
+    line(ctx, 3.3, -14, 3.9, -1.2);
+    // 滝つぼ
+    ctx.beginPath(); ctx.ellipse(0, 0.6, 9, 2.6, 0, 0, TAU); fs(ctx, C.water, C.ink, 0.7);
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.6;
+    line(ctx, -6.5, 1.4, -3.5, 1.4);
+    line(ctx, 3.8, 1.8, 6.8, 1.8);
+    // しぶき
+    ctx.fillStyle = C.foam;
+    [[-3.4, -0.6, 1.5], [-1.2, -1.2, 1.8], [1.3, -1, 1.7], [3.5, -0.5, 1.4], [0, 0.2, 1.3]].forEach(([x, y, r]) => {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); fs(ctx, C.foam, C.waterLight, 0.4);
+    });
+  }
+
+  function oasis(ctx, rnd, C) {
+    ctx.beginPath(); ctx.ellipse(0, 0.4, 13.5, 4, 0, 0, TAU); fs(ctx, C.sand, C.sandShade, 0.6);
+    ctx.save(); ctx.translate(3.5, -1.4); ctx.scale(0.72, 0.72); palm(ctx, rnd, C); ctx.restore();
+    ctx.save(); ctx.translate(8.2, -0.6); ctx.scale(0.55, 0.55); palm(ctx, rnd, C); ctx.restore();
+    ctx.beginPath(); ctx.ellipse(1, 0.6, 7.2, 2.4, 0, 0, TAU); fs(ctx, C.water, C.ink, 0.7);
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.7;
+    line(ctx, -2.5, 0.5, 1, 0.5);
+    line(ctx, 2.5, 1.5, 5, 1.5);
+    ctx.save(); ctx.translate(-6.5, 1.2); ctx.scale(0.85, 0.85); palm(ctx, rnd, C); ctx.restore();
+    ctx.save(); ctx.translate(9, 2.6); grassTuft(ctx, rnd, C); ctx.restore();
+  }
+
+  function dragon(ctx, rnd, C) {
+    groundShadow(ctx, C, 0, 10, 2, 0.14);
+    // 足もとの岩
+    poly(ctx, [[-9, 0.5], [-7, -2.4], [-2, -3.2], [4, -3], [8, -1.4], [9, 0.5]], true);
+    fs(ctx, C.stone, C.ink, 0.7);
+    poly(ctx, [[2, -3.1], [4, -3], [8, -1.4], [9, 0.5], [3, 0.5]], true);
+    fs(ctx, C.stoneShade);
+    poly(ctx, [[-9, 0.5], [-7, -2.4], [-2, -3.2], [4, -3], [8, -1.4], [9, 0.5]], true);
+    fs(ctx, null, C.ink, 0.7);
+    const wing = (sx, sy, k, fill) => {
+      const tip = [sx - 2 * k, sy - 12 * k];
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(tip[0], tip[1]);
+      ctx.quadraticCurveTo(sx - 6 * k, sy - 12.8 * k, sx - 12 * k, sy - 9 * k);
+      ctx.quadraticCurveTo(sx - 9.6 * k, sy - 7.6 * k, sx - 8.6 * k, sy - 4.6 * k);
+      ctx.quadraticCurveTo(sx - 6.6 * k, sy - 5.2 * k, sx - 5 * k, sy - 2.6 * k);
+      ctx.quadraticCurveTo(sx - 3 * k, sy - 3.2 * k, sx - 1.2 * k, sy - 0.4 * k);
+      ctx.closePath();
+      fs(ctx, fill, C.ink, 0.7);
+      ctx.strokeStyle = C.ink;
+      ctx.lineWidth = 0.45;
+      [[-12, -9], [-8.6, -4.6], [-5, -2.6]].forEach(([dx, dy]) => line(ctx, tip[0], tip[1], sx + dx * k, sy + dy * k));
+    };
+    wing(3, -8.6, 0.82, C.roofShade);
+    // しっぽ（太い線を重ねて描く）
+    const tail = (c) => { c.beginPath(); c.moveTo(-1.5, -4.2); c.bezierCurveTo(-5.5, -3.6, -7, -1.2, -11, -2.6); };
+    tail(ctx); ctx.strokeStyle = C.ink; ctx.lineWidth = 2.6; ctx.stroke();
+    tail(ctx); ctx.strokeStyle = C.red; ctx.lineWidth = 1.5; ctx.stroke();
+    poly(ctx, [[-10.6, -2.5], [-13, -4.6], [-13.4, -1.9], [-11.4, -1.6]], true);
+    fs(ctx, C.red, C.ink, 0.55);
+    // 首
+    const neck = (c) => { c.beginPath(); c.moveTo(2, -6.4); c.quadraticCurveTo(6.4, -9, 5.8, -13.2); };
+    neck(ctx); ctx.strokeStyle = C.ink; ctx.lineWidth = 3.4; ctx.stroke();
+    neck(ctx); ctx.strokeStyle = C.red; ctx.lineWidth = 2.3; ctx.stroke();
+    // 胴
+    ctx.beginPath(); ctx.ellipse(0, -5.6, 4.6, 3, -0.25, 0, TAU); fs(ctx, C.red, C.ink, 0.7);
+    ctx.beginPath(); ctx.ellipse(0.6, -4.4, 3.2, 1.3, -0.2, 0, Math.PI); fs(ctx, C.gold);
+    // 脚
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 1.5;
+    line(ctx, 2.6, -4, 3.6, -3.1);
+    line(ctx, -2.4, -3.6, -2.8, -3);
+    ctx.strokeStyle = C.red;
+    ctx.lineWidth = 0.7;
+    line(ctx, 2.6, -4, 3.6, -3.1);
+    // 頭と角
+    poly(ctx, [[4.6, -14.4], [6.6, -15.6], [9.8, -14.6], [10.2, -13.6], [7, -12.6], [5, -12.6]], true);
+    fs(ctx, C.red, C.ink, 0.7);
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.6;
+    line(ctx, 5.6, -15.2, 3.6, -17.2);
+    line(ctx, 6.6, -15.5, 5.4, -17.8);
+    ctx.fillStyle = C.gold;
+    ctx.beginPath(); ctx.arc(7.2, -14.5, 0.55, 0, TAU); fs(ctx, C.gold, C.ink, 0.3);
+    // 炎の息
+    ctx.beginPath();
+    ctx.moveTo(10.2, -13.9);
+    ctx.quadraticCurveTo(12.5, -15.4, 13.6, -13.6);
+    ctx.quadraticCurveTo(12.6, -13.2, 13.2, -12);
+    ctx.quadraticCurveTo(11.6, -12.6, 10.2, -13.4);
+    ctx.closePath();
+    fs(ctx, C.lava, C.ink, 0.45);
+    // 手前の翼
+    wing(1.6, -8.2, 1, C.roof);
+  }
+
+  function battlefield(ctx, rnd, C) {
+    groundShadow(ctx, C, 0, 7, 1.6, 0.12);
+    const sword = (ang) => {
+      ctx.save();
+      ctx.translate(0, -7.4);
+      ctx.rotate(ang);
+      poly(ctx, [[-0.85, 1.8], [0.85, 1.8], [0.85, -6.6], [0, -8.4], [-0.85, -6.6]], true);
+      fs(ctx, C.paper, C.ink, 0.6);
+      poly(ctx, [[0, 1.8], [0.85, 1.8], [0.85, -6.6], [0, -8.4]], true);
+      fs(ctx, C.stone);
+      poly(ctx, [[-0.85, 1.8], [0.85, 1.8], [0.85, -6.6], [0, -8.4], [-0.85, -6.6]], true);
+      fs(ctx, null, C.ink, 0.6);
+      poly(ctx, [[-3, 1.8], [3, 1.8], [2.6, 2.9], [-2.6, 2.9]], true);
+      fs(ctx, C.gold, C.ink, 0.55);
+      poly(ctx, [[-0.55, 2.9], [0.55, 2.9], [0.55, 5.8], [-0.55, 5.8]], true);
+      fs(ctx, C.woodShade, C.ink, 0.5);
+      ctx.beginPath(); ctx.arc(0, 6.6, 0.95, 0, TAU); fs(ctx, C.gold, C.ink, 0.5);
+      ctx.restore();
+    };
+    sword(-0.72);
+    sword(0.72);
+  }
+
+  /** 先が細くなる触手（円を並べて描く） */
+  function tentacle(ctx, C, pts, w0, w1, pass) {
+    const n = pts.length;
+    pts.forEach(([x, y], i) => {
+      const r = w0 + (w1 - w0) * (i / (n - 1));
+      ctx.beginPath();
+      if (pass === 0) { ctx.arc(x, y, r + 0.55, 0, TAU); ctx.fillStyle = C.ink; }
+      else if (pass === 1) { ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = C.serpent; }
+      else { ctx.arc(x + r * 0.35, y, r * 0.55, 0, TAU); ctx.fillStyle = C.serpentShade; }
+      ctx.fill();
+    });
+  }
+  function tentaclePath(x, h, dir, rnd) {
+    const pts = [];
+    const N = 34;
+    const p0 = [x, 0];
+    const p1 = [x - dir * 1.5, -h * 0.4];
+    const p2 = [x + dir * 4.5, -h * 0.8];
+    const p3 = [x + dir * 2.5, -h];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const u = 1 - t;
+      pts.push([u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+        u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]]);
+    }
+    // 先端の巻き
+    const cx = p3[0] - dir * 1.4;
+    const cy = p3[1] + 0.4;
+    const a0 = Math.atan2(p3[1] - cy, p3[0] - cx);
+    for (let i = 1; i <= 14; i++) {
+      const a = a0 - dir * (i / 14) * Math.PI * 1.4;
+      const r = 1.45 * (1 - i / 22);
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    return pts;
+  }
+  function kraken(ctx, rnd, C) {
+    const list = [
+      tentaclePath(-8, 9 + rnd() * 2, -1, rnd),
+      tentaclePath(-1.5, 14 + rnd() * 2, 1, rnd),
+      tentaclePath(6.5, 9.5 + rnd() * 2, 1, rnd),
+    ];
+    const widths = [[1.7, 0.35], [2.1, 0.4], [1.6, 0.35]];
+    for (let pass = 0; pass < 3; pass++) list.forEach((pts, i) => tentacle(ctx, C, pts, widths[i][0], widths[i][1], pass));
+    // 吸盤
+    ctx.fillStyle = C.paper;
+    list.forEach((pts, i) => {
+      for (let k = 4; k < pts.length - 18; k += 4) {
+        const r = widths[i][0] + (widths[i][1] - widths[i][0]) * (k / (pts.length - 1));
+        ctx.beginPath(); ctx.arc(pts[k][0] - r * 0.45, pts[k][1], Math.max(0.25, r * 0.28), 0, TAU); ctx.fill();
+      }
+    });
+    // 水面
+    ctx.strokeStyle = C.foam;
+    ctx.lineWidth = 1;
+    [[-11, -5], [-4, 1.5], [4, 9]].forEach(([a, b]) => line(ctx, a, 0.4, b, 0.4));
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.7;
+    line(ctx, -9, 1.8, -3, 1.8);
+    line(ctx, 2, 2.2, 8, 2.2);
+  }
+
+  function whale(ctx, rnd, C) {
+    // 尾びれ
+    poly(ctx, [[-10, -0.2], [-12, -3.5], [-15, -5.6], [-12.6, -5], [-11.4, -6.6], [-10.6, -3.6], [-8.6, -0.4]], true);
+    fs(ctx, C.roof2, C.ink, 0.7);
+    // 背中
+    const back = (c) => { c.moveTo(-9, 0); c.bezierCurveTo(-8, -6.4, 4.5, -7.8, 8.6, -3); c.quadraticCurveTo(10.2, -1.2, 9.6, 0); c.closePath(); };
+    ctx.beginPath(); back(ctx); fs(ctx, C.roof2);
+    ctx.save();
+    ctx.beginPath(); back(ctx); ctx.clip();
+    ctx.beginPath(); ctx.ellipse(1, 0.5, 11, 2.2, 0, 0, TAU); fs(ctx, C.roof2Shade);
+    ctx.restore();
+    ctx.beginPath(); back(ctx); fs(ctx, null, C.ink, 0.8);
+    ctx.fillStyle = C.ink;
+    ctx.beginPath(); ctx.arc(6.2, -2.8, 0.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = C.ink;
+    ctx.lineWidth = 0.45;
+    ctx.beginPath(); ctx.moveTo(6.8, -1.4); ctx.quadraticCurveTo(8, -1, 9.2, -1.6); ctx.stroke();
+    // 潮吹き
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.9;
+    [[-0.9, -1.6], [0, -2.2], [0.9, -1.6]].forEach(([dx, s]) => {
+      ctx.beginPath();
+      ctx.moveTo(2.5, -7);
+      ctx.quadraticCurveTo(2.5 + dx * 1.2, -10.5, 2.5 + dx * 3.4, -11 - s);
+      ctx.stroke();
+    });
+    ctx.fillStyle = C.waterLight;
+    [[-1.4, -11.2], [2.6, -13.4], [6.4, -11.6]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 0.55, 0, TAU); ctx.fill(); });
+    // 水面
+    ctx.strokeStyle = C.foam;
+    ctx.lineWidth = 1;
+    line(ctx, -12, 0.5, 12, 0.5);
+    ctx.strokeStyle = C.waterLight;
+    ctx.lineWidth = 0.7;
+    line(ctx, -10, 1.8, -4, 1.8);
+    line(ctx, 3, 2.2, 10, 2.2);
+  }
+
   // ───── 海 ─────
   function ship(ctx, rnd, C, ox, oy, sc) {
     ox = ox || 0;
@@ -1296,6 +1811,7 @@
     mountain(c, r, C, { h: 24 });
   }, { variants: 5, size: 30 });
   def('volcano', '山・丘', '火山', [-18, -40, 18, 3], volcano, { variants: 3, size: 30 });
+  def('waterfall', '山・丘', '滝', [-14, -16, 14, 4], waterfall, { variants: 3, size: 13 });
   def('mesa', '山・丘', '台地', [-18, -16, 18, 3], mesa, { variants: 3, size: 14 });
   def('hill', '山・丘', '丘', [-19, -15, 19, 4], hill, { variants: 6, size: 11 });
   def('rocks', '山・丘', '岩', [-12, -10, 12, 2], rocks, { variants: 5, size: 8 });
@@ -1310,6 +1826,7 @@
   def('bush', '木・植物', '茂み', [-6, -8, 6, 2], bush, { variants: 4, size: 5 });
   def('grass', '木・植物', '草', [-6, -7, 6, 1.5], grassTuft, { variants: 5, size: 5 });
   def('reeds', '木・植物', '葦（湿地）', [-8, -9, 8, 3], reeds, { variants: 4, size: 6 });
+  def('oasis', '木・植物', 'オアシス', [-15, -18, 14, 5], oasis, { variants: 3, size: 13 });
 
   def('castle', '町・建物', '城', [-16, -26, 16, 3], castle, { variants: 2, size: 22 });
   def('city', '町・建物', '都市', [-17, -22, 17, 6], city, { variants: 4, size: 18 });
@@ -1326,6 +1843,11 @@
   def('camp', '町・建物', '野営地', [-10, -10, 12, 3], camp, { variants: 2, size: 8 });
   def('port', '町・建物', '港', [-13, -12, 13, 6], port, { variants: 2, size: 10 });
   def('bridge', '町・建物', '橋', [-14, -13, 14, 2], bridge, { variants: 1, size: 9 });
+  def('market', '町・建物', '市場', [-11, -12, 11, 4], market, { variants: 3, size: 10 });
+  def('monastery', '町・建物', '修道院', [-13, -22, 13, 4], monastery, { variants: 1, size: 18 });
+  def('arena', '町・建物', '闘技場', [-13, -16, 13, 5], arena, { variants: 1, size: 14 });
+  def('mine', '町・建物', '鉱山', [-14, -14, 14, 4], mine, { variants: 3, size: 11 });
+  def('graveyard', '町・建物', '墓地', [-13, -10, 13, 5], graveyard, { variants: 3, size: 9 });
 
   def('jcastle', '和風', '天守閣', [-13, -28, 13, 2], jCastle, { variants: 1, size: 26 });
   def('pagoda', '和風', '五重塔', [-8, -30, 8, 2], pagoda, { variants: 1, size: 28 });
@@ -1341,9 +1863,13 @@
   def('portal', '不思議・遺跡', '門（ポータル）', [-9, -18, 9, 2], portal, { variants: 1, size: 16 });
   def('giant-tree', '不思議・遺跡', '世界樹', [-22, -48, 22, 2], giantTree, { variants: 2, size: 40 });
   def('skull', '不思議・遺跡', '危険', [-6, -13, 6, 1], skull, { variants: 1, size: 12 });
+  def('dragon', '不思議・遺跡', '竜の棲み処', [-14, -21, 14, 2], dragon, { variants: 1, size: 18 });
+  def('battlefield', '不思議・遺跡', '古戦場', [-8, -16, 8, 2], battlefield, { variants: 1, size: 12 });
 
   def('ship', '海', '帆船', [-12, -19, 12, 4], (c, r, C) => ship(c, r, C), { variants: 1, size: 16, water: true });
   def('serpent', '海', '海竜', [-14, -14, 16, 2], serpent, { variants: 1, size: 12, water: true });
+  def('kraken', '海', '大ダコ（クラーケン）', [-13, -18, 12, 3], kraken, { variants: 2, size: 14, water: true });
+  def('whale', '海', '鯨', [-16, -15, 13, 3], whale, { variants: 1, size: 12, water: true });
   def('whirlpool', '海', '渦潮', [-12, -8, 12, 8], whirlpool, { variants: 1, size: 8, water: true, anchor: 'center' });
   def('sea-rock', '海', '岩礁', [-10, -9, 10, 2], seaRock, { variants: 1, size: 7, water: true });
   def('wave', '海', '波', [-26, -7, 26, 6], wave, { variants: 6, size: 6, water: true, labelPos: 'none' });

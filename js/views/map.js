@@ -1943,7 +1943,11 @@
         const c = centroid(ar.points);
         drawText(ctx, ar.name, c[0], c[1], { size: 16, weight: 700, color: hexA(ar.color, 0.95), spacing: 0.4, halo: pl.halo, font: 'shippori' });
       });
-      if (!layerHidden('stamps')) m.stamps.forEach((s) => { const n = stampName(s); if (n) drawStampLabel(ctx, s, n, pl); });
+      if (!layerHidden('stamps')) {
+        // 地名どうし・文字・町の絵と重ならない向きを選んでから描く
+        const plan = st.declutter === false ? null : planStampLabels(ctx, layerHidden('areas'));
+        m.stamps.forEach((s) => { const n = stampName(s); if (n) drawStampLabel(ctx, s, n, pl, plan && plan.get(s.id)); });
+      }
       m.labels.forEach((lb) => {
         const sty = LABEL_STYLES[lb.style] || LABEL_STYLES.region;
         const color = lb.color || (sty.color === 'water' ? pl.water : sty.color === 'glyph' ? pl.glyph : pl.ink);
@@ -2328,23 +2332,135 @@
     return '';
   }
 
-  function drawStampLabel(ctx, s, name, pl) {
-    const a = AS.BY_ID[s.a];
-    if (!a || s.lp === 'none' || a.labelPos === 'none') return;
-    const pos = s.lp || a.labelPos || 'below';
+  const MAJOR_STAMPS = ['sym-capital', 'castle', 'city', 'jcastle'];
+  /** 素材の名前の大きさと太さ */
+  function stampLabelFont(s, a) {
     const big = a.cat === '町・建物' || a.cat === '和風';
     // 地図の広さに合わせた大きさ（全体表示でも読めるように）×「地名の大きさ」の設定
     const unit = Math.max(9, Math.min(18, M.W / 92)) * (M.map.style.labelScale || 1);
-    const major = ['sym-capital', 'castle', 'city', 'jcastle'].includes(s.a);
-    const size = s.ls || unit * (major ? 1.25 : a.cat === '地図記号' ? 0.95 : big ? 1.05 : 0.9);
-    const weight = major ? 700 : 600;
+    const major = MAJOR_STAMPS.includes(s.a);
+    return { size: s.ls || unit * (major ? 1.25 : a.cat === '地図記号' ? 0.95 : big ? 1.05 : 0.9), weight: major ? 700 : 600, major };
+  }
+  /** 名前を pos（below / right / left / above）に置いたときの、文字の中心 */
+  function stampLabelAnchor(s, a, sp, size, pos, w) {
+    const sideY = s.y + (a.anchor === 'center' ? 0 : -sp.h * s.s * 0.3);
+    if (pos === 'right') { const x = s.x + (sp.x0 + sp.w) * s.s + 3; return { x: x + w / 2, y: sideY, left: x }; }
+    if (pos === 'left') { const x = s.x + sp.x0 * s.s - 3; return { x: x - w / 2, y: sideY, left: x - w }; }
+    if (pos === 'above') return { x: s.x, y: s.y + sp.y0 * s.s - size * 0.7 };
+    return { x: s.x, y: s.y + (sp.y0 + sp.h) * s.s + size * 0.75 };
+  }
+  const measureCache = new Map();
+  function measureLabel(ctx, text, size, weight, font, spacing) {
+    const k = text + '\u0000' + size.toFixed(2) + weight + (font || '') + (spacing || 0);
+    let w = measureCache.get(k);
+    if (w == null) {
+      ctx.save();
+      ctx.font = `${weight || 500} ${size}px ${(FONTS[font || 'serif'] || FONTS.serif).family}`;
+      const chars = Array.from(text);
+      w = chars.reduce((acc, c) => acc + ctx.measureText(c).width, 0) + (spacing || 0) * size * Math.max(0, chars.length - 1);
+      ctx.restore();
+      if (measureCache.size > 4000) measureCache.clear();
+      measureCache.set(k, w);
+    }
+    return w;
+  }
+  function overlapArea(a, b) {
+    const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+    if (w <= 0) return 0;
+    const hh = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+    return hh > 0 ? w * hh : 0;
+  }
+  /**
+   * 地名の自動配置：大事な地名（首都・城・都市）から順に、下 → 右 → 左 → 上 の中で
+   * ほかの地名・置いた文字・町の絵と重ならず、地図の外にはみ出さない向きを選ぶ。
+   * 向きを自分で決めた素材（s.lp）はそのまま。戻り値：素材の id → 向き
+   */
+  function planStampLabels(ctx, areasHidden) {
+    const m = M.map;
+    const plan = new Map();
+    const placed = [];
+    const pad = 1.5;
+    // 先に、置いてある文字（国名・海の名前など）と、領域の名前を障害物にする
+    m.labels.forEach((lb) => {
+      const sty = LABEL_STYLES[lb.style] || LABEL_STYLES.region;
+      const size = lb.size || sty.size;
+      const spacing = lb.spacing != null ? lb.spacing : sty.spacing;
+      const n = Array.from(lb.text || '').length;
+      let w = lb.vertical ? size * 1.15 : measureLabel(ctx, lb.text || '', size, sty.weight, lb.font || sty.font, spacing);
+      let hh = lb.vertical ? n * size * (1 + (spacing || 0)) : size * 1.25;
+      if (lb.rotation) {
+        const r = Math.abs(lb.rotation * Math.PI / 180);
+        const ww = Math.abs(Math.cos(r)) * w + Math.abs(Math.sin(r)) * hh;
+        hh = Math.abs(Math.sin(r)) * w + Math.abs(Math.cos(r)) * hh;
+        w = ww;
+      }
+      if (lb.curve) hh += w * 0.12;
+      placed.push([lb.x - w / 2, lb.y - hh / 2, lb.x + w / 2, lb.y + hh / 2]);
+    });
+    if (!areasHidden) {
+      const seen = new Set();
+      m.areas.forEach((ar) => {
+        if (!ar.name || (ar.nameLabel != null && ar.nameLabel !== '')) return;
+        if (ar.group) { if (seen.has(ar.group)) return; seen.add(ar.group); }
+        const c = centroid(ar.points);
+        const w = measureLabel(ctx, ar.name, 16, 700, 'shippori', 0.4);
+        placed.push([c[0] - w / 2, c[1] - 10, c[0] + w / 2, c[1] + 10]);
+      });
+    }
+    // 町や建物の絵（山や木は数が多いので避けない）
+    const icons = [];
+    const pk = palKey();
+    const items = [];
+    m.stamps.forEach((s) => {
+      const a = AS.BY_ID[s.a];
+      if (!a) return;
+      const sp = AS.sprite(s.a, s.v, pk);
+      const box = [s.x + sp.x0 * s.s, s.y + sp.y0 * s.s, s.x + (sp.x0 + sp.w) * s.s, s.y + (sp.y0 + sp.h) * s.s];
+      const natural = a.cat === '山・丘' || a.cat === '木・植物' || a.id === 'wave';
+      if (!natural) icons.push({ s, box });
+      const name = stampName(s);
+      if (!name || s.lp === 'none' || a.labelPos === 'none') return;
+      const f = stampLabelFont(s, a);
+      const rank = f.major ? 0 : (a.cat === '町・建物' || a.cat === '和風') ? 1 : a.cat === '地図記号' ? 2 : 3;
+      items.push({ s, a, sp, name, f, rank });
+    });
+    items.sort((p1, p2) => p1.rank - p2.rank || p2.f.size - p1.f.size);
+    const W = M.W;
+    const Hh = M.Hpx;
+    items.forEach((it) => {
+      const { s, a, sp, name, f } = it;
+      const w = measureLabel(ctx, name, f.size, f.weight, 'serif', 0);
+      const hh = f.size * 1.2;
+      const def = a.labelPos || 'below';
+      const cands = s.lp ? [s.lp] : [def].concat(['below', 'right', 'left', 'above'].filter((q) => q !== def));
+      let best = null;
+      cands.forEach((pos, i) => {
+        const c = stampLabelAnchor(s, a, sp, f.size, pos, w);
+        const box = [c.x - w / 2 - pad, c.y - hh / 2, c.x + w / 2 + pad, c.y + hh / 2];
+        let score = i * 0.04 * w * hh; // 迷ったら元の向き
+        placed.forEach((b) => { score += overlapArea(box, b) * 10; });
+        icons.forEach((ic) => { if (ic.s !== s) score += overlapArea(box, ic.box) * 3; });
+        const out = Math.max(0, -box[0]) + Math.max(0, box[2] - W) + Math.max(0, -box[1]) + Math.max(0, box[3] - Hh);
+        score += out * hh * 12;
+        if (!best || score < best.score) best = { pos, box, score };
+      });
+      plan.set(s.id, best.pos);
+      placed.push(best.box);
+    });
+    return plan;
+  }
+
+  function drawStampLabel(ctx, s, name, pl, planned) {
+    const a = AS.BY_ID[s.a];
+    if (!a || s.lp === 'none' || a.labelPos === 'none') return;
+    const pos = s.lp || planned || a.labelPos || 'below';
+    const { size, weight } = stampLabelFont(s, a);
     const sp = AS.sprite(s.a, s.v, palKey());
     const ink = pl.ink;
-    const sideY = s.y + (a.anchor === 'center' ? 0 : -sp.h * s.s * 0.3);
-    if (pos === 'right') drawText(ctx, name, 0, 0, { size, weight, color: ink, halo: pl.halo, align: 'left', x: s.x + (sp.x0 + sp.w) * s.s + 3, y: sideY });
-    else if (pos === 'left') drawText(ctx, name, 0, 0, { size, weight, color: ink, halo: pl.halo, align: 'right', x: s.x + sp.x0 * s.s - 3, y: sideY });
-    else if (pos === 'above') drawText(ctx, name, s.x, s.y + sp.y0 * s.s - size * 0.7, { size, weight, color: ink, halo: pl.halo });
-    else drawText(ctx, name, s.x, s.y + (sp.y0 + sp.h) * s.s + size * 0.75, { size, weight, color: ink, halo: pl.halo });
+    const c = stampLabelAnchor(s, a, sp, size, pos, 0);
+    if (pos === 'right') drawText(ctx, name, 0, 0, { size, weight, color: ink, halo: pl.halo, align: 'left', x: c.left, y: c.y });
+    else if (pos === 'left') drawText(ctx, name, 0, 0, { size, weight, color: ink, halo: pl.halo, align: 'right', x: c.left, y: c.y });
+    else drawText(ctx, name, c.x, c.y, { size, weight, color: ink, halo: pl.halo });
   }
 
   const fontLoaded = new Set();
@@ -2430,7 +2546,8 @@
   // ───── 凡例 ─────
   // 町・建物は大事な順に。ここにないもの（山・木・海の飾り）は凡例に出さない
   const LEGEND_STAMPS = ['castle', 'jcastle', 'city', 'town', 'village', 'jvillage', 'port', 'fort', 'tower', 'temple', 'church', 'shrine', 'pagoda', 'torii', 'lighthouse', 'windmill', 'farm', 'camp', 'bridge',
-    'ruins', 'cave', 'stones', 'crystal', 'obelisk', 'portal', 'giant-tree', 'skull', 'volcano', 'whirlpool', 'serpent'];
+    'market', 'monastery', 'arena', 'mine', 'graveyard', 'ruins', 'cave', 'stones', 'crystal', 'obelisk', 'portal', 'giant-tree', 'dragon', 'battlefield', 'skull',
+    'volcano', 'waterfall', 'oasis', 'whirlpool', 'serpent', 'kraken', 'whale'];
   const LEGEND_LINES = ['highway', 'road', 'trail', 'rail', 'river', 'wall', 'border', 'route'];
   /** 地図で使っているものから、凡例の行を作る */
   function legendRows() {
@@ -3509,7 +3626,9 @@
       h('div', { class: 'check-grid' },
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
         toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true),
-        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.legend, onchange: (e) => { set('legend', e.target.checked); renderInspector(); } }), '凡例')),
+        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.legend, onchange: (e) => { set('legend', e.target.checked); renderInspector(); } }), '凡例'),
+        h('label', { class: 'check', title: '町や城の名前が、ほかの名前・文字・町の絵と重ならないよう、下・右・左・上から置き場所を自動で選びます（名前の位置を決めた素材はそのまま）' },
+          h('input', { type: 'checkbox', checked: st.declutter !== false, onchange: (e) => set('declutter', e.target.checked) }), '地名を重ねない')),
       st.legend ? sel('legendPos', [['br', '右下'], ['bl', '左下'], ['tr', '右上'], ['tl', '左上']], '凡例の位置') : null,
       h('div', { class: 'row wrap' },
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),

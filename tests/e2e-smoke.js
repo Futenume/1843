@@ -167,9 +167,15 @@ function assert(cond, msg) {
   await page.mouse.click(cx + 150, cy + 120);
   assert((await page.locator('.map-inspector h3').first().textContent()).includes('文字'), '文字を置ける');
   await page.getByRole('button', { name: '書き出し', exact: true }).click();
-  await page.locator('.modal select').selectOption('1');
+  await page.locator('.modal').getByLabel('大きさ', { exact: true }).selectOption('1');
   const [download] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '書き出す' }).click()]);
   assert(/\.png$/.test(download.suggestedFilename()), 'PNG を書き出せる（' + download.suggestedFilename() + '）');
+  // JPEG（白い下地）でも書き出せる
+  await page.getByRole('button', { name: '書き出し', exact: true }).click();
+  await page.locator('.modal').getByLabel('大きさ', { exact: true }).selectOption('1');
+  await page.locator('.modal').getByLabel('形式').selectOption('jpeg');
+  const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.getByRole('button', { name: '書き出す' }).click()]);
+  assert(/\.jpe?g$/.test(dl2.suggestedFilename()), 'JPEG を書き出せる（' + dl2.suggestedFilename() + '）');
   await page.screenshot({ path: path.join(OUT, 'map-edited.png') });
 
   console.log('保存と再読み込み');
