@@ -739,24 +739,29 @@
         h('div', { class: 'row' }, numInput(cur.yen, (v) => { cur.yen = v; touch(); renderCurConv(); }, { 'aria-label': '円での目安' }), h('span', { class: 'small muted' }, '円')),
         '入れると、本文の「千円」などを、この世界のお金に換算した言い換えにします'));
     };
+    // 換算の道具（入力欄は作り直さず、結果だけを書き換える。打っている途中で入力欄が消えないように）
     let convAmount = 1;
     let convCoin = '';
+    const curConvSel = h('select', { class: 'input', 'aria-label': 'お金の種類', onchange: (e) => { convCoin = e.target.value; renderCurConv(); } });
+    const curConvOut = h('div', { class: 'conv-out small' });
+    curConv.append(h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
+      numInput(convAmount, (v) => { convAmount = v; renderCurConv(); }, { 'aria-label': '枚数' }), curConvSel, h('span', { class: 'small muted' }, '枚は')), curConvOut);
     function renderCurConv() {
-      clear(curConv);
       const list = coinList();
+      curConv.hidden = !list.length;
       if (!list.length) return;
       if (!list.some((u) => u.name === convCoin)) convCoin = list[0].name;
+      const names = list.map((u) => u.name).join('\u0000');
+      if (curConvSel.dataset.names !== names) {
+        clear(curConvSel);
+        list.forEach((u) => curConvSel.appendChild(h('option', { value: u.name, selected: u.name === convCoin }, u.name)));
+        curConvSel.dataset.names = names;
+      }
       const from = list.find((u) => u.name === convCoin);
       const base = convAmount * from.value;
-      curConv.append(
-        h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
-          numInput(convAmount, (v) => { convAmount = v; renderCurConv(); }, { 'aria-label': '枚数' }),
-          h('select', { class: 'input', 'aria-label': 'お金の種類', onchange: (e) => { convCoin = e.target.value; renderCurConv(); } }, list.map((u) => h('option', { value: u.name, selected: u.name === convCoin }, u.name))),
-          h('span', { class: 'small muted' }, '枚は')),
-        h('div', { class: 'conv-out small' }, list.filter((u) => u !== from).map((u) => h('span', null, `${u.name} ${roundShow(base / u.value)}枚`)),
-          cur.yen > 0 ? h('span', { class: 'muted' }, `およそ ${UI.fmtNum(Math.round(base * cur.yen))}円`) : null));
-      const inp = curConv.querySelector('input');
-      if (inp && document.activeElement && document.activeElement.closest && document.activeElement.closest('.converter') === curConv) inp.focus();
+      clear(curConvOut);
+      list.filter((u) => u !== from).forEach((u) => curConvOut.appendChild(h('span', null, `${u.name} ${roundShow(base / u.value)}枚`)));
+      if (cur.yen > 0) curConvOut.appendChild(h('span', { class: 'muted' }, `およそ ${UI.fmtNum(Math.round(base * cur.yen))}円`));
     }
     renderYen();
     renderCur();
@@ -823,22 +828,28 @@
     let ucVal = 100;
     let ucUnit = 'm';
     const REAL_PICK = [['m', 'length', 1], ['km', 'length', 1000], ['cm', 'length', 0.01], ['g', 'weight', 1], ['kg', 'weight', 1000], ['L', 'volume', 1]];
+    const unitConvSel = h('select', { class: 'input', 'aria-label': '現実の単位', onchange: (e) => { ucUnit = e.target.value; renderUnitConv(); } });
+    const unitConvOut = h('div', { class: 'conv-out small' });
+    unitConv.append(h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
+      numInput(ucVal, (v) => { ucVal = v; renderUnitConv(); }, { 'aria-label': '現実の量' }), unitConvSel, h('span', { class: 'small muted' }, 'は')), unitConvOut);
     function renderUnitConv() {
-      clear(unitConv);
       const good = un.list.filter((u) => u.name && u.amount > 0);
+      unitConv.hidden = !good.length;
       if (!good.length) return;
       const kinds = new Set(good.map((u) => u.kind));
       const picks = REAL_PICK.filter(([, k]) => kinds.has(k));
       if (!picks.some(([k]) => k === ucUnit)) ucUnit = picks[0][0];
+      const keys = picks.map(([k]) => k).join(',');
+      if (unitConvSel.dataset.keys !== keys) {
+        clear(unitConvSel);
+        picks.forEach(([k]) => unitConvSel.appendChild(h('option', { value: k, selected: k === ucUnit }, k)));
+        unitConvSel.dataset.keys = keys;
+      }
       const [, kind, f] = picks.find(([k]) => k === ucUnit);
-      const rows = W.unitTable(ucVal * f, kind, good);
-      unitConv.append(
-        h('div', { class: 'conv-in' }, h('span', { class: 'small muted' }, '換算'),
-          numInput(ucVal, (v) => { ucVal = v; renderUnitConv(); }, { 'aria-label': '現実の量' }),
-          h('select', { class: 'input', 'aria-label': '現実の単位', onchange: (e) => { ucUnit = e.target.value; renderUnitConv(); } }, picks.map(([k]) => h('option', { value: k, selected: k === ucUnit }, k))),
-          h('span', { class: 'small muted' }, 'は')),
-        h('div', { class: 'conv-out small' }, rows.map((r) => h('span', null, `${roundShow(r.value)} ${r.name}`)),
-          h('span', { class: 'muted' }, '本文では：' + (W.convertUnit(ucVal * f, kind, good, true, '') || ''))));
+      clear(unitConvOut);
+      W.unitTable(ucVal * f, kind, good).forEach((r) => unitConvOut.appendChild(h('span', null, `${roundShow(r.value)} ${r.name}`)));
+      const said = ucVal > 0 ? W.convertUnit(ucVal * f, kind, good, true, '') : '';
+      if (said) unitConvOut.appendChild(h('span', { class: 'muted' }, '本文では：' + said));
     }
     renderUnits();
     secUnit.append(unitList, unitConv);

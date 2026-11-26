@@ -111,8 +111,13 @@ function assert(cond, msg) {
   await page.locator('.lore-tab', { hasText: '年表' }).click();
   assert(await page.evaluate(() => document.querySelector('.tl-fields').getBoundingClientRect().width) > 200, '年表の入力欄が表示される');
   await page.locator('.lore-tab', { hasText: '世界観' }).click();
-  assert(await page.locator('.ng-card').count() === 2, '世界観ルール：NGワードが1語ずつ表示される');
-  assert((await page.locator('.ng-card').nth(1).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');
+  assert(await page.locator('.ng-card').count() === 1, '世界観ルール：NGワードが1語ずつ表示される');
+  assert((await page.locator('.ng-card').nth(0).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');
+  assert(await page.locator('.rules-nav .chip').count() >= 8, '世界観ルール：項目へ移るボタンがある');
+  assert((await page.locator('#rules-currency .rule-summary').textContent()).includes('金貨1枚 ＝ 銀貨100枚'), '世界観ルール：通貨の換算が表示される');
+  await page.getByRole('button', { name: '全話を調べる' }).last().click();
+  await page.waitForTimeout(400);
+  assert((await page.locator('.scan-out').textContent()).includes('約百三十歩'), '世界観ルール：全話を調べると「百メートル→約百三十歩」が見つかる');
 
   console.log('アイデア・プロット');
   await page.locator('.nav-item[data-route="ideas"]').click();

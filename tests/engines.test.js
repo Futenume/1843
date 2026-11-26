@@ -637,7 +637,7 @@ test('世界観ルール：単位・お金・暦・時計・文明・外来語�
   assert.equal(got['三千メートル'], '一里足らず');
   assert.equal(got['千円'], '銅貨十枚');
   assert.ok('白金貨' in got && got['月曜日'] === '光の日' && got['西暦'] === '王国暦' && got['三月'] === '3の月');
-  assert.ok('三時' in got && '十分' in got && got['電話'] === '伝令' && '時計' in got && '拳銃' in got && got['ドア'] === '戸');
+  assert.ok('三時' in got && '十分' in got && got['電話'] === '使い' && '時計' in got && '拳銃' in got && got['ドア'] === '戸');
   // 拾ってはいけないもの
   ['関東一円', '一円', '円形', '三ヶ月', 'ヶ月', '一時', '砂時計', 'ドアノブ', 'リオ', 'センチ', 'インチ'].forEach((w) => assert.ok(!(w in got), w + ' は指摘しない'));
   assert.equal(Object.keys(got).filter((k) => k === '十分').length, 1, '「十分だ」は時間ではない');
@@ -662,4 +662,29 @@ test('世界観ルール：設定矛盾チェックに組み込み（台詞は�
   const res = Consistency.check(text, { entries: [], rules: { units: rules.units }, narrator: 'first' }).issues.filter((i) => i.ruleId === 'world');
   assert.deepEqual(res.map((i) => [i.text, i.suggestion]), [['百メートル', '約百三十歩'], ['二十メートル', '約二十七歩']]);
   assert.ok(res.every((i) => i.fixable));
+});
+
+test('世界観ルール：試行錯誤で見つけた誤検出を起こさない', () => {
+  const { WorldRules: W } = globalThis.Tsuzuri;
+  const rules = {
+    units: { list: [{ kind: 'length', name: '歩', amount: 0.75 }, { kind: 'length', name: '里', amount: 4000 }, { kind: 'weight', name: '斤', amount: 600 }] },
+    currency: { units: [{ name: '金貨', value: 10000 }, { name: '銀貨', value: 100 }, { name: '銅貨', value: 1 }], yen: 100 },
+    calendar: { months: Array.from({ length: 12 }, (_, i) => (i + 1) + 'の月'), noClock: true },
+    tech: { cats: ['firearm', 'electric', 'vehicle', 'record', 'paper'], loanwords: true },
+  };
+  const found = (t) => W.scan(t, rules).map((f) => [t.slice(f.start, f.end), f.suggestion]);
+  // 期間の「一月ほど」「三月後」は月の名前ではない／「十分です」「十分でいい」は時間ではない
+  assert.deepEqual(found('一月ほど旅をした。三月後に会おう。十分です。十分でいいよ。五分五分だ。三分の一。'), []);
+  assert.deepEqual(found('一月一日'), [['一月', '1の月']]);
+  // 「一ミリも」→「少しも」、とても大きさの違う「数十キロ」や1枚に満たない「十円」は言い換えを出さない
+  assert.deepEqual(found('一ミリも動かない'), [['一ミリ', '少し']]);
+  assert.deepEqual(found('数十キロの道'), [['数十キロ', null]]);
+  assert.deepEqual(found('十円玉'), [['十円', null]]);
+  // 全角の数字はそのまま全角で
+  assert.deepEqual(found('１万円'), [['１万円', '銀貨１枚']]);
+  // 熟語の一部の「銃」は置き換えない（「銃眼」→「弩眼」にしない）
+  assert.deepEqual(found('銃眼から'), [['銃', null]]);
+  // 和風（外来語を控える）では、言い換えも和風に
+  assert.deepEqual(found('電話と列車と写真と紙幣'), [['電話', '使い'], ['列車', '駕籠'], ['写真', '絵姿'], ['紙幣', '小判']]);
+  assert.deepEqual(found('障子を開けるとテーブルがあった。ドアノブ。ゴロゴロ。'), [['テーブル', '卓']]);
 });

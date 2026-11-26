@@ -75,12 +75,15 @@
     if (v >= 1) return Math.round(v * 2) / 2;
     return Math.max(0.1, Math.round(v * 10) / 10);
   }
-  /** 元の書き方（漢数字か算用数字か）に合わせて数を書く。漢数字は整数にする */
+  /** 元の書き方（漢数字・算用数字・全角数字）に合わせて数を書く。漢数字は整数にする */
   function fmt(v, useKanji) {
-    if (useKanji) return kanji(Math.max(1, Math.round(v)));
-    return Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10);
+    if (useKanji === true) return kanji(Math.max(1, Math.round(v)));
+    const t = Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10);
+    return useKanji === 'wide' ? t.replace(/[0-9.]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)) : t;
   }
-  const isKanjiNum = (s) => /^[〇零一二三四五六七八九十百千万億壱弐参]+$/.test(s);
+  // 数の書き方：漢数字なら true、全角数字なら 'wide'、半角なら false
+  const numStyle = (s) => (isKanjiNum(s) ? true : /[０-９]/.test(s) ? 'wide' : false);
+  function isKanjiNum(s) { return /^[〇零一二三四五六七八九十百千万億壱弐参]+$/.test(s); }
 
   // 数のあとに単位が続く形
   const NUM = '[0-9０-９]+(?:[.．][0-9０-９]+)?|[〇零一二三四五六七八九十百千万億]+|数十|数百|数千|十数|数';
@@ -108,15 +111,17 @@
     const list = units.filter((u) => u.kind === kind && u.amount > 0).sort((a, b) => b.amount - a.amount);
     if (!list.length) return null;
     if (vague) {
-      // 「数メートル」→ いちばん近い大きさの単位で「数歩」
+      // 「数メートル」→ 近い大きさの単位があれば「数歩」。大きさが2倍以上違うと意味が変わるので、案は出さない
       let best = list[0];
       list.forEach((u) => { if (Math.abs(Math.log(u.amount / value)) < Math.abs(Math.log(best.amount / value))) best = u; });
-      return vague + best.name;
+      return Math.abs(Math.log(best.amount / value)) <= Math.log(2) ? vague + best.name : null;
     }
+    // いちばん小さい単位よりずっと小さい量（「一ミリ」など）は、単位で言い換えない
+    if (value / list[list.length - 1].amount < 0.2) return null;
     // 大きい単位で1以上になるもの（「半里」と言える半分以上も可）
-    const u = list.find((x) => value / x.amount >= (useKanji ? 0.45 : 1)) || list[list.length - 1];
+    const u = list.find((x) => value / x.amount >= (useKanji === true ? 0.45 : 1)) || list[list.length - 1];
     const exact = value / u.amount;
-    if (useKanji && exact < 10) {
+    if (useKanji === true && exact < 10) {
       // 漢数字は「一里半」「半里」のように半分まで。半分の刻みから離れているときは「一里あまり」「一里足らず」
       const say = (r) => { const whole = Math.floor(r); const half = r - whole === 0.5; return whole ? kanji(whole) + u.name + (half ? '半' : '') : '半' + u.name; };
       const near = Math.max(0.5, Math.round(exact * 2) / 2);
@@ -127,7 +132,7 @@
       return say(down) + 'あまり';
     }
     const r = roundNice(exact);
-    const shown = useKanji ? Math.max(1, Math.round(r)) : r;
+    const shown = useKanji === true ? Math.max(1, Math.round(r)) : r;
     const approx = Math.abs(shown - exact) > exact * 1e-6; // 丸めたら「約」
     return (approx ? '約' : '') + fmt(shown, useKanji) + u.name;
   }
@@ -143,8 +148,8 @@
 
   // ───── お金 ─────
   const REAL_MONEY = ['ドル', 'ユーロ', 'セント', 'ペニー', 'ペンス'];
-  function coinPhrase(name, n, useKanji) {
-    const num = fmt(n, useKanji);
+  function coinPhrase(name, n, useKanji, approx) {
+    const num = (approx ? '約' : '') + fmt(n, useKanji);
     return /[貨札玉幣]$/.test(name) ? `${name}${num}枚` : `${num}${name}`;
   }
   /** 円の金額を、この世界の硬貨に。currency: { units:[{name,value}], yen }（value は一番小さい硬貨を1とした値、yen は一番小さい硬貨1枚の円） */
@@ -154,8 +159,9 @@
     const base = yen / currency.yen;
     const u = units.find((x) => base / x.value >= 1) || units[units.length - 1];
     const exact = base / u.value;
+    if (exact < 0.75) return null; // いちばん小さいお金1枚にも満たない額は、言い換えを出さない（文を考え直す）
     const r = Math.max(1, exact >= 10 ? roundNice(exact) : Math.round(exact));
-    return (Math.abs(r - exact) > exact * 1e-6 ? '約' : '') + coinPhrase(u.name, r, useKanji);
+    return coinPhrase(u.name, r, useKanji, Math.abs(r - exact) > exact * 1e-6);
   }
 
   // ───── 暦と時刻 ─────
@@ -164,14 +170,14 @@
 
   // ───── 文明の水準（この世界にないもの） ─────
   const TECH = [
-    { id: 'electric', label: '電気・電化製品', words: [['携帯電話', '伝令'], ['電話', '伝令'], ['電気', ''], ['電灯', 'ランプ'], ['電球', 'ランプ'], ['電池', ''], ['停電', ''], ['充電', ''], ['スマートフォン', ''], ['スマホ', ''], ['テレビ', ''], ['ラジオ', ''], ['パソコン', ''], ['コンピューター', ''], ['コンピュータ', ''], ['インターネット', ''], ['メール', '手紙'], ['エアコン', ''], ['冷蔵庫', '氷室'], ['掃除機', ''], ['エレベーター', '昇降機']] },
-    { id: 'vehicle', label: '自動車・鉄道・飛行機', words: [['自動車', '馬車'], ['電車', '馬車'], ['列車', '馬車'], ['汽車', '馬車'], ['新幹線', ''], ['地下鉄', ''], ['線路', ''], ['自転車', '馬'], ['バイク', '馬'], ['飛行機', ''], ['ヘリコプター', ''], ['トラック', '荷馬車'], ['タクシー', '辻馬車'], ['ガソリン', '']] },
+    { id: 'electric', label: '電気・電化製品', words: [['携帯電話', '伝令', '使い'], ['電話', '伝令', '使い'], ['電気', ''], ['電灯', 'ランプ', '行灯'], ['電球', 'ランプ', '行灯'], ['電池', ''], ['停電', ''], ['充電', ''], ['スマートフォン', ''], ['スマホ', ''], ['テレビ', ''], ['ラジオ', ''], ['パソコン', ''], ['コンピューター', ''], ['コンピュータ', ''], ['インターネット', ''], ['メール', '手紙', '文'], ['エアコン', ''], ['冷蔵庫', '氷室'], ['掃除機', ''], ['エレベーター', '昇降機', '昇降機']] },
+    { id: 'vehicle', label: '自動車・鉄道・飛行機', words: [['自動車', '馬車', '駕籠'], ['電車', '馬車', '駕籠'], ['列車', '馬車', '駕籠'], ['汽車', '馬車', '駕籠'], ['新幹線', ''], ['地下鉄', ''], ['線路', ''], ['自転車', '馬', '馬'], ['バイク', '馬', '馬'], ['飛行機', ''], ['ヘリコプター', ''], ['トラック', '荷馬車', '大八車'], ['タクシー', '辻馬車', '駕籠'], ['ガソリン', '']] },
     { id: 'firearm', label: '火薬・銃', words: [['手榴弾', ''], ['ダイナマイト', ''], ['ミサイル', ''], ['ピストル', ''], ['ライフル', ''], ['拳銃', ''], ['鉄砲', '弩'], ['大砲', '投石機'], ['火薬', ''], ['爆弾', ''], ['弾丸', '矢'], ['銃', '弩']] },
     { id: 'clock', label: '機械の時計', words: [['時計', '']] },
-    { id: 'record', label: '写真・録音・映像', words: [['写真', '肖像画'], ['カメラ', ''], ['映画', '芝居'], ['録音', ''], ['録画', ''], ['ビデオ', '']] },
-    { id: 'material', label: '近代の素材・道具', words: [['プラスチック', ''], ['ビニール', ''], ['ナイロン', ''], ['コンクリート', '石'], ['アスファルト', '石畳'], ['ペットボトル', ''], ['ボールペン', '羽根ペン'], ['マッチ', '火打ち石'], ['ライター', '火打ち石'], ['缶詰', '']] },
-    { id: 'medicine', label: '近代の医療', words: [['抗生物質', ''], ['ワクチン', ''], ['レントゲン', ''], ['注射', ''], ['麻酔', '眠り薬']] },
-    { id: 'paper', label: '紙幣・カード', words: [['クレジットカード', ''], ['紙幣', '金貨']] },
+    { id: 'record', label: '写真・録音・映像', words: [['写真', '肖像画', '絵姿'], ['カメラ', ''], ['映画', '芝居', '芝居'], ['録音', ''], ['録画', ''], ['ビデオ', '']] },
+    { id: 'material', label: '近代の素材・道具', words: [['プラスチック', ''], ['ビニール', ''], ['ナイロン', ''], ['コンクリート', '石', '石'], ['アスファルト', '石畳', '石畳'], ['ペットボトル', ''], ['ボールペン', '羽根ペン', '筆'], ['マッチ', '火打ち石'], ['ライター', '火打ち石'], ['缶詰', '']] },
+    { id: 'medicine', label: '近代の医療', words: [['抗生物質', ''], ['ワクチン', ''], ['レントゲン', ''], ['注射', '']] },
+    { id: 'paper', label: '紙幣・カード', words: [['クレジットカード', ''], ['紙幣', '金貨', '小判']] },
   ];
   const TECH_PRESETS = {
     none: { label: '現代・制限なし', cats: [], loan: false },
@@ -260,7 +266,9 @@
         if (num) {
           const vague = VAGUE.has(num) ? num : '';
           const v = vague ? 1 : parseNum(num);
-          if (vague || v > 0) suggestion = convertUnit(vague ? factor : v * factor, kind, units, vague || isKanjiNum(num), vague);
+          if (vague || v > 0) suggestion = convertUnit(vague ? factor : v * factor, kind, units, vague ? true : numStyle(num), vague);
+          // 「一ミリも動かない」→「少しも動かない」
+          if (!suggestion && !vague && s[m.index + m[0].length] === 'も' && v * factor <= 0.05) suggestion = '少し';
         }
         push({ start: m.index, end: m.index + m[0].length, kind: 'unit', scope: 'auto', severity: 'warning',
           message: `この世界の${KIND_LABEL[kind]}の単位は ${listOf(kind)} です${word === 'キロ' && kinds.has('length') && kinds.has('weight') ? `（「キロ」を${KIND_LABEL[kind]}として換算しました）` : ''}`, suggestion });
@@ -271,7 +279,7 @@
         const [kind, factor] = LATIN_UNITS[key] || [];
         if (!kind || !kinds.has(kind)) return;
         push({ start: m.index, end: m.index + m[0].length, kind: 'unit', scope: 'auto', severity: 'warning',
-          message: `この世界の${KIND_LABEL[kind]}の単位は ${listOf(kind)} です`, suggestion: convertUnit(parseNum(m[1]) * factor, kind, units, false, '') });
+          message: `この世界の${KIND_LABEL[kind]}の単位は ${listOf(kind)} です`, suggestion: convertUnit(parseNum(m[1]) * factor, kind, units, numStyle(m[1]), '') });
       });
     }
 
@@ -287,7 +295,7 @@
         let suggestion = null;
         if (currency.yen > 0 && !VAGUE.has(num)) {
           const yen = parseNum(num) * (m[2] === '万' ? 1e4 : m[2] === '億' ? 1e8 : 1);
-          if (yen > 0) suggestion = convertYen(yen, currency, isKanjiNum(num));
+          if (yen > 0) suggestion = convertYen(yen, currency, numStyle(num));
         }
         push({ start: m.index, end: m.index + m[0].length, kind: 'money', scope: 'auto', severity: 'warning', message: msg + (currency.yen > 0 ? `（${names[names.length - 1]}1枚＝およそ${currency.yen}円として換算）` : ''), suggestion });
       });
@@ -320,7 +328,7 @@
     }
     const months = (cal.months || []).filter(Boolean);
     if (months.length === 12) {
-      each(new RegExp('(?<![〇一二三四五六七八九十百0-9０-９ヶか])(' + '[0-9０-９]{1,2}|十[一二]?|[一二三四五六七八九]' + ')月(?![曜間])', 'g'), (m) => {
+      each(new RegExp('(?<![〇一二三四五六七八九十百0-9０-９ヶか])(' + '[0-9０-９]{1,2}|十[一二]?|[一二三四五六七八九]' + ')月(?![曜間]|ほど|ばかり|あまり|余り|も|後|前|ぶり|経|が経|半|分)', 'g'), (m) => {
         const n = parseNum(m[1]);
         if (!(n >= 1 && n <= 12)) return;
         push({ start: m.index, end: m.index + m[0].length, kind: 'calendar', scope: 'auto', severity: 'info', message: `この世界の${n}番目の月は「${months[n - 1]}」です（暦の月の名前）`, suggestion: months[n - 1] });
@@ -333,7 +341,7 @@
         if (m[1] === '一' || VAGUE.has(m[1])) return;
         push({ start: m.index, end: m.index + m[0].length, kind: 'clock', scope: 'auto', severity: 'warning', message: note, suggestion: null });
       });
-      each(new RegExp('(?<![〇一二三四五六七八九十百0-9０-９])(' + NUM + ')(分(?=後|前|間|ほど|程|おき|ごと|過ぎ|足らず|も経|が経|で)|秒)', 'g'), (m) => {
+      each(new RegExp('(?<![〇一二三四五六七八九十百0-9０-９])(' + NUM + ')(分(?=後|前|間|ほど|程|おき|ごと|過ぎ|足らず|も経|が経)|秒)', 'g'), (m) => {
         push({ start: m.index, end: m.index + m[1].length + 1, kind: 'clock', scope: 'auto', severity: 'warning', message: note, suggestion: null });
       });
     }
@@ -341,15 +349,18 @@
     // 文明の水準（この世界にないもの）
     const cats = new Set(tech.cats || []);
     const techWords = [];
-    TECH.forEach((c) => { if (cats.has(c.id)) c.words.forEach(([w, sug]) => techWords.push({ w, sug, label: c.label })); });
+    TECH.forEach((c) => { if (cats.has(c.id)) c.words.forEach(([w, sug, ja]) => techWords.push({ w, sug, ja, label: c.label })); });
     splitWords(tech.extra).forEach((w) => techWords.push({ w, sug: '', label: '' }));
     techWords.filter((t) => !allowed.has(t.w)).sort((a, b) => b.w.length - a.w.length).forEach((t) => {
       const kata = /^[ァ-ヴー]+$/.test(t.w);
       each(new RegExp((kata ? KB : '') + escRe(t.w) + (kata ? KA : ''), 'g'), (m) => {
         const ex = TECH_EXCEPT[t.w];
         if (ex && ex.test(s.slice(Math.max(0, m.index - 1), m.index))) return;
+        // 1文字の語が熟語の一部のとき（「銃眼」など）は、置き換えると別の語になるので案を出さない
+        const inCompound = t.w.length === 1 && /[一-龯]/.test(s[m.index + 1] || '');
+        const sug = (tech.loanwords && t.ja) || t.sug;
         push({ start: m.index, end: m.index + t.w.length, kind: 'tech', scope: 'all', severity: 'warning',
-          message: `「${t.w}」はこの世界にありません${t.label ? `（文明の水準：${t.label}なし）` : ''}${t.sug ? `。言い換え例：「${t.sug}」` : ''}`, suggestion: t.sug || null });
+          message: `「${t.w}」はこの世界にありません${t.label ? `（文明の水準：${t.label}なし）` : ''}${sug ? `。言い換え例：「${sug}」` : ''}`, suggestion: inCompound ? null : (sug || null) });
       });
     });
 

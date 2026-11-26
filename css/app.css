@@ -1153,7 +1153,7 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
 .rule-summary { font-size: 13px; font-weight: 600; color: var(--ink); margin: 0; }
 .rule-summary:empty { display: none; }
 .converter { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line)); }
-.converter:empty { display: none; }
+.converter:empty, .converter[hidden] { display: none; }
 .conv-in { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .conv-in .input-num { width: 7em; }
 .conv-in select { width: auto; }
