@@ -123,7 +123,7 @@
     const name = h('input', { class: 'input', type: 'text', value: regenerate ? M.map.name : '世界地図' });
     const preset = h('select', { class: 'input' }, Object.keys(E.PRESETS).map((k) => h('option', { value: k }, E.PRESETS[k].label)));
     const size = h('select', { class: 'input' }, [['s', '小'], ['m', '中'], ['l', '大'], ['w', '世界（横長 2:1）']].map(([v, l]) => h('option', { value: v, selected: v === 'm' }, l)));
-    const palette = h('select', { class: 'input' }, Object.keys(E.PALETTES).map((k) => h('option', { value: k, selected: regenerate ? M.map.style.palette === k : k === 'parchment' }, E.PALETTES[k].label)));
+    const palette = h('select', { class: 'input' }, Object.keys(E.PALETTES).map((k) => h('option', { value: k, selected: regenerate ? M.map.style.palette === k : k === 'teal' }, E.PALETTES[k].label)));
     const land = h('input', { type: 'range', min: 10, max: 80, value: 42, class: 'range' });
     const landOut = h('span', { class: 'muted small range-out' }, '42%');
     land.addEventListener('input', () => { landOut.textContent = land.value + '%'; });
@@ -139,11 +139,11 @@
       if (!nameTouched) name.value = pr.world ? '世界地図' : '新しい地図';
       if (pr.world) {
         if (!sizeTouched) size.value = 'w';
-        if (!paletteTouched) palette.value = 'atlas';
+        if (!paletteTouched) palette.value = 'watercolor';
         land.value = Math.round((pr.land || 0.3) * 100);
       } else {
         if (!sizeTouched && size.value === 'w') size.value = 'm';
-        if (!paletteTouched) palette.value = 'parchment';
+        if (!paletteTouched) palette.value = 'teal';
         land.value = Math.round((pr.land || 0.42) * 100);
       }
       landOut.textContent = land.value + '%';
@@ -1895,6 +1895,8 @@
       if (landAreas.length) drawLandAreas(ctx, landAreas, layerHidden('terrain') ? null : (opts.mask || M.mask));
       m.areas.forEach((ar) => { if (!ar.land) drawArea(ctx, ar); });
     }
+    // 方位線（海図のように、方位記号から放射状にのびる細い線。海の上だけ）
+    if (st.rhumb && !layerHidden('deco')) drawRhumb(ctx, pl, layerHidden('terrain') ? null : (opts.mask || M.mask));
     // 道の太さ：縮小して見ているときは、細くなりすぎないよう少し太く（書き出しは少しだけ）
     const cssScale = view.editing ? S / (M.dpr || 1) : 1;
     pathBoost = view.editing ? (cssScale < 1 ? Math.min(1.8, Math.pow(1 / cssScale, 0.6)) : 1) : 1.15;
@@ -1950,9 +1952,11 @@
       }
       m.labels.forEach((lb) => {
         const sty = LABEL_STYLES[lb.style] || LABEL_STYLES.region;
-        const color = lb.color || (sty.color === 'water' ? pl.water : sty.color === 'glyph' ? pl.glyph : pl.ink);
+        // 暗い海の配色では、海の名前は淡い色で（濃い縁取りは付けない）
+        const seaPale = lb.style === 'sea' && pl.seaLabel;
+        const color = lb.color || (seaPale ? pl.seaLabel : sty.color === 'water' ? pl.water : sty.color === 'glyph' ? pl.glyph : pl.ink);
         const box = drawText(ctx, lb.text, lb.x, lb.y, {
-          size: lb.size || sty.size, weight: sty.weight, color, spacing: lb.spacing != null ? lb.spacing : sty.spacing, halo: lb.halo === false ? null : pl.halo,
+          size: lb.size || sty.size, weight: sty.weight, color, spacing: lb.spacing != null ? lb.spacing : sty.spacing, halo: lb.halo === false ? null : (seaPale ? pl.seaHalo : pl.halo),
           rotation: lb.rotation || 0, vertical: lb.vertical, curve: lb.curve || 0, font: lb.font || sty.font,
         });
         if (view.editing) M.labelBoxes.set(lb.id, box);
@@ -2127,6 +2131,75 @@
     ctx.restore();
   }
 
+  let rhumbLayer = null;
+  /**
+   * 方位線：方位記号（なければ地図の中心）から32方位に細い線をのばし、地図の中心には大きな円を描く。
+   * 主な8方位は濃く、その間は淡く。陸の上は消して、海の上だけに見せる
+   */
+  function drawRhumb(ctx, pl, mask) {
+    const cw = ctx.canvas.width;
+    const ch = ctx.canvas.height;
+    if (!rhumbLayer) rhumbLayer = document.createElement('canvas');
+    if (rhumbLayer.width !== cw || rhumbLayer.height !== ch) { rhumbLayer.width = cw; rhumbLayer.height = ch; }
+    const o = rhumbLayer.getContext('2d');
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.globalCompositeOperation = 'source-over';
+    o.clearRect(0, 0, cw, ch);
+    o.setTransform(ctx.getTransform());
+    const comp = M.map.stamps.find((q) => q.a === 'compass' || q.a === 'compass-simple');
+    const cx = comp ? comp.x : M.W / 2;
+    const cy = comp ? comp.y : M.Hpx / 2;
+    const L = Math.hypot(M.W, M.Hpx) * 1.1;
+    const col = pl.ripple || [120, 140, 150];
+    const rgba = (a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    const ink = pl.roadStyle === 'light' || pl === E.PALETTES.night ? null : inkOf(pl);
+    o.lineCap = 'butt';
+    for (let k = 0; k < 32; k++) {
+      const a = (k / 32) * Math.PI * 2;
+      const major = k % 4 === 0;
+      const half = k % 2 === 0;
+      o.strokeStyle = ink ? (major ? hexA(ink, 0.3) : half ? hexA(ink, 0.2) : hexA(ink, 0.13)) : rgba(major ? 0.75 : half ? 0.5 : 0.32);
+      o.lineWidth = major ? 0.8 : half ? 0.6 : 0.45;
+      o.setLineDash(major || half ? [] : [6, 4]);
+      o.beginPath();
+      o.moveTo(cx, cy);
+      o.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+      o.stroke();
+    }
+    o.setLineDash([]);
+    // 地図の中心の大きな円と目盛り
+    const R = Math.min(M.W, M.Hpx) * 0.42;
+    const mx = M.W / 2;
+    const my = M.Hpx / 2;
+    o.strokeStyle = ink ? hexA(ink, 0.22) : rgba(0.55);
+    o.lineWidth = 0.7;
+    o.beginPath();
+    o.arc(mx, my, R, 0, Math.PI * 2);
+    o.stroke();
+    o.lineWidth = 0.45;
+    o.beginPath();
+    o.arc(mx, my, R - 4, 0, Math.PI * 2);
+    o.stroke();
+    for (let k = 0; k < 72; k++) {
+      const a = (k / 72) * Math.PI * 2;
+      const r0 = R - (k % 6 === 0 ? 4 : 2);
+      o.beginPath();
+      o.moveTo(mx + Math.cos(a) * r0, my + Math.sin(a) * r0);
+      o.lineTo(mx + Math.cos(a) * R, my + Math.sin(a) * R);
+      o.stroke();
+    }
+    if (mask) {
+      o.globalCompositeOperation = 'destination-out';
+      o.drawImage(mask, 0, 0, M.W, M.Hpx);
+      o.globalCompositeOperation = 'source-over';
+    }
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(rhumbLayer, 0, 0);
+    ctx.restore();
+  }
+
   /** 川の色：海岸近くの海と同じ色にして、河口で海につながって見えるようにする */
   function riverColors(pl) {
     const mixc = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
@@ -2156,6 +2229,34 @@
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    // 明るい道（白い点線・破線）の配色：暗い色の影を少しずらして敷き、地面から浮かせる
+    if (pl.roadStyle === 'light' && ROAD_KINDS.includes(ln.kind) && ln.kind !== 'rail') {
+      const dots = (lw, dash, shadowA) => {
+        ctx.setLineDash(dash);
+        ctx.save();
+        ctx.translate(0.35 * w, 0.45 * w);
+        ctx.strokeStyle = `rgba(20,14,8,${shadowA})`;
+        ctx.lineWidth = lw * 1.25;
+        strokePoly(ctx, pts);
+        ctx.restore();
+        ctx.strokeStyle = pl.road;
+        ctx.lineWidth = lw;
+        strokePoly(ctx, pts);
+      };
+      if (ln.kind === 'highway') {
+        ctx.strokeStyle = 'rgba(28,20,12,0.32)';
+        ctx.lineWidth = 3.6 * w;
+        strokePoly(ctx, pts);
+        ctx.lineCap = 'butt';
+        dots(1.7 * w, [5.5 * w, 2.4 * w], 0);
+      } else if (ln.kind === 'road') {
+        dots(1.6 * w, [0.01, 3.1 * w], 0.45);
+      } else {
+        dots(1.15 * w, [0.01, 3.8 * w], 0.4);
+      }
+      ctx.restore();
+      return;
+    }
     switch (ln.kind) {
       case 'river':
       case 'stream': {
@@ -2617,6 +2718,12 @@
         ctx.drawImage(sp.canvas, ix + (icon - sp.w * k) / 2, cy - (sp.h * k) / 2, sp.w * k, sp.h * k);
       } else if (r.kind === 'line') {
         ctx.save();
+        // 明るい色の道（白い点線）は、淡い下地では見えないので、陸の色の小さな帯の上に描く
+        if (pl.roadStyle === 'light' && ROAD_KINDS.includes(r.line)) {
+          const lc = pl.ramp[1][1];
+          ctx.fillStyle = `rgb(${lc[0]},${lc[1]},${lc[2]})`;
+          ctx.fillRect(ix - 1 * u, cy - 5 * u, icon + 2 * u, 10 * u);
+        }
         drawPath(ctx, { id: 'legend-' + r.line, kind: r.line, points: [[ix + 1 * u, cy], [ix + icon - 1 * u, cy]], w: r.line === 'river' ? 0.8 * u : u, wobble: 0 }, pl);
         ctx.restore();
       } else {
@@ -2635,26 +2742,47 @@
   function drawScale(ctx, pl) {
     const m = M.map;
     const kmPerPx = (m.style.kmPerCell || 4) / m.cell;
-    const target = 120 * kmPerPx;
+    const u = Math.max(1, Math.min(2, M.W / 1100)); // 大きな地図では少し大きく
+    const target = 150 * u * kmPerPx;
     const pow = Math.pow(10, Math.floor(Math.log10(target)));
-    const nice = [1, 2, 5, 10].map((k) => k * pow).reverse().find((v) => v <= target) || pow;
+    const nice = [1, 2, 2.5, 5, 10].map((k) => k * pow).reverse().find((v) => v <= target) || pow;
     const len = nice / kmPerPx;
-    const x = 24;
-    const y = M.Hpx - 26;
+    const n = 4;
+    const x = 26 * u;
+    const y = M.Hpx - 30 * u;
+    const bh = 5 * u;
+    const ink = inkOf(pl);
+    const fmt = (v) => (nice >= 1 ? String(Math.round(v * 100) / 100) : String(Math.round(v * 1000)));
     ctx.save();
+    // 下地（淡い紙の帯と細い枠）
     ctx.fillStyle = pl.halo;
-    ctx.fillRect(x - 8, y - 17, len + 16, 28);
-    ctx.strokeStyle = inkOf(pl);
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 4; i++) {
-      ctx.fillStyle = i % 2 ? '#fbf7ee' : inkOf(pl);
-      ctx.fillRect(x + (len / 4) * i, y, len / 4, 4);
+    ctx.strokeStyle = hexA(ink, 0.5);
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.rect(x - 10 * u, y - 18 * u, len + 44 * u, 34 * u);
+    ctx.fill();
+    ctx.stroke();
+    // 目盛りの帯：白と色を交互に。上下に細い線
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = i % 2 ? '#fbf7ee' : (pl.roadStyle === 'light' ? '#7a2a22' : ink);
+      ctx.fillRect(x + (len / n) * i, y, len / n, bh);
     }
-    ctx.strokeRect(x, y, len, 4);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(x, y, len, bh);
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= n; i++) {
+      const tx = x + (len / n) * i;
+      ctx.beginPath();
+      ctx.moveTo(tx, y - 2.5 * u);
+      ctx.lineTo(tx, y + bh + 1.5 * u);
+      ctx.stroke();
+    }
     ctx.restore();
-    const label = nice >= 1 ? `${nice} km` : `${Math.round(nice * 1000)} m`;
-    drawText(ctx, '0', 0, 0, { size: 10, color: pl.ink, align: 'left', x: x - 3, y: y - 7 });
-    drawText(ctx, label, 0, 0, { size: 10, color: pl.ink, align: 'right', x: x + len + 4, y: y - 7 });
+    for (let i = 0; i <= n; i += (n === 4 ? 2 : 1)) {
+      drawText(ctx, fmt((nice / n) * i), x + (len / n) * i, y - 9 * u, { size: 9.5 * u, color: pl.ink, weight: 500 });
+    }
+    drawText(ctx, nice >= 1 ? 'km' : 'm', 0, 0, { size: 9.5 * u, color: pl.ink, align: 'left', x: x + len + 6 * u, y: y + bh / 2 });
   }
 
   function drawTitle(ctx, name, kind, pl) {
@@ -2700,6 +2828,48 @@
       ctx.stroke();
       ctx.restore();
       drawText(ctx, name, cx, cy - 3, { size, weight: 400, color: '#3a2e24', spacing: 0.15, font: 'brush' });
+    } else if (kind === 'plaque') {
+      // 額：二重線の長方形に、角を少し切り落とした飾り
+      const w = tw + 64;
+      const hgt = 44;
+      const x0 = cx - w / 2;
+      const y0 = cy - hgt / 2 - 2;
+      const cut = 7;
+      const plate = (inset) => {
+        const ax = x0 + inset;
+        const ay = y0 + inset;
+        const bx = x0 + w - inset;
+        const by = y0 + hgt - inset;
+        const c = Math.max(2, cut - inset * 0.6);
+        ctx.beginPath();
+        ctx.moveTo(ax + c, ay); ctx.lineTo(bx - c, ay); ctx.lineTo(bx, ay + c); ctx.lineTo(bx, by - c); ctx.lineTo(bx - c, by);
+        ctx.lineTo(ax + c, by); ctx.lineTo(ax, by - c); ctx.lineTo(ax, ay + c); ctx.closePath();
+      };
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.25)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 2;
+      plate(0);
+      ctx.fillStyle = '#efe4c8';
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = '#3a2e24';
+      ctx.lineWidth = 1.6;
+      plate(0);
+      ctx.stroke();
+      ctx.lineWidth = 0.6;
+      plate(4);
+      ctx.stroke();
+      // 左右の小さな菱形
+      [x0 + 10, x0 + w - 10].forEach((dx) => {
+        ctx.beginPath();
+        ctx.moveTo(dx, cy - 5); ctx.lineTo(dx + 3, cy - 2); ctx.lineTo(dx, cy + 1); ctx.lineTo(dx - 3, cy - 2); ctx.closePath();
+        ctx.fillStyle = '#3a2e24';
+        ctx.fill();
+      });
+      ctx.restore();
+      drawText(ctx, name, cx, cy - 2, { size, weight: 400, color: '#3a2e24', spacing: 0.15, font: 'brush' });
     } else {
       drawText(ctx, name, cx, cy, { size, weight: 400, color: pl.ink, spacing: 0.15, halo: pl.halo, font: 'brush' });
     }
@@ -2711,36 +2881,67 @@
     ctx.save();
     ctx.strokeStyle = ink;
     if (kind === 'ornate') {
-      const b = 10;
-      ctx.fillStyle = '#efe4c8';
+      // 古地図の額縁：紙の色の帯に、白黒交互の目盛り・細かい目盛り・四隅の星の飾り
+      const b = 16;
+      const paper = '#eee2c4';
+      ctx.fillStyle = paper;
       ctx.fillRect(0, 0, M.W, b);
       ctx.fillRect(0, M.Hpx - b, M.W, b);
       ctx.fillRect(0, 0, b, M.Hpx);
       ctx.fillRect(M.W - b, 0, b, M.Hpx);
+      // 白黒交互の目盛り（外側の帯）
       ctx.fillStyle = ink;
-      const seg = 24;
+      const seg = 30;
       for (let x = b, i = 0; x < M.W - b; x += seg, i++) {
         if (i % 2) continue;
-        ctx.fillRect(x, 3, Math.min(seg, M.W - b - x), 4);
-        ctx.fillRect(x, M.Hpx - 7, Math.min(seg, M.W - b - x), 4);
+        ctx.fillRect(x, 4, Math.min(seg, M.W - b - x), 3.5);
+        ctx.fillRect(x, M.Hpx - 7.5, Math.min(seg, M.W - b - x), 3.5);
       }
       for (let y = b, i = 0; y < M.Hpx - b; y += seg, i++) {
         if (i % 2) continue;
-        ctx.fillRect(3, y, 4, Math.min(seg, M.Hpx - b - y));
-        ctx.fillRect(M.W - 7, y, 4, Math.min(seg, M.Hpx - b - y));
+        ctx.fillRect(4, y, 3.5, Math.min(seg, M.Hpx - b - y));
+        ctx.fillRect(M.W - 7.5, y, 3.5, Math.min(seg, M.Hpx - b - y));
       }
-      ctx.lineWidth = 1.6;
+      // 細かい目盛り（内側の縁）
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (let x = b, i = 0; x <= M.W - b; x += seg / 5, i++) {
+        const L = i % 5 === 0 ? 4 : 2;
+        ctx.moveTo(x, b); ctx.lineTo(x, b - L);
+        ctx.moveTo(x, M.Hpx - b); ctx.lineTo(x, M.Hpx - b + L);
+      }
+      for (let y = b, i = 0; y <= M.Hpx - b; y += seg / 5, i++) {
+        const L = i % 5 === 0 ? 4 : 2;
+        ctx.moveTo(b, y); ctx.lineTo(b - L, y);
+        ctx.moveTo(M.W - b, y); ctx.lineTo(M.W - b + L, y);
+      }
+      ctx.stroke();
+      ctx.lineWidth = 1.8;
       ctx.strokeRect(1, 1, M.W - 2, M.Hpx - 2);
+      ctx.lineWidth = 1.2;
       ctx.strokeRect(b, b, M.W - b * 2, M.Hpx - b * 2);
-      ctx.lineWidth = 0.6;
+      ctx.lineWidth = 0.5;
       ctx.strokeRect(3, 3, M.W - 6, M.Hpx - 6);
-      ctx.strokeRect(7, 7, M.W - 14, M.Hpx - 14);
+      ctx.strokeRect(8.5, 8.5, M.W - 17, M.Hpx - 17);
+      ctx.strokeRect(b + 2.5, b + 2.5, M.W - b * 2 - 5, M.Hpx - b * 2 - 5);
+      // 四隅：四角に、4つの角のある星
       [[0, 0], [M.W - b, 0], [0, M.Hpx - b], [M.W - b, M.Hpx - b]].forEach(([x, y]) => {
-        ctx.fillStyle = '#efe4c8';
+        ctx.fillStyle = paper;
         ctx.fillRect(x, y, b, b);
-        ctx.strokeRect(x + 1, y + 1, b - 2, b - 2);
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(x + 1.5, y + 1.5, b - 3, b - 3);
+        const cx = x + b / 2;
+        const cy = y + b / 2;
+        const r = b * 0.36;
         ctx.beginPath();
-        ctx.arc(x + b / 2, y + b / 2, 2, 0, Math.PI * 2);
+        for (let k = 0; k < 8; k++) {
+          const ang = (k / 8) * Math.PI * 2 - Math.PI / 2;
+          const rr = k % 2 ? r * 0.32 : r;
+          const px = cx + Math.cos(ang) * rr;
+          const py = cy + Math.sin(ang) * rr;
+          if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
         ctx.fillStyle = ink;
         ctx.fill();
       });
@@ -3620,7 +3821,7 @@
       UI.field('配色', h('select', { class: 'input', onchange: (e) => { set('palette', e.target.value, true); renderInspector(); } },
         Object.keys(E.PALETTES).map((k) => h('option', { value: k, selected: st.palette === k }, E.PALETTES[k].label)))),
       h('div', { class: 'grid-2' },
-        sel('title', [['none', 'なし'], ['plain', '文字だけ'], ['banner', '帯（リボン）']], '題名'),
+        sel('title', [['none', 'なし'], ['plain', '文字だけ'], ['banner', '帯（リボン）'], ['plaque', '額（飾り枠）']], '題名'),
         sel('frame', [['none', 'なし'], ['simple', 'シンプル'], ['ornate', '古地図風']], '枠')),
       UI.field('地名の大きさ', h('select', { class: 'input', onchange: (e) => { set('labelScale', parseFloat(e.target.value)); renderInspector(); } },
         [[0.8, '小さめ'], [1, 'ふつう'], [1.25, '大きめ'], [1.55, 'とても大きく']].map(([v, l]) => h('option', { value: v, selected: (st.labelScale || 1) === v }, l)))),
@@ -3631,7 +3832,7 @@
         `地図の横幅 ≒ ${UI.fmtNum(m.gw * st.kmPerCell)} km`),
       h('div', { class: 'check-grid' },
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
-        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true),
+        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true), toggle('rhumb', '方位線'),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.legend, onchange: (e) => { set('legend', e.target.checked); renderInspector(); } }), '凡例'),
         h('label', { class: 'check', title: '町や城の名前が、ほかの名前・文字・町の絵と重ならないよう、下・右・左・上から置き場所を自動で選びます（名前の位置を決めた素材はそのまま）' },
           h('input', { type: 'checkbox', checked: st.declutter !== false, onchange: (e) => set('declutter', e.target.checked) }), '地名を重ねない')),

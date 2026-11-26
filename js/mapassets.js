@@ -29,6 +29,30 @@
       red: '#c62f26', gold: '#e0a92e', lava: '#ee5a24', smoke: 'rgba(90,90,96,0.45)', crystal: '#8fd0f5', crystalShade: '#3f8cc8',
       glow: 'rgba(150,110,255,0.5)', field: '#e3d27e', field2: '#b8c460', serpent: '#2f8f78', serpentShade: '#1f6655',
     },
+    // 土の色の山・濃い針葉樹（「冒険の地図」用）
+    earth: {
+      ink: '#2a2017', paper: '#efe5cc', hatch: 'rgba(42,32,23,0.5)',
+      rock: '#bba183', rockShade: '#7f6650', rockDark: '#5f4b3a', snow: '#f4f1ea', snowShade: '#c3c8cc',
+      hill: '#a89868', hillShade: '#7c6e48', leaf: '#566f2f', leafShade: '#3a4e20', leafHi: '#6e8741',
+      conifer: '#3b5631', coniferShade: '#24381f', jungle: '#46682f', jungleShade: '#2c4620', trunk: '#4c3725',
+      dead: '#5a4636', grass: '#6c7d3a', sand: '#d8bf88', sandShade: '#ad8e60', stone: '#aca396', stoneShade: '#7a7268',
+      wall: '#ebe1ca', wallShade: '#bfae8d', roof: '#9b3a29', roofShade: '#6c291c', roof2: '#3d4f79', roof2Shade: '#2a3757',
+      roofJ: '#3a3e45', roofJShade: '#24272c', water: '#3c7a7e', waterLight: '#9cc8c2', foam: '#eef5f1', wood: '#7c5939', woodShade: '#543c26',
+      red: '#a23123', gold: '#c99939', lava: '#d9542a', smoke: 'rgba(70,64,58,0.45)', crystal: '#8fc9d8', crystalShade: '#4a89a0',
+      glow: 'rgba(150,120,240,0.45)', field: '#c8b26a', field2: '#a3a052', serpent: '#4b7a6b', serpentShade: '#2e5548',
+    },
+    // 灰色の岩山・濃い針葉樹（「水彩の古地図」用）
+    slate: {
+      ink: '#2c2a26', paper: '#f4efe2', hatch: 'rgba(44,42,38,0.5)',
+      rock: '#e2ded5', rockShade: '#95918a', rockDark: '#6f6b65', snow: '#fbfbf9', snowShade: '#cfd5dc',
+      hill: '#cfc391', hillShade: '#a19566', leaf: '#7f9a4a', leafShade: '#566e30', leafHi: '#a3bb6b',
+      conifer: '#41613a', coniferShade: '#294225', jungle: '#4f7d3a', jungleShade: '#335627', trunk: '#4f3b28',
+      dead: '#5c4c3e', grass: '#738443', sand: '#e6cf9a', sandShade: '#bd9e6c', stone: '#bdb7ad', stoneShade: '#86817a',
+      wall: '#f2ecde', wallShade: '#c9bea6', roof: '#a83c2b', roofShade: '#742b1e', roof2: '#41557f', roof2Shade: '#2d3b5b',
+      roofJ: '#3d4148', roofJShade: '#26292e', water: '#3d7c80', waterLight: '#a6cdc6', foam: '#f2f8f5', wood: '#86623f', woodShade: '#5b4229',
+      red: '#a8352a', gold: '#cfa13e', lava: '#dc5a2c', smoke: 'rgba(80,76,70,0.45)', crystal: '#93ccdb', crystalShade: '#4d8ca3',
+      glow: 'rgba(150,120,240,0.45)', field: '#d2bd72', field2: '#abaa5a', serpent: '#4d7d6e', serpentShade: '#30584b',
+    },
     mono: {
       ink: '#26211d', paper: '#fdfbf6', hatch: 'rgba(38,33,29,0.6)',
       rock: '#fdfbf6', rockShade: '#d8d2c7', rockDark: '#a9a296', snow: '#ffffff', snowShade: '#e6e3dd',
@@ -186,10 +210,18 @@
       right = jag(rnd, peak, [W, 0], 12, W * 0.032, 0.05);
     }
     const body = left.concat(right.slice(1));
+    // 裾の下の縁は、まっすぐではなく少し下にふくらむ曲線（並んだ山の裾が水平な切り口に見えないように）
+    const sag = Hh * 0.07;
+    const bottom = [];
+    for (let i = 1; i < 8; i++) {
+      const t = i / 8;
+      bottom.push([W - 2 * W * t, Math.sin(Math.PI * t) * sag + jit(rnd, sag * 0.25)]);
+    }
+    const shape = body.concat(bottom);
     // 主稜線：頂から手前の裾へ。ここから右が陰
     const foot = [px + W * (0.1 + rnd() * 0.18), 0];
     const spine = jag(rnd, peak, foot, 9, W * 0.045);
-    const shade = right.concat(spine.slice().reverse().slice(1));
+    const shade = right.concat(bottom.filter((q) => q[0] > foot[0]), spine.slice().reverse().slice(1));
     // 支脈：主稜線の途中から左下へ下りる尾根（明るい面のひだ）
     const spurs = [];
     const nSp = 2 + Math.floor(rnd() * 2);
@@ -199,10 +231,10 @@
       const end = [a0[0] - W * (0.32 + rnd() * 0.22), Math.min(0, a0[1] + Hh * (0.3 + rnd() * 0.25))];
       spurs.push(jag(rnd, a0, end, 5, W * 0.03));
     }
-    poly(ctx, body, true);
+    poly(ctx, shape, true);
     fs(ctx, C.rock);
     ctx.save();
-    poly(ctx, body, true);
+    poly(ctx, shape, true);
     ctx.clip();
     // 支脈のひだ：尾根の右下（谷側）に、うすい陰の帯
     spurs.forEach((sp) => {
@@ -241,7 +273,7 @@
       ctx.save();
       poly(ctx, cap, true);
       ctx.clip();
-      poly(ctx, body, true);
+      poly(ctx, shape, true);
       fs(ctx, C.snow);
       poly(ctx, shade, true);
       fs(ctx, C.snowShade);
@@ -264,27 +296,17 @@
     ctx.stroke();
     ctx.lineWidth = 0.34;
     spurs.forEach((sp) => { poly(ctx, sp.slice(0, 4), false); ctx.stroke(); });
-    if (!o.back) fadeFoot(ctx, C, W, Hh * 0.15, 0.12);
+    if (!o.back) footShadow(ctx, C, W, sag);
   }
 
-  /**
-   * 裾を地面になじませる：下のほうをぼかして消し（水平な切り口を見せない）、
-   * 絵の後ろに薄い影を落とす。山・丘の足もとで使う
-   */
-  function fadeFoot(ctx, C, W, band, shadow) {
+  /** 山・丘の足もとの影：絵の後ろ（下）に、右下へ少しずらした淡い影を落とす */
+  function footShadow(ctx, C, W, sag) {
     ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-    const g = ctx.createLinearGradient(0, -band, 0, 0.8);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.55, 'rgba(0,0,0,0.35)');
-    g.addColorStop(1, 'rgba(0,0,0,0.95)');
-    ctx.fillStyle = g;
-    ctx.fillRect(-W * 2.2, -band, W * 4.4, band + 8);
     ctx.globalCompositeOperation = 'destination-over';
-    ctx.globalAlpha = shadow;
+    ctx.globalAlpha = 0.16;
     ctx.fillStyle = C.ink;
     ctx.beginPath();
-    ctx.ellipse(W * 0.18, -band * 0.25, W * 0.95, Math.max(1.4, band * 0.5), 0, 0, TAU);
+    ctx.ellipse(W * 0.22, sag * 0.6 + 0.4, W * 1.0, Math.max(1.5, sag * 1.6), 0, 0, TAU);
     ctx.fill();
     ctx.restore();
   }
@@ -379,7 +401,7 @@
     ctx.moveTo(r0[0], r0[1] + Hh * 0.12);
     ctx.quadraticCurveTo(rc[0], rc[1], r1[0], r1[1] - Hh * 0.15);
     ctx.stroke();
-    fadeFoot(ctx, C, W, Hh * 0.22, 0.1);
+    footShadow(ctx, C, W, 0.6);
   }
 
   function rocks(ctx, rnd, C) {

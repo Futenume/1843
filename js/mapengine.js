@@ -44,6 +44,28 @@
       biome: { 1: [232, 232, 222], 2: [250, 245, 232], 3: [232, 232, 224], 4: [255, 255, 255], 5: [220, 224, 212], 6: [244, 240, 228], 7: [228, 226, 220], 8: [240, 236, 222], 9: [210, 206, 200] },
       paper: 3, ink: '#2b2520', water: '#3c3a38', road: '#3b3330', border: '#5a4a46', halo: 'rgba(252,249,242,0.92)', glyph: '#3b342e', assets: 'mono',
     },
+    // 深い青緑の海に、何本もの海岸の波線。陸はオリーブと土の色、道は白い点線（冒険ものの地図）
+    teal: {
+      label: '冒険の地図（深緑の海）',
+      deep: [40, 84, 88], shallow: [76, 128, 124], glow: [118, 166, 158], ripple: [168, 210, 200], coast: [40, 31, 23],
+      beach: [190, 170, 118],
+      ramp: [[0, [168, 154, 100]], [0.2, [154, 143, 90]], [0.42, [140, 121, 84]], [0.65, [122, 101, 74]], [0.86, [106, 89, 70]], [1, [132, 118, 100]]],
+      biome: { 1: [94, 106, 58], 2: [208, 180, 120], 3: [100, 110, 74], 4: [232, 234, 236], 5: [76, 100, 52], 6: [160, 150, 100], 7: [142, 132, 118], 8: [182, 164, 98], 9: [86, 76, 70] },
+      paper: 4, ink: '#241b12', water: '#2c5c60', road: '#f4eedc', roadStyle: 'light', border: '#6b2a2a', halo: 'rgba(238,230,208,0.82)', glyph: '#3a2e22', assets: 'earth',
+      rippleCount: 5, rippleGap: 5.6, rippleStrength: 0.62, rippleWidth: 1, rim: 0.2, seaMottle: 7, seaWaves: false,
+      seaLabel: 'rgba(214,234,226,0.9)', seaHalo: 'rgba(20,46,50,0.35)', shadeMax: 1.12,
+    },
+    // 青緑の水彩の海と、黄みのある陸。灰色の山並みと赤茶の破線の道（古い手描き地図）
+    watercolor: {
+      label: '水彩の古地図',
+      deep: [66, 112, 110], shallow: [116, 158, 150], glow: [166, 198, 186], ripple: [92, 136, 132], coast: [52, 44, 34],
+      beach: [226, 212, 158],
+      ramp: [[0, [216, 204, 146]], [0.22, [204, 192, 128]], [0.45, [188, 170, 112]], [0.68, [168, 150, 104]], [0.86, [150, 136, 104]], [1, [212, 208, 198]]],
+      biome: { 1: [146, 158, 90], 2: [228, 200, 150], 3: [140, 146, 100], 4: [240, 242, 244], 5: [114, 138, 76], 6: [198, 184, 128], 7: [184, 178, 166], 8: [208, 192, 116], 9: [110, 98, 90] },
+      paper: 6, ink: '#2e2a22', water: '#2d5c62', road: '#7a2a22', border: '#7a2f2f', halo: 'rgba(244,238,220,0.85)', glyph: '#4a3b2c', assets: 'slate',
+      rippleCount: 2, rippleGap: 6, rippleStrength: 0.45, rim: 0.14, seaMottle: 16,
+      seaLabel: '#264f63', seaHalo: 'rgba(200,222,214,0.55)', shadeMax: 1.16,
+    },
     night: {
       label: '夜（暗い海）',
       deep: [22, 34, 52], shallow: [44, 70, 96], glow: [86, 120, 150], ripple: [70, 100, 130], coast: [12, 14, 18],
@@ -510,6 +532,78 @@
     return out;
   }
 
+  /**
+   * 海の各マスについて、いちばん近い海岸線上の点（陸と海の境目を、となりのマスとの間で直線補間して求めた点）。
+   * 画素ごとに、まわり4マスの「近い点」までの距離のいちばん小さいものを取れば、海岸からの正確な距離になる
+   * （海岸に沿った波線が、どこでも同じ間隔のきれいな線になる）
+   */
+  const nearCache = new WeakMap();
+  function coastNearest(H, gw, gh, cell) {
+    let sum = 0;
+    for (let i = 0; i < H.length; i += 3) sum += H[i] * ((i % 13) + 1);
+    const hit = nearCache.get(H);
+    if (hit && hit.sum === sum) return hit;
+    const N = gw * gh;
+    const PX = new Float32Array(N);
+    const PY = new Float32Array(N);
+    const D = new Float32Array(N).fill(1e9);
+    const cx = (x) => (x + 0.5) * cell;
+    const offer = (i, x, y, qx, qy) => {
+      const d = Math.hypot(cx(x) - qx, cx(y) - qy);
+      if (d < D[i]) { D[i] = d; PX[i] = qx; PY[i] = qy; }
+    };
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        const h0 = H[i];
+        if (x < gw - 1) {
+          const h1 = H[i + 1];
+          if ((h0 > 0) !== (h1 > 0)) {
+            const t = h0 / (h0 - h1);
+            const qx = cx(x) + t * cell;
+            const qy = cx(y);
+            offer(i, x, y, qx, qy); offer(i + 1, x + 1, y, qx, qy);
+          }
+        }
+        if (y < gh - 1) {
+          const h1 = H[i + gw];
+          if ((h0 > 0) !== (h1 > 0)) {
+            const t = h0 / (h0 - h1);
+            const qx = cx(x);
+            const qy = cx(y) + t * cell;
+            offer(i, x, y, qx, qy); offer(i + gw, x, y + 1, qx, qy);
+          }
+        }
+      }
+    }
+    // となりのマスの「近い点」を受け継ぎながら2回なめる
+    const pass = (fw) => {
+      const ys = fw ? 0 : gh - 1;
+      const ye = fw ? gh : -1;
+      const st = fw ? 1 : -1;
+      for (let y = ys; y !== ye; y += st) {
+        for (let x = fw ? 0 : gw - 1; x !== (fw ? gw : -1); x += st) {
+          const i = y * gw + x;
+          const nb = fw ? [[-1, 0], [0, -1], [-1, -1], [1, -1]] : [[1, 0], [0, 1], [1, 1], [-1, 1]];
+          for (const [dx, dy] of nb) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+            const j = ny * gw + nx;
+            if (D[j] >= 1e9) continue;
+            offer(i, x, y, PX[j], PY[j]);
+          }
+        }
+      }
+    };
+    pass(true);
+    pass(false);
+    pass(true);
+    const out = { sum, PX, PY, D };
+    nearCache.set(H, out);
+    return out;
+  }
+
   function coastDistance(H, gw, gh) {
     let sum = 0;
     for (let i = 0; i < H.length; i++) sum += H[i] * ((i % 7) + 1);
@@ -564,6 +658,7 @@
     const CD = coastDistance(H, map.gw, map.gh);
     const { gw, gh, cell } = map;
     const GR = shade ? cellGradients(H, gw, gh, cell) : null;
+    const NC = ripples ? coastNearest(H, gw, gh, cell) : null;
     const W = img.width;
     const data = img.data;
     rx0 = Math.max(0, rx0 | 0); ry0 = Math.max(0, ry0 | 0);
@@ -611,19 +706,41 @@
           c = mix(pal.shallow, pal.deep, depth);
           c = mix(c, pal.glow, Math.exp(-dist / 5) * 0.45);
           if (ripples) {
-            for (let k = 0; k < 3; k++) {
-              const a = 1 - Math.abs(dist - (5 + k * 5.5)) / 0.75;
-              if (a > 0) c = mix(c, pal.ripple, a * (0.5 - k * 0.13));
+            // 海岸に沿った波線（配色ごとに本数・間隔・濃さが違う）
+            const rn = pal.rippleCount || 3;
+            const rg = pal.rippleGap || 5.5;
+            const rs = pal.rippleStrength || 0.5;
+            // 海岸までの正確な距離（まわり4マスの「近い点」から）
+            let sdist = dist;
+            if (NC) {
+              const PXa = NC.PX;
+              const PYa = NC.PY;
+              const Da = NC.D;
+              let best = 1e9;
+              const ids = [ya * gw + xa, ya * gw + xb, yb * gw + xa, yb * gw + xb];
+              for (let q = 0; q < 4; q++) {
+                const j = ids[q];
+                if (Da[j] >= 1e9) continue;
+                const dd = Math.hypot(wx - PXa[j], wy - PYa[j]);
+                if (dd < best) best = dd;
+              }
+              if (best < 1e9) sdist = best;
+            }
+            for (let k = 0; k < rn; k++) {
+              const a = 1 - Math.abs(sdist - (5 + k * rg)) / (pal.rippleWidth || 0.75);
+              if (a > 0) c = mix(c, pal.ripple, a * rs * (1 - (k / rn) * (rn > 3 ? 0.55 : 0.78)));
             }
             // 沖の細い横波（古地図の版画のような海の模様）
-            if (cd > 20) {
+            if (cd > 20 && pal.seaWaves !== false) {
               const w = Math.sin(wy * 0.62 + Math.sin(wx * 0.045 + wy * 0.01) * 2.2 + vnoise(wx * 0.03, wy * 0.03) * 5);
               const f = Math.min(1, (cd - 20) / 30) * Math.max(0, (w - 0.93) / 0.07) * (vnoise(wx * 0.012 + 9, wy * 0.04) > 0.45 ? 1 : 0);
               if (f > 0) c = mix(c, pal.ripple, f * 0.22);
             }
           }
-          const n = (vnoise(wx * 0.02, wy * 0.02) - 0.5) * 5 + (vnoise(wx * 0.11, wy * 0.11) - 0.5) * 2;
-          c = [c[0] + n, c[1] + n, c[2] + n];
+          // 海の色むら（水彩の配色では、にじみのように大きく）
+          const sm = pal.seaMottle || 5;
+          const n = (vnoise(wx * 0.02, wy * 0.02) - 0.5) * sm + (vnoise(wx * 0.07 + 3, wy * 0.07) - 0.5) * sm * 0.45 + (vnoise(wx * 0.11, wy * 0.11) - 0.5) * 2;
+          c = [c[0] + n, c[1] + n * 0.96, c[2] + n * 0.9];
         } else {
           c = ramp(pal.ramp, h);
           // 地面の境目を、マス目の角ばりではなく、ゆるやかに波打つ形にする（細かなざらつきも少し残す）
@@ -637,7 +754,8 @@
           if (dist < 2.4 && h < 0.25) c = mix(c, pal.beach, (1 - dist / 2.4) * 0.55);
           // 手描きの水彩のような、ゆるやかな色むら＋海岸の内側をわずかに濃く
           const wc = 1 + (vnoise(wx * 0.008 + 17, wy * 0.008) - 0.5) * 0.07;
-          const rim = dist < 9 && dist > 1.5 ? 1 - (1 - (dist - 1.5) / 7.5) * 0.06 : 1;
+          const rimK = pal.rim || 0.06;
+          const rim = dist < 9 && dist > 1.5 ? 1 - (1 - (dist - 1.5) / 7.5) * rimK : 1;
           c = [c[0] * wc * rim, c[1] * wc * rim, c[2] * wc * rim];
           if (shade) {
             // 傾きを4つのマスから補間する（マスの境目で陰影が段にならない）
@@ -650,7 +768,7 @@
             const sx = (GX[i00] + (GX[i10] - GX[i00]) * fx) * (1 - fy) + (GX[i01] + (GX[i11] - GX[i01]) * fx) * fy;
             const sy = (GY[i00] + (GY[i10] - GY[i00]) * fx) * (1 - fy) + (GY[i01] + (GY[i11] - GY[i01]) * fx) * fy;
             const s = 1 + (-sx - sy) * 0.7071 * 9;
-            const k = Math.max(0.6, Math.min(1.3, s));
+            const k = Math.max(0.6, Math.min(pal.shadeMax || 1.3, s));
             c = [c[0] * k, c[1] * k, c[2] * k];
           }
         }
@@ -776,7 +894,7 @@
       if (c.h > 0.42) {
         if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.3) && rnd() < 0.6) continue;
         const t = Math.min(1, (c.h - 0.42) / 0.45);
-        let sc = 0.78 + t * 1.1 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
+        let sc = 0.7 + t * 0.85 + Math.max(0, c.ridge) * 2.5 + rnd() * 0.15;
         // 小さな島などでは、裾が海にはみ出さない大きさまで縮める
         const fits = (k) => {
           const w = 15 * k;
@@ -787,7 +905,7 @@
         if (sc <= 0.6 && !fits(sc)) continue;
         const r = 14 * sc;
         // 横方向は重なりを少なく、縦方向（手前と奥）は少し重ねて奥行きを出す
-        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.78)) continue;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.7)) continue;
         const snowy = c.h > 0.74;
         const a = snowy ? (rnd() < 0.55 ? 'mountain-snow' : 'mountain-tall') : (c.h > 0.62 && rnd() < 0.18 ? 'mountain-snow' : 'mountain');
         put(a, c.x, c.y, sc);
@@ -802,7 +920,7 @@
         addPlaced({ x: c.x, y: c.y, r, kind: 'h' });
       }
     }
-    const ts = 5.5;
+    const ts = 4.8; // 森は小さな木をぎっしり（木々がつながって森のかたまりに見えるように）
     for (let y = ts; y < Hpx - 2; y += ts * 0.85) {
       for (let x = ts / 2; x < W - 2; x += ts) {
         const jx = x + (rnd() - 0.5) * ts * 0.9;
@@ -811,8 +929,8 @@
         if (h <= 0.02 || h > 0.42) continue;
         const b = B ? sampleB(B, gw, gh, cell, jx, jy) : 0;
         const lat = Math.abs(jy / Hpx - 0.5) * 2;
-        if (b === 1 && rnd() < 0.72) put(lat > 0.55 || rnd() < 0.3 ? 'tree-conifer' : 'tree-round', jx, jy, 0.85 + rnd() * 0.3);
-        else if (b === 5 && rnd() < 0.75) put(rnd() < 0.82 ? 'tree-jungle' : 'tree-palm', jx, jy, 0.85 + rnd() * 0.3);
+        if (b === 1 && rnd() < 0.86) put(lat > 0.55 || rnd() < 0.55 ? 'tree-conifer' : 'tree-round', jx, jy, 0.76 + rnd() * 0.26);
+        else if (b === 5 && rnd() < 0.86) put(rnd() < 0.82 ? 'tree-jungle' : 'tree-palm', jx, jy, 0.78 + rnd() * 0.26);
         else if (b === 4 && rnd() < 0.06) put('tree-snow', jx, jy, 0.9 + rnd() * 0.2);
         else if (b === 2 && rnd() < 0.018) put('dune', jx, jy, 0.8 + rnd() * 0.4);
         else if (b === 3 && rnd() < 0.2) put('reeds', jx, jy, 0.9 + rnd() * 0.2);
@@ -888,7 +1006,9 @@
   function defaultStyle(palette) {
     return {
       palette: palette || 'parchment', hillshade: true, ripples: true, grid: 'none', gridSize: 12, gridOpacity: 0.25,
-      kmPerCell: 4, scale: true, title: 'banner', frame: 'simple', vignette: true, texture: true,
+      rhumb: palette === 'teal' || palette === 'watercolor',
+      kmPerCell: 4, scale: true, title: palette === 'teal' || palette === 'watercolor' ? 'plaque' : 'banner',
+      frame: palette === 'teal' ? 'ornate' : 'simple', vignette: true, texture: true,
     };
   }
 

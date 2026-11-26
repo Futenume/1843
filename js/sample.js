@@ -137,7 +137,7 @@
 
     // 地図
     const E = NS.MapEngine;
-    const map = E.newMap('エルミナ王国全図', { preset: 'continent', size: 'm', seed: 24680, land: 0.45 });
+    const map = E.newMap('エルミナ王国全図', { preset: 'continent', size: 'm', seed: 24680, land: 0.45, palette: 'teal' });
     const H = E.decodeHeights(map.height, map.gw * map.gh);
     const rnd = E.mulberry32(13579);
     const cell = map.cell;
