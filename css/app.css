@@ -1206,3 +1206,4 @@ ins.diff-ins { color: var(--diff-ins); background: color-mix(in srgb, #30a46c 18
 .bulk-ctx { overflow-wrap: anywhere; }
 .world-card { border-left: 3px solid var(--accent); padding-left: 10px; }
 .world-sug { color: var(--accent); }
+.region-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }

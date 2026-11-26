@@ -421,6 +421,12 @@
     const coarse = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
     M.hint.textContent = t ? ((coarse && TOUCH_HINTS[t.id]) || t.hint) : '';
     clear(M.draftBar);
+    if (M.regionPick) {
+      M.draftBar.hidden = false;
+      M.draftBar.append(h('span', { class: 'small measure-sum' }, '詳しい地図にしたい範囲を、ドラッグで囲んでください'),
+        btn('取消', { small: true, ghost: true, onClick: () => { M.regionPick = false; updateHint(); draw(); } }));
+      return;
+    }
     M.draftBar.hidden = !M.draft && !(M.measure && M.measure.pts.length);
     if (!M.draft && M.measure && M.measure.pts.length) {
       const ms = M.measure;
@@ -821,6 +827,7 @@
     if (mod && e.key.toLowerCase() === 'v') { pasteSel(); return; }
     if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); M.sel = M.map.stamps.map((s) => ({ k: 'stamp', id: s.id })); renderInspector(); draw(); return; }
     if (e.key === ' ') { M.space = true; M.canvas.classList.add('panning'); e.preventDefault(); return; }
+    if (M.regionPick && e.key === 'Escape') { M.regionPick = false; M.drag = null; updateHint(); draw(); return; }
     if (M.measure && PREF.tool === 'measure') {
       if (e.key === 'Escape') { M.measure = null; updateHint(); renderInspector(); draw(); return; }
       if (e.key === 'Enter') { M.measure.done = true; updateHint(); renderInspector(); draw(); return; }
@@ -901,6 +908,7 @@
       return;
     }
     if (M.pointers.size > 2) return;
+    if (M.regionPick) { M.drag = { kind: 'region', start: w, end: w }; return; }
     const tool = PREF.tool;
     if (e.button === 1 || e.button === 2 || tool === 'pan' || M.space) {
       M.drag = { kind: 'pan', sx: w.sx, sy: w.sy, ox: M.ox, oy: M.oy };
@@ -1112,6 +1120,9 @@
     } else if (d.kind === 'box') {
       d.end = w;
       draw();
+    } else if (d.kind === 'region') {
+      d.end = w;
+      draw();
     } else if (d.kind === 'measure') {
       if (!d.active && Math.hypot(w.sx - d.start.sx, w.sy - d.start.sy) > 6) d.active = true;
       if (d.active) {
@@ -1143,6 +1154,14 @@
         updateHint();
       }
       draw();
+    } else if (d.kind === 'region') {
+      const rect = { x0: Math.min(d.start.x, d.end.x), y0: Math.min(d.start.y, d.end.y), x1: Math.max(d.start.x, d.end.x), y1: Math.max(d.start.y, d.end.y) };
+      const cells = Math.min(rect.x1 - rect.x0, rect.y1 - rect.y0) / M.map.cell;
+      if (cells < 8) { toast('もう少し大きく囲んでください'); draw(); return; }
+      M.regionPick = false;
+      updateHint();
+      draw();
+      regionDialog(rect);
     } else if (d.kind === 'measure') {
       if (d.active && d.pts.length >= 2) {
         // なぞった道のり：続きから足す（終わっていれば新しく測る）
@@ -2663,6 +2682,28 @@
       (M.draft || []).forEach((pt) => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(pt[0], pt[1], 3.5 / z, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
     }
     drawMeasure(ctx);
+    if (M.drag && M.drag.kind === 'region') {
+      const d = M.drag;
+      const x = Math.min(d.start.x, d.end.x);
+      const y = Math.min(d.start.y, d.end.y);
+      const w2 = Math.abs(d.end.x - d.start.x);
+      const h2 = Math.abs(d.end.y - d.start.y);
+      ctx.save();
+      // 囲んだ外側を暗く
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.rect(0, 0, M.W, M.Hpx);
+      ctx.rect(x, y, w2, h2);
+      ctx.fill('evenodd');
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2 / z;
+      ctx.setLineDash([6 / z, 4 / z]);
+      ctx.strokeRect(x, y, w2, h2);
+      ctx.restore();
+      const kmW = w2 / M.map.cell * (M.map.style.kmPerCell || 4);
+      const kmH = h2 / M.map.cell * (M.map.style.kmPerCell || 4);
+      if (w2 * z > 40) measureTag(ctx, [x + w2, y], `${fmtKm(kmW)} × ${fmtKm(kmH)}`, false);
+    }
     if (M.hover && !M.space && !(M.drag && M.drag.kind === 'pan')) {
       const t = PREF.tool;
       let r = 0;
@@ -3144,6 +3185,91 @@
     });
   }
 
+  /** 地図データの小さな見本を描く（地形・線・素材） */
+  function drawMapPreview(canvas, m) {
+    const n = m.gw * m.gh;
+    const H = E.decodeHeights(m.height, n);
+    const B = E.decodeBiomes(m.biome, n);
+    const ph = Math.round(canvas.width * m.gh / m.gw);
+    if (canvas.height !== ph) canvas.height = ph;
+    const ctx = canvas.getContext('2d');
+    const res = canvas.width / (m.gw * m.cell);
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    E.renderTerrain(m, H, B, img, 0, 0, canvas.width, canvas.height, res);
+    ctx.putImageData(img, 0, 0);
+    const plt = E.PALETTES[m.style.palette] || E.PALETTES.parchment;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    m.lines.forEach((ln) => {
+      ctx.beginPath();
+      ln.points.forEach((pt, i) => (i ? ctx.lineTo(pt[0] * res, pt[1] * res) : ctx.moveTo(pt[0] * res, pt[1] * res)));
+      if (ln.kind === 'river' || ln.kind === 'stream') { ctx.strokeStyle = `rgb(${plt.shallow.join(',')})`; ctx.lineWidth = Math.max(0.8, 2 * res); ctx.setLineDash([]); }
+      else if (ln.kind === 'border') { ctx.strokeStyle = 'rgba(80,40,40,0.8)'; ctx.lineWidth = 0.8; ctx.setLineDash([2.5, 2]); }
+      else { ctx.strokeStyle = plt.road; ctx.lineWidth = Math.max(0.7, 1.6 * res); ctx.setLineDash([]); }
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    const pk = plt.assets;
+    m.stamps.forEach((st) => {
+      const sp = AS.sprite(st.a, st.v, pk);
+      const k = st.s * res;
+      ctx.setTransform(k * (st.f ? -1 : 1), 0, 0, k, st.x * res, st.y * res);
+      ctx.drawImage(sp.canvas, sp.x0, sp.y0, sp.w, sp.h);
+    });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#2b2118';
+    ctx.font = '600 10px "Noto Sans JP", sans-serif';
+    ctx.textAlign = 'center';
+    m.labels.forEach((lb) => ctx.fillText(lb.text, lb.x * res, lb.y * res));
+  }
+
+  /** 囲んだ範囲を、詳しい地図にする */
+  function regionDialog(rect) {
+    const src = M.map;
+    // 範囲の中のいちばん大きな国名・地名を、新しい地図の名前に
+    const inside = src.labels.filter((lb) => lb.x >= rect.x0 && lb.x <= rect.x1 && lb.y >= rect.y0 && lb.y <= rect.y1 && (lb.style === 'region' || lb.style === 'area'))
+      .sort((a, b) => (b.size || 0) - (a.size || 0));
+    const name = h('input', { class: 'input', type: 'text', value: inside.length ? inside[0].text + '全図' : src.name + '（詳細）', 'aria-label': '新しい地図の名前' });
+    const rivers = h('input', { type: 'checkbox', checked: true });
+    const preview = h('canvas', { class: 'gen-preview', width: 300, height: 200, 'aria-label': 'プレビュー' });
+    const info = h('p', { class: 'small' });
+    let seed = Math.floor(Math.random() * 1e6);
+    let result = null;
+    const run = () => {
+      try {
+        result = E.regionMap(src, M.H, M.B, rect, { name: name.value.trim(), seed, rivers: rivers.checked });
+      } catch (e) { info.textContent = e.message; result = null; return; }
+      drawMapPreview(preview, result.map);
+      const m = result.map;
+      info.textContent = `約${Math.round(result.zoom * 10) / 10}倍に詳しくします（${m.gw}×${m.gh}マス・1マス＝${m.style.kmPerCell}km）。町・城・道・川・国境・名前を引き継ぎ、山や森は新しい地形に合わせて置き直します。`;
+    };
+    rivers.addEventListener('change', run);
+    UI.modal({
+      title: '範囲を詳しい地図にする', wide: true,
+      body: h('div', { class: 'gen-dialog' },
+        h('div', { class: 'stack' },
+          UI.field('新しい地図の名前', name),
+          info,
+          h('label', { class: 'check' }, rivers, '小さな川を足す（元の地図になかった支流など）'),
+          btn('別の細かさで', { icon: 'dice', small: true, title: '入り江や起伏などの細部を、別の形で作り直します', onClick: () => { seed = Math.floor(Math.random() * 1e6); run(); } }),
+          h('p', { class: 'small muted' }, '元の地図はそのまま残ります。新しい地図は地図の一覧に加わり、「地図の設定」から元の地図へ戻れます。')),
+        h('div', { class: 'gen-preview-wrap' }, preview, h('p', { class: 'muted small' }, 'プレビュー'))),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: '詳しい地図を作る', primary: true, onClick: () => {
+          if (!result) return false;
+          result.map.name = name.value.trim() || result.map.name;
+          P().maps.push(result.map);
+          NS.App.touch();
+          NS.App.navigate('map', { id: result.map.id });
+          toast(`「${result.map.name}」を作りました`);
+          return undefined;
+        } },
+      ],
+    });
+    setTimeout(run, 20);
+  }
+
   /** 国に分ける（自動で作った国は、作り直すと入れ替わる。自分で描いた領域・国境・文字はそのまま） */
   function countriesDialog() {
     const m = M.map;
@@ -3239,7 +3365,10 @@
     const set = (k, v, terrain) => { pushUndo(); st[k] = v; if (terrain) renderTerrainFull(); commit(); draw(); };
     const toggle = (k, label, terrain) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st[k], onchange: (e) => set(k, e.target.checked, terrain) }), label);
     const sel = (k, opts, label) => UI.field(label, h('select', { class: 'input', onchange: (e) => { set(k, e.target.value); renderInspector(); } }, opts.map(([v, l]) => h('option', { value: v, selected: String(st[k]) === v }, l))));
-    return section('地図の設定',
+    const from = m.region && p.maps.find((x) => x.id === m.region.from);
+    const regionNote = from ? h('p', { class: 'small muted region-note' }, `「${from.name}」の一部を約${m.region.zoom}倍に詳しくした地図です。`,
+      btn('元の地図を開く', { small: true, ghost: true, onClick: () => NS.App.navigate('map', { id: from.id }) })) : null;
+    return section('地図の設定', regionNote,
       UI.field('名前', h('input', { class: 'input', type: 'text', value: m.name, onchange: (e) => {
         m.name = e.target.value || '地図';
         commit();
@@ -3266,6 +3395,15 @@
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),
         btn('国に分ける', { icon: 'flag', small: true, title: '陸を、山や川を境にして国に分け、国境・国名・首都を付けます', onClick: countriesDialog }),
+        btn('範囲を詳しい地図に', { icon: 'search', small: true, title: '地図の一部を囲んで、その範囲を拡大した詳しい地図を新しく作ります（世界地図 → 国 → 地方）', onClick: () => {
+          M.regionPick = true;
+          M.sel = [];
+          setTool('pan');
+          M.regionPick = true;
+          if (window.innerWidth < 900) setSheet(false);
+          updateHint();
+          draw();
+        } }),
         btn('画像で書き出す', { icon: 'image', small: true, onClick: exportDialog })),
       h('div', { class: 'row wrap' },
         btn('地図を複製', { icon: 'copy', small: true, ghost: true, onClick: () => {

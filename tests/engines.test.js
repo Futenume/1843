@@ -716,3 +716,40 @@ test('造語のお金：組み合わせを考える・設定にないお金や�
   const res = Consistency.check('ルークスを払った。', { entries: [], rules: { currency: { units: [{ name: 'ルクス', value: 1 }] } } });
   assert.ok(res.issues.some((i) => i.ruleId === 'name-variant' && i.text === 'ルークス' && i.suggestion === 'ルクス'));
 });
+
+test('範囲を詳しい地図にする：拡大・縮尺・引き継ぎ・切り抜き', () => {
+  const E = globalThis.Tsuzuri.MapEngine;
+  const src = E.newMap('世界', { preset: 'world', size: 'w', seed: 9, countries: true, names: true });
+  const n = src.gw * src.gh;
+  const Hs = E.decodeHeights(src.height, n);
+  const Bs = E.decodeBiomes(src.biome, n);
+  const ar = src.areas[0];
+  let x0 = 1e9; let y0 = 1e9; let x1 = -1e9; let y1 = -1e9;
+  ar.points.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+  const rect = { x0: x0 - 20, y0: y0 - 20, x1: x1 + 20, y1: y1 + 20 };
+  const { map: m, zoom } = E.regionMap(src, Hs, Bs, rect, { seed: 5 });
+  assert.ok(zoom > 1.5, '拡大している');
+  assert.ok(Math.max(m.gw, m.gh) === 300 && Math.min(m.gw, m.gh) >= 80);
+  assert.ok(Math.abs(m.style.kmPerCell - src.style.kmPerCell / zoom) < 0.01, '縮尺も拡大に合わせる');
+  assert.equal(m.style.grid === 'latlon', false);
+  assert.ok(m.region && m.region.from === src.id);
+  // 引き継ぎ：国の塗り（切り抜き）・国境・国名・首都（絵の素材に）
+  assert.ok(m.areas.some((a) => a.name === ar.name && a.points.every(([x, y]) => x >= -0.5 && y >= -0.5 && x <= m.gw * m.cell + 0.5 && y <= m.gh * m.cell + 0.5)));
+  assert.ok(m.labels.some((l) => l.text === ar.name));
+  assert.ok(m.stamps.some((s) => s.a === 'castle' && s.name), '世界地図の★は城の絵に');
+  assert.ok(m.lines.some((l) => l.kind === 'border'));
+  // 文字は地図の外にはみ出さない
+  m.labels.forEach((l) => assert.ok(l.x > 0 && l.x < m.gw * m.cell && l.y > 0 && l.y < m.gh * m.cell));
+  // 地形：陸の高さを強めて、山や川が出る
+  const H = E.decodeHeights(m.height, m.gw * m.gh);
+  let land = 0;
+  H.forEach((v) => { if (v > 0) land++; });
+  assert.ok(land > H.length * 0.2);
+  assert.ok(m.stamps.some((s) => /^mountain|^hill/.test(s.a)));
+  // 多角形の切り抜き
+  const sq = E.clipPolygon([[0, 0], [10, 0], [10, 10], [0, 10]], 5, -5, 20, 20);
+  assert.equal(sq.length, 4);
+  assert.ok(sq.every(([x]) => x >= 5));
+  // 小さすぎる範囲は作らない
+  assert.throws(() => E.regionMap(src, Hs, Bs, { x0: 0, y0: 0, x1: 10, y1: 10 }));
+});

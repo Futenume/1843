@@ -1246,6 +1246,205 @@
     return rivers;
   }
 
+  // ───── 範囲を詳しい地図にする（世界地図 → 国 → 地方） ─────
+  // 自動で置き直す素材（名前のない山・木・海の飾り）。名前やつながりのある素材は持っていく
+  const REGEN_STAMP = /^(mountain|volcano|mesa|hill|rocks|dune|tree-|bush|grass|reeds|wave|ship|whirlpool|sea-rock|compass)/;
+  const SYMBOL_ART = {
+    'sym-capital': ['castle', 1.1], 'sym-castle': ['castle', 0.9], 'sym-city': ['city', 1], 'sym-town': ['town', 1], 'sym-village': ['village', 1],
+    'sym-port': ['port', 1], 'sym-fort': ['fort', 1], 'sym-temple': ['temple', 1], 'sym-ruin': ['ruins', 1], 'sym-cave': ['cave', 1], 'sym-tower': ['tower', 1],
+  };
+
+  /** 線を、範囲の中の部分ごとに切り分けて、新しい座標に移す */
+  function clipPolyline(points, tf, W, Hh, margin) {
+    const out = [];
+    let run = [];
+    const inside = (p) => p[0] >= -margin && p[1] >= -margin && p[0] <= W + margin && p[1] <= Hh + margin;
+    const pts = points.map(tf);
+    pts.forEach((p, i) => {
+      if (inside(p)) {
+        // 外から入ってきたところは、外の1点もつないで端まで届かせる
+        if (!run.length && i > 0) run.push(pts[i - 1]);
+        run.push(p);
+      } else if (run.length) {
+        run.push(p);
+        if (run.length >= 2) out.push(run);
+        run = [];
+      }
+    });
+    if (run.length >= 2) out.push(run);
+    return out;
+  }
+  /** 多角形を長方形で切り抜く（Sutherland–Hodgman） */
+  function clipPolygon(pts, x0, y0, x1, y1) {
+    const edges = [
+      (p) => p[0] >= x0, (p) => p[0] <= x1, (p) => p[1] >= y0, (p) => p[1] <= y1,
+    ];
+    const cross = [
+      (a, b) => [x0, a[1] + (b[1] - a[1]) * (x0 - a[0]) / (b[0] - a[0])],
+      (a, b) => [x1, a[1] + (b[1] - a[1]) * (x1 - a[0]) / (b[0] - a[0])],
+      (a, b) => [a[0] + (b[0] - a[0]) * (y0 - a[1]) / (b[1] - a[1]), y0],
+      (a, b) => [a[0] + (b[0] - a[0]) * (y1 - a[1]) / (b[1] - a[1]), y1],
+    ];
+    let out = pts;
+    for (let e = 0; e < 4 && out.length; e++) {
+      const input = out;
+      out = [];
+      for (let i = 0; i < input.length; i++) {
+        const cur = input[i];
+        const prev = input[(i + input.length - 1) % input.length];
+        const cIn = edges[e](cur);
+        const pIn = edges[e](prev);
+        if (cIn) { if (!pIn) out.push(cross[e](prev, cur)); out.push(cur); } else if (pIn) out.push(cross[e](prev, cur));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 選んだ範囲を、もっと詳しい地図にする。
+   * src：元の地図、Hs・Bs：元の高さと地面、rect：{ x0, y0, x1, y1 }（元の地図の座標）
+   * opts：{ name, seed, rivers（川を足す）}
+   * 戻り値：新しい地図（データ）と { zoom }。zoom は何倍に拡大したか
+   */
+  function regionMap(src, Hs, Bs, rect, opts) {
+    opts = opts || {};
+    const cell = src.cell;
+    const Wsrc = src.gw * cell;
+    const Hsrc = src.gh * cell;
+    const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+    const x0 = cl(Math.min(rect.x0, rect.x1), 0, Wsrc);
+    const x1 = cl(Math.max(rect.x0, rect.x1), 0, Wsrc);
+    const y0 = cl(Math.min(rect.y0, rect.y1), 0, Hsrc);
+    const y1 = cl(Math.max(rect.y0, rect.y1), 0, Hsrc);
+    const rw = (x1 - x0) / cell;
+    const rh = (y1 - y0) / cell;
+    if (rw < 6 || rh < 6) throw new Error('範囲が小さすぎます');
+    // 新しい地図の大きさ：長い辺をおよそ300マスに
+    const long = 300;
+    let gw = Math.round(rw >= rh ? long : long * rw / rh);
+    let gh = Math.round(rw >= rh ? long * rh / rw : long);
+    gw = cl(gw, 80, 400);
+    gh = cl(gh, 80, 400);
+    const zoom = gw / rw; // 元の1マスが新しい地図の何マスか
+    const seed = (opts.seed >>> 0) || ((src.seed || 1) * 31 + Math.round(x0 * 7 + y0 * 13)) >>> 0;
+    const fine = makeNoise(seed + 11);
+    const relief = makeNoise(seed + 29);
+    const warp = makeNoise(seed + 47);
+    const N = gw * gh;
+    const H = new Float32Array(N);
+    const B = new Uint8Array(N);
+    const sample = (sx, sy) => {
+      const x = cl(sx, 0, src.gw - 1.001);
+      const y = cl(sy, 0, src.gh - 1.001);
+      const xi = Math.floor(x);
+      const yi = Math.floor(y);
+      const fx = x - xi;
+      const fy = y - yi;
+      const k = yi * src.gw + xi;
+      const a = Hs[k]; const b = Hs[k + 1]; const c = Hs[k + src.gw]; const d = Hs[k + src.gw + 1];
+      return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+    };
+    // 細かさ：拡大するほど、元の地図にない細部（入り江・岬・小さな起伏）を足す
+    const amp = Math.min(1, 0.35 + Math.log2(Math.max(1, zoom)) * 0.22);
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const sx = x0 / cell + (x + 0.5) / zoom - 0.5;
+        const sy = y0 / cell + (y + 0.5) / zoom - 0.5;
+        const h0 = sample(sx, sy);
+        const coastAmp = 0.16 * amp * Math.exp(-Math.abs(h0) / 0.12); // 海岸のあたりほど大きく
+        const reliefAmp = 0.07 * amp * Math.max(0, Math.min(1, h0 * 1.6)); // 高い所ほど起伏を
+        const n1 = fine(x * 0.045, y * 0.045, 5) - 0.5;
+        const n2 = relief(x * 0.09, y * 0.09, 4) - 0.5;
+        const i = y * gw + x;
+        H[i] = h0 + n1 * 2 * coastAmp + n2 * 2 * reliefAmp;
+        // 地面：境目が四角くならないよう、少しゆがめて元の地面を拾う
+        const wx = (warp(x * 0.04, y * 0.04, 3) - 0.5) * 2.4;
+        const wy = (warp(x * 0.04 + 37, y * 0.04 + 11, 3) - 0.5) * 2.4;
+        const bx = cl(Math.round(sx + wx), 0, src.gw - 1);
+        const by = cl(Math.round(sy + wy), 0, src.gh - 1);
+        B[i] = Bs[by * src.gw + bx];
+      }
+    }
+    // 拡大すると土地の起伏がよく見えるので、陸の高さを少し強める（平らな国でも丘や山並みが見え、川が流れる）
+    let maxLand = 0;
+    for (let i = 0; i < N; i++) if (H[i] > maxLand) maxLand = H[i];
+    if (maxLand > 0.12) {
+      const stretch = Math.max(1, Math.min(1.6, 0.72 / maxLand));
+      for (let i = 0; i < N; i++) if (H[i] > 0) H[i] *= stretch;
+    }
+    const W = gw * cell;
+    const Hh = gh * cell;
+    const tf = (p) => [Math.round((p[0] - x0) * zoom * 10) / 10, Math.round((p[1] - y0) * zoom * 10) / 10];
+    const inRect = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    const st = Object.assign({}, src.style);
+    st.kmPerCell = Math.round((src.style.kmPerCell || 4) / zoom * 100) / 100;
+    if (st.grid === 'latlon') st.grid = 'none';
+    st.world = false;
+    st.ice = false;
+    const map = {
+      id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: opts.name || (src.name || '地図') + '（詳細）', gw, gh, cell, seed,
+      height: encodeHeights(H), biome: encodeBiomes(B),
+      stamps: [], lines: [], areas: [], labels: [], style: st, layers: defaultLayers(),
+      region: { from: src.id, rect: { x0, y0, x1, y1 }, zoom: Math.round(zoom * 100) / 100 },
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    // 線（川・道・国境など）
+    (src.lines || []).forEach((ln) => {
+      clipPolyline(ln.points || [], tf, W, Hh, cell * 2).forEach((pts) => {
+        map.lines.push(Object.assign({}, ln, { id: 'ln' + sid(), points: pts, w: ln.kind === 'river' || ln.kind === 'stream' ? Math.min(3, (ln.w || 1) * Math.max(1, Math.sqrt(zoom) * 0.8)) : (ln.w || 1) }));
+      });
+    });
+    if (opts.rivers !== false) {
+      // 拡大した地図には、元の地図になかった小さな川も足す
+      const more = autoRivers(map, H, seed).filter((r) => !map.lines.some((l) => (l.kind === 'river' || l.kind === 'stream') && l.points.some((p) => Math.hypot(p[0] - r.points[0][0], p[1] - r.points[0][1]) < cell * 6)));
+      more.forEach((r) => { r.kind = 'stream'; });
+      map.lines = map.lines.concat(more.slice(0, 12));
+    }
+    // 文字（国名など）
+    const labelId = new Map();
+    const grow = Math.max(1, Math.min(2.2, Math.sqrt(zoom) * 0.9));
+    (src.labels || []).forEach((lb) => {
+      if (!inRect(lb.x, lb.y)) return;
+      const id = 'lb' + sid();
+      labelId.set(lb.id, id);
+      let [x, y] = tf([lb.x, lb.y]);
+      const big = lb.style === 'region' || lb.style === 'area' || lb.style === 'sea' || lb.style === 'range';
+      const size = Math.min(big ? 40 : 22, Math.round((lb.size || 14) * (big ? grow : Math.min(1.4, grow)) * 10) / 10);
+      // 端で切れないよう、文字の幅の分だけ内側へ（横書きの文字）
+      if (!lb.vertical) {
+        const half = Array.from(String(lb.text || '')).length * size * (1 + (lb.spacing != null ? lb.spacing : 0.4)) / 2 + cell;
+        x = half * 2 < W ? Math.max(half, Math.min(W - half, x)) : W / 2;
+        y = Math.max(size + cell, Math.min(Hh - size - cell, y));
+      }
+      map.labels.push(Object.assign({}, lb, { id, x, y, size }));
+    });
+    // 領域（国の塗りなど）は範囲で切り抜く
+    (src.areas || []).forEach((ar) => {
+      const clipped = clipPolygon(ar.points || [], x0, y0, x1, y1);
+      if (clipped.length < 3) return;
+      const pts = clipped.map(tf);
+      let a2 = 0;
+      for (let i = 0; i < pts.length; i++) { const p = pts[i]; const q = pts[(i + 1) % pts.length]; a2 += p[0] * q[1] - q[0] * p[1]; }
+      if (Math.abs(a2) / 2 < cell * cell * 4) return;
+      map.areas.push(Object.assign({}, ar, { id: 'ar' + sid(), points: pts, nameLabel: ar.nameLabel ? (labelId.get(ar.nameLabel) || '') : ar.nameLabel }));
+    });
+    // 素材：町・城・名前のある物は持っていき、山・木・海の飾りは新しい地形に合わせて置き直す
+    const kept = [];
+    (src.stamps || []).forEach((s) => {
+      if (!inRect(s.x, s.y)) return;
+      if (REGEN_STAMP.test(s.a) && !s.name && !s.entryId) return;
+      const [x, y] = tf([s.x, s.y]);
+      // 世界地図の記号（★など）は、詳しい地図では絵の素材に
+      const art = zoom >= 1.8 ? SYMBOL_ART[s.a] : null;
+      kept.push(Object.assign({}, s, art ? { a: art[0], s: art[1], v: 0 } : { s: Math.round((s.s || 1) * Math.max(1, Math.min(1.8, Math.pow(zoom, 0.3))) * 100) / 100 }, { id: sid(), x, y }));
+    });
+    const natural = autoStamps(map, H, B, seed).filter((n) => !kept.some((t) => Math.hypot(t.x - n.x, t.y - n.y) < 20));
+    map.stamps = natural.concat(kept).sort((a, b) => a.y - b.y);
+    map.stamps.push({ id: sid(), a: 'compass', x: W - 56, y: 68, s: 1, r: 0, f: false, v: 0 });
+    return { map, zoom };
+  }
+
   // ───── 国を自動で分ける ─────
   const COUNTRY_SUFFIX = ['王国', '王国', '王国', '公国', '帝国', '共和国', '連邦', '大公国', '首長国', '皇国', '自由都市連合', '神聖国'];
   // 地形の色（黄土・緑）に埋もれないよう、赤・紫・青寄りを多めに
@@ -1727,6 +1926,6 @@
 
   NS.MapEngine = {
     BIOMES, PALETTES, PRESETS, SIZES, COUNTRY_COLORS, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
-    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
+    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, regionMap, clipPolygon, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
