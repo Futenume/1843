@@ -122,6 +122,7 @@
       if (coins.length || r.currency.prices.some((x) => x.item && x.price)) {
         out.push('## 通貨・物価', '');
         if (coins.length) out.push('- ' + coins.map((u, i) => (i === 0 ? `${u.name}1枚` : `${u.name}${Math.round(coins[0].value / u.value * 100) / 100}枚`)).join(' ＝ '));
+        coins.filter((u) => u.reading || u.note).forEach((u) => out.push(`- ${u.name}${u.reading ? '（' + u.reading + '）' : ''}${u.note ? '：' + u.note.replace(/\n/g, ' ') : ''}`));
         if (r.currency.yen > 0 && coins.length) out.push(`- ${coins[coins.length - 1].name}1枚 ≒ ${r.currency.yen}円（読者向けの目安）`);
         r.currency.prices.filter((x) => x.item && x.price).forEach((x) => out.push(`- ${x.item}：${x.price}`));
         out.push('');
@@ -711,25 +712,65 @@
     const renderCur = (focusLast) => {
       clear(curList);
       cur.units.forEach((u, i) => {
-        const name = textInput(u.name, (v) => { u.name = v.trim(); touch(); updCur(); }, { placeholder: '例：金貨' });
+        const name = textInput(u.name, (v) => { u.name = v.trim(); touch(); updCur(); }, { placeholder: '例：金貨、黒聖貨' });
         curList.appendChild(h('div', { class: 'cur-row' },
           mini('お金の名前', name),
+          mini('読み（造語なら）', textInput(u.reading, (v) => { u.reading = v.trim(); touch(); }, { placeholder: '例：こくせいか' })),
           mini('最小のお金で何枚分', numInput(u.value, (v) => { u.value = v; touch(); updCur(); }, { min: 1, 'aria-label': 'いちばん小さいお金で何枚分' })),
           h('div', { class: 'row-del' }, btn('', { icon: 'trash', ghost: true, small: true, title: '削除', onClick: async () => {
             if (!(await confirmRemove(u.name, 'お金'))) return;
             cur.units.splice(i, 1); touch(); renderCur();
-          } }))));
+          } })),
+          h('div', { class: 'cur-note' }, mini('メモ（素材・見た目・発行元など。なくても可）', textInput(u.note, (v) => { u.note = v; touch(); }, { placeholder: '例：黒い聖銀で作られ、王家の紋章が刻まれた最高額の硬貨' })))));
         if (focusLast && i === cur.units.length - 1) name.focus();
       });
       curList.appendChild(h('div', { class: 'row wrap' },
-        btn('お金を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { cur.units.push({ name: '', value: cur.units.length ? 1 : 1 }); touch(); renderCur(true); } }),
+        btn('お金を追加', { icon: 'plus', small: true, ghost: true, onClick: () => { cur.units.push({ name: '', value: 1, reading: '', note: '' }); touch(); renderCur(true); } }),
+        btn('造語のお金を考える', { icon: 'dice', small: true, ghost: true, title: '「黒聖貨」のような、この世界だけのお金の名前と換算をまとめて考えます', onClick: () => coinDialog() }),
         ...CURRENCY_TEMPLATES.map(([label, list, yen]) => btn('ひな形：' + label, { small: true, ghost: true, onClick: async () => {
           if (cur.units.some((u) => u.name) && !(await UI.confirm('今のお金の設定を、ひな形で置き換えます。'))) return;
-          cur.units = list.map(([name, value]) => ({ name, value }));
+          cur.units = list.map(([name, value]) => ({ name, value, reading: '', note: '' }));
           if (!cur.yen) cur.yen = yen;
           touch(); renderCur(); renderYen();
         } }))));
       updCur();
+    };
+    // 造語のお金を考える（高い順に3段、読みと換算つき）
+    const coinDialog = () => {
+      let style = 'kanji';
+      let seed = Math.floor(Math.random() * 1e6);
+      const chips = h('div', { class: 'chips' });
+      const listEl = h('div', { class: 'coin-sets' });
+      let closeFn = null;
+      const roll = () => {
+        clear(chips);
+        [['kanji', '漢字の造語（〜貨・読みつき）'], ['kana', 'カタカナの造語']].forEach(([k, l]) => chips.appendChild(h('button', {
+          type: 'button', class: 'chip' + (style === k ? ' active' : ''), onclick: () => { style = k; roll(); } }, l)));
+        clear(listEl);
+        W.coinSets(style, seed, 6).forEach((set) => {
+          const label = set.coins.map((c, i) => (i === 0 ? `${c.name}1枚` : `${c.name}${UI.fmtNum(set.coins[0].value / c.value)}枚`)).join(' ＝ ');
+          listEl.appendChild(h('div', { class: 'coin-set' },
+            h('div', { class: 'coin-set-main' },
+              h('div', { class: 'coin-names' }, set.coins.map((c) => h('span', { class: 'coin-name' }, h('strong', null, c.name), c.reading ? h('span', { class: 'small muted' }, c.reading) : null))),
+              h('div', { class: 'small muted' }, label)),
+            btn('これにする', { small: true, primary: true, onClick: async () => {
+              if (cur.units.some((u) => u.name) && !(await UI.confirm('今のお金の設定を、この組み合わせで置き換えます。'))) return;
+              cur.units = set.coins.map((c) => ({ name: c.name, value: c.value, reading: c.reading, note: '' }));
+              if (!cur.yen) cur.yen = set.yen;
+              touch(); renderCur(); renderYen();
+              if (closeFn) closeFn();
+              UI.toast('お金を決めました。名前・読み・換算はあとから自由に変えられます');
+            } })));
+        });
+      };
+      roll();
+      closeFn = UI.modal({
+        title: '造語のお金を考える', wide: true,
+        body: h('div', { class: 'stack' },
+          h('p', { class: 'small muted' }, 'この世界だけのお金の名前を、高い順に3段の組み合わせで考えます。気に入ったものを選ぶと、読みと換算ごと入ります（あとで1つずつ変えられます）。'),
+          chips, listEl),
+        actions: [{ label: 'ほかの案', onClick: () => { seed = Math.floor(Math.random() * 1e6); roll(); return false; } }, { label: '閉じる', primary: true }],
+      });
     };
     const yenBox = h('div');
     const renderYen = () => {

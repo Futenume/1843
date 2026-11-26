@@ -688,3 +688,31 @@ test('世界観ルール：試行錯誤で見つけた誤検出を起こさな�
   assert.deepEqual(found('電話と列車と写真と紙幣'), [['電話', '使い'], ['列車', '駕籠'], ['写真', '絵姿'], ['紙幣', '小判']]);
   assert.deepEqual(found('障子を開けるとテーブルがあった。ドアノブ。ゴロゴロ。'), [['テーブル', '卓']]);
 });
+
+test('造語のお金：組み合わせを考える・設定にないお金や書き間違い・読みの登録・表記ゆれ', () => {
+  const { WorldRules: W, Consistency } = globalThis.Tsuzuri;
+  require('../js/readings.js');
+  const { Readings } = globalThis.Tsuzuri;
+  // 漢字の造語は「〜貨」で読みつき、高い順・名前は重ならない
+  const sets = W.coinSets('kanji', 5, 6);
+  assert.equal(sets.length, 6);
+  sets.forEach((st) => {
+    assert.equal(st.coins.length, 3);
+    assert.ok(st.coins.every((c) => /貨$/.test(c.name) && /^[ぁ-ん]+か$/.test(c.reading)));
+    assert.ok(st.coins[0].value > st.coins[1].value && st.coins[1].value > st.coins[2].value && st.coins[2].value === 1);
+    assert.equal(new Set(st.coins.map((c) => c.name)).size, 3);
+  });
+  const kana = W.coinSets('kana', 9, 6);
+  assert.ok(kana.every((st) => st.coins.every((c) => /^[ァ-ヴー]{3,5}$/.test(c.name) && !/(.)\1/.test(c.name))));
+  // 造語のお金で、設定にないお金・似た名前を見つける（ふつうの「通貨」「小銭」は拾わない）
+  const rules = { currency: { units: [{ name: '黒聖貨', value: 10000, reading: 'こくせいか' }, { name: '白銀貨', value: 100 }, { name: '赤銅貨', value: 1 }] } };
+  const t = '黒聖貨を三枚。黒星貨を一枚。大黒聖貨。金貨。通貨の価値。雑貨屋。小銭。';
+  const got = W.scan(t, rules).map((f) => [t.slice(f.start, f.end), f.suggestion]);
+  assert.deepEqual(got, [['黒星貨', '黒聖貨'], ['大黒聖貨', null], ['金貨', null]]);
+  // 読みは「読み方」の登録として使われる（ルビの指摘を出さない）
+  const reg = Readings.collect({ ideas: [], entries: [], rules });
+  assert.ok(reg.some((r) => r.base === '黒聖貨' && r.reading === 'こくせいか' && r.source === 'world'));
+  // カタカナの造語のお金も、名前の表記ゆれとして見つける
+  const res = Consistency.check('ルークスを払った。', { entries: [], rules: { currency: { units: [{ name: 'ルクス', value: 1 }] } } });
+  assert.ok(res.issues.some((i) => i.ruleId === 'name-variant' && i.text === 'ルークス' && i.suggestion === 'ルクス'));
+});

@@ -168,7 +168,7 @@
     const num = (v) => (Number.isFinite(+v) && +v > 0 ? +v : 0);
     const cur = obj(p.rules.currency);
     p.rules.currency = {
-      units: arr(cur.units).filter((u) => u && typeof u === 'object').slice(0, 20).map((u) => ({ name: str(u.name), value: num(u.value) })),
+      units: arr(cur.units).filter((u) => u && typeof u === 'object').slice(0, 20).map((u) => ({ name: str(u.name), value: num(u.value), reading: str(u.reading), note: str(u.note) })),
       yen: num(cur.yen),
       prices: arr(cur.prices).filter((x) => x && typeof x === 'object').slice(0, 100).map((x) => ({ item: str(x.item), price: str(x.price) })),
       note: str(cur.note),

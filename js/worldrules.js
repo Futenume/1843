@@ -148,6 +148,65 @@
 
   // ───── お金 ─────
   const REAL_MONEY = ['ドル', 'ユーロ', 'セント', 'ペニー', 'ペンス'];
+  // お金にまつわる、ふつうの言葉（硬貨の名前ではない）
+  const COMMON_MONEY = new Set(['通貨', '雑貨', '百貨', '外貨', '硬貨', '財貨', '邦貨', '奇貨', '滞貨', '良貨', '悪貨', '正貨', '金銭', '小銭', '釣銭', '身銭', '賽銭', '口銭', '日銭', '悪銭', '古銭', '銅銭', '銀銭', '金貨銭', '寛永通宝', '一文銭', '借銭', '路銭', '餞銭', '湯銭', '木戸銭', '渡し銭', '駄賃銭']);
+
+  // ───── 造語のお金を考える ─────
+  // 高い順に3段。名前は「〜貨」、読みは音読みで
+  const COIN_TIERS = [
+    [['黒聖', 'こくせい'], ['星晶', 'せいしょう'], ['竜鱗', 'りゅうりん'], ['天輝', 'てんき'], ['皇', 'こう'], ['聖', 'せい'], ['金冠', 'きんかん'], ['翠晶', 'すいしょう'], ['紅玉', 'こうぎょく'], ['蒼星', 'そうせい'], ['陽', 'よう'], ['神鋼', 'しんこう']],
+    [['白銀', 'はくぎん'], ['月', 'げつ'], ['銀環', 'ぎんかん'], ['銀', 'ぎん'], ['青銀', 'せいぎん'], ['銀葉', 'ぎんよう'], ['真銀', 'しんぎん'], ['月輪', 'げつりん'], ['銀鱗', 'ぎんりん'], ['白鋼', 'はっこう']],
+    [['赤銅', 'しゃくどう'], ['銅', 'どう'], ['青銅', 'せいどう'], ['鉄', 'てつ'], ['灰', 'かい'], ['石', 'せき'], ['銅葉', 'どうよう'], ['角', 'かく'], ['錫', 'すず'], ['黒鉄', 'くろがね']],
+  ];
+  const COIN_KANA = {
+    syl: 'ル ミ セ ラ ディ オ ソ ペ ク レ ヴァ フィ エ リ ア カ テ マ ロ'.split(' '),
+    end: ['ナ', 'ス', 'ル', 'ド', 'ン', 'ラ', 'リン', 'ール', 'ム', 'ト', 'ア'],
+  };
+  const COIN_RATES = [[10000, 100, 1], [100, 10, 1], [1000, 50, 1], [400, 20, 1]];
+  /**
+   * 造語のお金の組み合わせを考える。style: 'kanji'（〜貨・読みつき）| 'kana'（カタカナ）
+   * 戻り値：[{ coins: [{ name, reading, value }]（高い順）, yen }]
+   */
+  function coinSets(style, seed, count) {
+    let a = (seed >>> 0) || 1;
+    const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const out = [];
+    const seen = new Set();
+    for (let t = 0; out.length < (count || 6) && t < 200; t++) {
+      const rates = pick(COIN_RATES);
+      let coins;
+      if (style === 'kana') {
+        const used = new Set();
+        coins = rates.map((value) => {
+          let w = '';
+          for (let k = 0; k < 30; k++) {
+            const parts = [];
+            const n = 1 + Math.floor(rnd() * 2);
+            for (let i = 0; i < n; i++) parts.push(pick(COIN_KANA.syl));
+            parts.push(pick(COIN_KANA.end));
+            w = parts.join('');
+            const len = Array.from(w).length;
+            // 同じ音が続かない・3〜5文字・先頭の音がほかの段と重ならない
+            const okSound = parts.every((x, i) => i === 0 || x !== parts[i - 1]) && !/(.)\1/.test(w);
+            if (okSound && len >= 3 && len <= 5 && !used.has(w) && !Array.from(used).some((u) => u[0] === w[0])) break;
+          }
+          used.add(w);
+          return { name: w, reading: '', value };
+        });
+      } else {
+        coins = COIN_TIERS.map((tier, i) => { const [n, r] = pick(tier); return { name: n + '貨', reading: r + 'か', value: rates[i] }; });
+        // 同じ字が続きすぎないように（「銀貨・銀環貨」など）
+        if (new Set(coins.map((c) => c.name[0])).size < coins.length) continue;
+      }
+      const key = coins.map((c) => c.name).join('/');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // 円の目安：いちばん安いお金1枚が10〜100円くらいになるように
+      out.push({ coins, yen: rates[0] >= 10000 ? 100 : rates[0] >= 1000 ? 50 : 10 });
+    }
+    return out;
+  }
   function coinPhrase(name, n, useKanji, approx) {
     const num = (approx ? '約' : '') + fmt(n, useKanji);
     return /[貨札玉幣]$/.test(name) ? `${name}${num}枚` : `${num}${name}`;
@@ -302,11 +361,18 @@
       each(new RegExp(KB + '(' + REAL_MONEY.join('|') + ')' + KA, 'g'), (m) => {
         push({ start: m.index, end: m.index + m[0].length, kind: 'money', scope: 'auto', severity: 'warning', message: msg, suggestion: null });
       });
-      // 設定にない硬貨（「〜貨」の硬貨を決めているとき）
-      if (names.some((n) => /貨$/.test(n))) {
-        each(/(?<![一-龯])([金銀銅鉄白黒赤青紫大小半]{1,3}貨)/g, (m) => {
-          if (names.includes(m[1]) || allowed.has(m[1])) return;
-          push({ start: m.index, end: m.index + m[1].length, kind: 'coin', scope: 'all', severity: 'info', message: `「${m[1]}」は設定資料の通貨にありません（${names.join('・')}）。新しい硬貨なら、設定資料に足してください`, suggestion: null });
+      // 設定にない硬貨（「〜貨」「〜銭」の硬貨を決めているとき。造語の「黒聖貨」なども）
+      const suffixes = Array.from(new Set(names.map((n) => n.slice(-1)).filter((c) => c === '貨' || c === '銭')));
+      if (suffixes.length) {
+        // 似た名前（「黒聖貨」と「黒星貨」など）なら、言い換えの案に
+        const similar = (w) => names.find((n) => n.length === w.length && n.slice(-1) === w.slice(-1) && Array.from(n).filter((c, i) => c !== w[i]).length === 1);
+        each(new RegExp('(?<![一-龯々])([一-龯々]{1,3}[' + suffixes.join('') + '])(?![一-龯々])', 'g'), (m) => {
+          const w = m[1];
+          if (names.includes(w) || allowed.has(w) || COMMON_MONEY.has(w)) return;
+          const near = similar(w);
+          push({ start: m.index, end: m.index + w.length, kind: 'coin', scope: 'all', severity: 'info',
+            message: near ? `「${w}」は設定資料のお金にありません。「${near}」の書き間違いでなければ、新しいお金として設定資料に足してください（この世界のお金：${names.join('・')}）` : `「${w}」は設定資料のお金にありません（${names.join('・')}）。新しいお金なら、設定資料に足してください`,
+            suggestion: near || null });
         });
       }
     }
@@ -389,7 +455,7 @@
   }
 
   NS.WorldRules = {
-    parseNum, kanji, roundNice, convertUnit, convertYen, describeAmount, unitTable, scan, active,
+    parseNum, kanji, roundNice, convertUnit, convertYen, describeAmount, unitTable, scan, active, coinSets,
     REAL_UNITS, TECH, TECH_PRESETS, LOANWORDS, KIND_LABEL, BASE_LABEL, REAL_ERAS,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

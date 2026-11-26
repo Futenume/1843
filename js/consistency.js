@@ -182,6 +182,16 @@
   }
 
   /** 設定資料から名前の索引を作る */
+  /** 世界観ルールのお金を、用語として名前の一覧に加える（表記ゆれの検出・未登録の候補から外すため） */
+  function coinEntries(rules, entries) {
+    const units = rules && rules.currency && rules.currency.units;
+    if (!units || !units.length) return [];
+    const have = new Set((entries || []).map((e) => e && e.name));
+    return units.filter((u) => u && u.name && u.name.trim().length >= 2 && !have.has(u.name.trim())).map((u, i) => ({
+      id: 'coin-' + i, type: 'term', name: u.name.trim(), reading: u.reading || '', aliases: [], fields: { kind: 'お金' }, custom: [], relations: [], appear: {}, notes: '', virtual: true,
+    }));
+  }
+
   function buildNameIndex(entries) {
     const forms = new Map(); // form -> [entryId]
     const byId = {};
@@ -404,7 +414,7 @@
     const enabled = (id) => (ctx.enabled && Object.prototype.hasOwnProperty.call(ctx.enabled, id) ? !!ctx.enabled[id] : RULE_MAP[id].default);
     const a = T.analyze(text || '');
     const m = a.masked;
-    const entries = ctx.entries || [];
+    const entries = (ctx.entries || []).concat(coinEntries(ctx.rules, ctx.entries));
     const index = ctx.index || buildNameIndex(entries);
     const mentions = findMentions(m, index);
     const issues = [];

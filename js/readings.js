@@ -74,6 +74,9 @@
       const rp = String(e.reading || '').trim().split(/[\s　]+/);
       if (parts.length > 1 && parts.length === rp.length) parts.forEach((p, i) => { if (hasKanji(p)) add(p, rp[i], 'lore', e.id); });
     });
+    // 世界観ルールのお金（「黒聖貨《こくせいか》」のような造語の読み）
+    const coins = project && project.rules && project.rules.currency && project.rules.currency.units;
+    (coins || []).forEach((u) => { if (u && u.name && u.reading && hasKanji(u.name)) add(u.name.trim(), u.reading.replace(/[\s　]/g, ''), 'world', null, 'お金'); });
     return list;
   }
 
