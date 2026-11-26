@@ -1427,8 +1427,21 @@
       let a2 = 0;
       for (let i = 0; i < pts.length; i++) { const p = pts[i]; const q = pts[(i + 1) % pts.length]; a2 += p[0] * q[1] - q[0] * p[1]; }
       if (Math.abs(a2) / 2 < cell * cell * 4) return;
-      map.areas.push(Object.assign({}, ar, { id: 'ar' + sid(), points: pts, nameLabel: ar.nameLabel ? (labelId.get(ar.nameLabel) || '') : ar.nameLabel }));
+      map.areas.push(Object.assign({}, ar, { id: 'ar' + sid(), points: pts, nameLabel: ar.nameLabel ? (labelId.get(ar.nameLabel) || '') : ar.nameLabel, _a: Math.abs(a2) / 2 }));
     });
+    // いちばん広く写っている国（この地図の主役）は淡く塗り、まわりの国は色を残す（地図帳の「地方図」の見せ方）
+    if (map.areas.length) {
+      const byGroup = new Map();
+      map.areas.forEach((ar) => { const k = ar.group || ar.id; byGroup.set(k, (byGroup.get(k) || 0) + ar._a); });
+      let main = null;
+      byGroup.forEach((v, k) => { if (!main || v > main[1]) main = [k, v]; });
+      const share = main[1] / (W * Hh);
+      map.areas.forEach((ar) => {
+        const op = ar.opacity != null ? ar.opacity : 0.22;
+        if ((ar.group || ar.id) === main[0] && share > 0.2) ar.opacity = Math.round(op * 0.45 * 100) / 100;
+        delete ar._a;
+      });
+    }
     // 素材：町・城・名前のある物は持っていき、山・木・海の飾りは新しい地形に合わせて置き直す
     const kept = [];
     (src.stamps || []).forEach((s) => {
