@@ -1626,11 +1626,19 @@
     const colorIdx = new Array(n).fill(-1);
     const order = seeds.map((_, i) => i).sort((a, b) => adj[b].size - adj[a].size);
     const offset = Math.floor(rnd() * COUNTRY_COLORS.length);
+    // 隣の国と違う色のうち、まだあまり使っていない色を選ぶ（離れた国どうしも色がばらけるように）
+    const usage = new Array(COUNTRY_COLORS.length).fill(0);
     order.forEach((r) => {
       const used = new Set(Array.from(adj[r]).map((q) => colorIdx[q]));
-      let c = 0;
-      while (used.has(c) && c < COUNTRY_COLORS.length - 1) c++;
-      colorIdx[r] = c;
+      let best = -1;
+      for (let j = 0; j < COUNTRY_COLORS.length; j++) {
+        const c = (j + offset) % COUNTRY_COLORS.length;
+        if (used.has(c)) continue;
+        if (best < 0 || usage[c] < usage[best]) best = c;
+      }
+      if (best < 0) best = offset % COUNTRY_COLORS.length;
+      colorIdx[r] = best;
+      usage[best]++;
     });
 
     // 国名

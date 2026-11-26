@@ -1974,6 +1974,7 @@
         ctx.fillRect(0, 0, M.W, M.Hpx);
       }
       if (st.scale) drawScale(ctx, pl);
+      if (st.legend) drawLegend(ctx, pl);
       if (st.title && st.title !== 'none' && m.name) drawTitle(ctx, m.name, st.title, pl);
       drawFrame(ctx, st.frame || 'simple', pl);
     }
@@ -2426,6 +2427,88 @@
     return { w, h: hh, cy: cyOff };
   }
 
+  // ───── 凡例 ─────
+  // 町・建物は大事な順に。ここにないもの（山・木・海の飾り）は凡例に出さない
+  const LEGEND_STAMPS = ['castle', 'jcastle', 'city', 'town', 'village', 'jvillage', 'port', 'fort', 'tower', 'temple', 'church', 'shrine', 'pagoda', 'torii', 'lighthouse', 'windmill', 'farm', 'camp', 'bridge',
+    'ruins', 'cave', 'stones', 'crystal', 'obelisk', 'portal', 'giant-tree', 'skull', 'volcano', 'whirlpool', 'serpent'];
+  const LEGEND_LINES = ['highway', 'road', 'trail', 'rail', 'river', 'wall', 'border', 'route'];
+  /** 地図で使っているものから、凡例の行を作る */
+  function legendRows() {
+    const m = M.map;
+    const rows = [];
+    const usedA = new Set(m.stamps.map((s) => s.a));
+    LEGEND_STAMPS.forEach((a) => { if (usedA.has(a) && AS.BY_ID[a]) rows.push({ kind: 'stamp', a, label: AS.BY_ID[a].label }); });
+    m.stamps.forEach((s) => { if (/^sym-/.test(s.a) && AS.BY_ID[s.a] && !rows.some((r) => r.a === s.a)) rows.push({ kind: 'stamp', a: s.a, label: AS.BY_ID[s.a].label }); });
+    const usedL = new Set(m.lines.map((l) => (l.kind === 'stream' ? 'river' : l.kind)));
+    LEGEND_LINES.forEach((k) => { if (usedL.has(k)) rows.push({ kind: 'line', line: k, label: (PATH_KINDS[k] || {}).label || k }); });
+    // 国・領域（名前のあるものを、色つきで）
+    const seen = new Set();
+    m.areas.forEach((ar) => {
+      const key = ar.group || ar.id;
+      if (!ar.name || seen.has(key) || seen.size >= 10) return;
+      seen.add(key);
+      rows.push({ kind: 'area', color: ar.color, label: ar.name });
+    });
+    return rows;
+  }
+  function drawLegend(ctx, pl) {
+    const rows = legendRows();
+    if (!rows.length) return;
+    const u = Math.max(1, Math.min(2, M.W / 1100)); // 大きな地図では少し大きく
+    const fs = 11 * u;
+    const rowH = 19 * u;
+    const icon = 26 * u;
+    const pad = 10 * u;
+    const ink = inkOf(pl);
+    ctx.save();
+    ctx.font = `500 ${fs}px "Noto Serif JP", "Hiragino Mincho ProN", serif`;
+    const textW = Math.max(ctx.measureText('凡例').width * 1.3, ...rows.map((r) => ctx.measureText(r.label).width));
+    const bw = pad * 2 + icon + 8 * u + textW;
+    const bh = pad * 2 + 18 * u + rows.length * rowH;
+    const pos = M.map.style.legendPos || 'br';
+    const margin = 22;
+    const bx = pos[1] === 'r' ? M.W - margin - bw : margin;
+    const by = pos[0] === 'b' ? M.Hpx - margin - bh - (pos === 'bl' && M.map.style.scale ? 40 : 0) : margin + (pos === 'tl' || pos === 'tr' ? 0 : 0);
+    // 枠
+    ctx.fillStyle = pl === E.PALETTES.night ? 'rgba(20,24,30,0.86)' : 'rgba(251,246,234,0.92)';
+    ctx.strokeStyle = hexA(ink.length === 7 ? ink : '#3a2e24', 0.85);
+    ctx.lineWidth = 1.2 * u;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 4 * u); else ctx.rect(bx, by, bw, bh);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeRect(bx + 3 * u, by + 3 * u, bw - 6 * u, bh - 6 * u);
+    ctx.fillStyle = pl.ink;
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${fs * 1.15}px "Shippori Mincho", "Noto Serif JP", serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('凡　例', bx + bw / 2, by + pad + 7 * u);
+    ctx.textAlign = 'left';
+    ctx.font = `500 ${fs}px "Noto Serif JP", "Hiragino Mincho ProN", serif`;
+    rows.forEach((r, i) => {
+      const cy = by + pad + 18 * u + i * rowH + rowH / 2;
+      const ix = bx + pad;
+      if (r.kind === 'stamp') {
+        const sp = AS.sprite(r.a, 0, palKey());
+        const k = Math.min(icon / sp.w, (rowH * 1.05) / sp.h);
+        ctx.drawImage(sp.canvas, ix + (icon - sp.w * k) / 2, cy - (sp.h * k) / 2, sp.w * k, sp.h * k);
+      } else if (r.kind === 'line') {
+        ctx.save();
+        drawPath(ctx, { id: 'legend-' + r.line, kind: r.line, points: [[ix + 1 * u, cy], [ix + icon - 1 * u, cy]], w: r.line === 'river' ? 0.8 * u : u, wobble: 0 }, pl);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = hexA(r.color, 0.45);
+        ctx.strokeStyle = hexA(r.color, 0.9);
+        ctx.lineWidth = 1.2 * u;
+        ctx.fillRect(ix + 3 * u, cy - 6 * u, icon - 6 * u, 12 * u);
+        ctx.strokeRect(ix + 3 * u, cy - 6 * u, icon - 6 * u, 12 * u);
+      }
+      ctx.fillStyle = pl.ink;
+      ctx.fillText(r.label, ix + icon + 8 * u, cy + 0.5 * u);
+    });
+    ctx.restore();
+  }
+
   function drawScale(ctx, pl) {
     const m = M.map;
     const kmPerPx = (m.style.kmPerCell || 4) / m.cell;
@@ -2803,15 +2886,34 @@
 
   // ───── 書き出し ─────
   function exportDialog() {
-    const sel = h('select', { class: 'input' }, [1, 2, 3].map((s) => h('option', { value: s, selected: s === 2 }, `${s}倍（${Math.round(M.W * s)}×${Math.round(M.Hpx * s)}px）`)));
+    // 長い辺の画素数から倍率を決める（印刷：300dpi で A4 は 3508px、A3 は 4961px）
+    const long = Math.max(M.W, M.Hpx);
+    const opts = [
+      ['1', 1, '1倍（画面用）'], ['2', 2, '2倍'], ['3', 3, '3倍'], ['4', 4, '4倍'],
+      ['a4', 3508 / long, '印刷：A4（300dpi）'], ['a3', 4961 / long, '印刷：A3（300dpi）'],
+    ];
+    const sizeLabel = (k) => `${Math.round(M.W * k).toLocaleString('ja-JP')}×${Math.round(M.Hpx * k).toLocaleString('ja-JP')}px`;
+    const sel = h('select', { class: 'input', 'aria-label': '大きさ' }, opts.map(([v, k, l]) => h('option', { value: v, selected: v === '2' }, `${l}　${sizeLabel(k)}`)));
+    const fmt = h('select', { class: 'input', 'aria-label': '形式' },
+      h('option', { value: 'png' }, 'PNG（きれい・ファイルは大きめ）'), h('option', { value: 'jpeg' }, 'JPEG（ファイルが小さい・投稿や共有向け）'));
+    const warn = h('p', { class: 'small muted' });
+    const upd = () => {
+      const k = opts.find(([v]) => v === sel.value)[1];
+      const px = M.W * k * M.Hpx * k;
+      warn.textContent = px > 16e6 ? 'とても大きな画像です。書き出しに時間がかかり、スマートフォンでは失敗することがあります（そのときは小さい大きさを選んでください）。' : '大きいほどきれいですが、書き出しに時間がかかります。';
+    };
+    sel.addEventListener('change', upd);
+    upd();
     UI.modal({
       title: '画像として書き出す',
-      body: h('div', { class: 'stack' }, UI.field('大きさ', sel), h('p', { class: 'muted small' }, '大きいほどきれいですが、書き出しに時間がかかります。隠しているレイヤーは書き出されません。')),
-      actions: [{ label: 'キャンセル', ghost: true }, { label: '書き出す', primary: true, onClick: () => { exportPng(+sel.value); } }],
+      body: h('div', { class: 'stack' }, h('div', { class: 'grid-2' }, UI.field('大きさ', sel), UI.field('形式', fmt)), warn,
+        h('p', { class: 'muted small' }, '隠しているレイヤーは書き出されません。枠・題名・縮尺・凡例は「地図の設定」で選べます。印刷するときは、用紙の向きを地図に合わせてください。')),
+      actions: [{ label: 'キャンセル', ghost: true }, { label: '書き出す', primary: true, onClick: () => { exportPng(opts.find(([v]) => v === sel.value)[1], fmt.value); } }],
     });
   }
 
-  async function exportPng(scale) {
+  async function exportPng(scale, type) {
+    type = type === 'jpeg' ? 'jpeg' : 'png';
     const iw = Math.round(M.W * scale);
     const ih = Math.round(M.Hpx * scale);
     const base = document.createElement('canvas');
@@ -2841,6 +2943,22 @@
     const ctx = c.getContext('2d');
     renderMap(ctx, { scale, tx: 0, ty: 0, w: iw, h: ih, editing: false }, { base, mask });
     M.progress.hidden = true;
+    if (type === 'jpeg') {
+      // JPEG は透明にできないので、下を紙の色で塗っておく
+      const bg = document.createElement('canvas');
+      bg.width = iw;
+      bg.height = ih;
+      const g = bg.getContext('2d');
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, iw, ih);
+      g.drawImage(c, 0, 0);
+      bg.toBlob((blob) => {
+        if (!blob) { toast('書き出せませんでした（画像が大きすぎる可能性があります）', 'error'); return; }
+        UI.download(UI.safeFilename(M.map.name) + '.jpg', blob);
+        toast('JPEG を書き出しました');
+      }, 'image/jpeg', 0.92);
+      return;
+    }
     c.toBlob((blob) => {
       if (!blob) { toast('書き出せませんでした（画像が大きすぎる可能性があります）', 'error'); return; }
       UI.download(UI.safeFilename(M.map.name) + '.png', blob);
@@ -3390,7 +3508,9 @@
         `地図の横幅 ≒ ${UI.fmtNum(m.gw * st.kmPerCell)} km`),
       h('div', { class: 'check-grid' },
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
-        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true)),
+        toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true),
+        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.legend, onchange: (e) => { set('legend', e.target.checked); renderInspector(); } }), '凡例')),
+      st.legend ? sel('legendPos', [['br', '右下'], ['bl', '左下'], ['tr', '右上'], ['tl', '左上']], '凡例の位置') : null,
       h('div', { class: 'row wrap' },
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),
