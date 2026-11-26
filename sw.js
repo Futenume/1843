@@ -1,7 +1,7 @@
 // 綴り — サービスワーカー（オフラインでも使えるように、アプリのファイルを保存しておく）
 // 作品のデータはブラウザの保存領域（IndexedDB）にあり、ここでは扱わない。
 // AI（api.anthropic.com）や辞書（Wikipedia など）への通信は保存せず、そのまま通す。
-const VERSION = '0fc6ca59b841';
+const VERSION = '5795d9a612f8';
 const CACHE = 'tsuzuri-' + VERSION;
 const FONT_CACHE = 'tsuzuri-fonts';
 const APP_FILES = [

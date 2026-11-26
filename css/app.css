@@ -1057,12 +1057,15 @@ html.focus-writing .editor-backdrop .mk { background: none; text-decoration: non
   white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--editor-font); font-size: 15px; line-height: 1.9;
   max-height: 60vh; overflow: auto; padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
 }
-del.diff-del { color: #b3261e; background: color-mix(in srgb, #e5484d 14%, transparent); text-decoration: line-through; text-decoration-color: #b3261e; }
-ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, transparent); text-decoration: underline; text-decoration-color: #30a46c; text-underline-offset: 3px; }
+:root { --diff-del: #b3261e; --diff-ins: #1d6b37; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="sepia"]) { --diff-del: #ff9b92; --diff-ins: #7fdca4; } }
+:root[data-theme="dark"] { --diff-del: #ff9b92; --diff-ins: #7fdca4; }
+del.diff-del { color: var(--diff-del); background: color-mix(in srgb, #e5484d 16%, transparent); text-decoration: line-through; text-decoration-color: var(--diff-del); }
+ins.diff-ins { color: var(--diff-ins); background: color-mix(in srgb, #30a46c 18%, transparent); text-decoration: underline; text-decoration-color: #30a46c; text-underline-offset: 3px; }
 .diff-fold { display: block; margin: 4px 0; color: var(--muted); font-size: 12px; text-align: center; font-family: var(--font-ui, sans-serif); }
 .diff-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
-.diff-plus { color: #1d6b37; font-weight: 600; }
-.diff-minus { color: #b3261e; font-weight: 600; }
+.diff-plus { color: var(--diff-ins); font-weight: 600; }
+.diff-minus { color: var(--diff-del); font-weight: 600; }
 
 /* ───── テキストの取り込み ───── */
 .import-drop { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1.5px dashed var(--line-strong, var(--line)); border-radius: 10px; }
@@ -1073,8 +1076,8 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
 .import-list li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .import-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-label-old, .diff-label-new { padding: 1px 6px; border-radius: 4px; font-weight: 600; }
-.diff-label-old { background: color-mix(in srgb, #e5484d 12%, transparent); color: #b3261e; }
-.diff-label-new { background: color-mix(in srgb, #30a46c 14%, transparent); color: #1d6b37; }
+.diff-label-old { background: color-mix(in srgb, #e5484d 14%, transparent); color: var(--diff-del); }
+.diff-label-new { background: color-mix(in srgb, #30a46c 16%, transparent); color: var(--diff-ins); }
 
 /* ───── 原稿用紙・応募書式 ───── */
 .genko-page {
@@ -1197,3 +1200,9 @@ ins.diff-ins { color: #1d6b37; background: color-mix(in srgb, #30a46c 16%, trans
   .cur-row .row-del { grid-column: 3; grid-row: 1; }
   .coin-set { flex-direction: column; align-items: stretch; }
 }
+.bulk-list { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow: auto; }
+.bulk-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-family: var(--editor-font, serif); }
+.bulk-row:hover { background: var(--surface-2); }
+.bulk-ctx { overflow-wrap: anywhere; }
+.world-card { border-left: 3px solid var(--accent); padding-left: 10px; }
+.world-sug { color: var(--accent); }

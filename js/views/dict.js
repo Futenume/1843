@@ -109,6 +109,54 @@
     return { entries, readings, ideas, chapters };
   }
 
+  // ───── この世界では ─────
+  const fmtV = (v) => (v >= 100 ? UI.fmtNum(Math.round(v)) : String(Math.round(v * 100) / 100));
+  /** 調べた言葉を、世界観ルールに照らした結果（お金・単位の説明、換算、この世界での言い方） */
+  function worldCards(q, p) {
+    const W = NS.WorldRules;
+    if (!W || !p || !q) return [];
+    const r = p.rules;
+    const cards = [];
+    const coins = (r.currency.units || []).filter((u) => u.name && u.value > 0).sort((a, b) => b.value - a.value);
+    const units = (r.units.list || []).filter((u) => u.name && u.amount > 0);
+    // 「銀貨3枚」「三枚の銀貨」→ ほかのお金で
+    const m = new RegExp('^(?:([0-9０-９.〇一二三四五六七八九十百千万]+)枚?の?)?(' + coins.map((c) => c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?:([0-9０-９.〇一二三四五六七八九十百千万]+)枚?)?$').exec(q.replace(/\s/g, ''));
+    if (coins.length && m) {
+      const coin = coins.find((c) => c.name === m[2]);
+      const n = W.parseNum(m[1] || m[3] || '1') || 1;
+      const base = n * coin.value;
+      cards.push(h('div', { class: 'dict-item world-card' },
+        h('div', { class: 'dict-item-head' }, h('strong', null, coin.name), coin.reading ? h('span', { class: 'small muted' }, coin.reading) : null, h('span', { class: 'small muted' }, 'この世界のお金')),
+        coin.note ? h('div', { class: 'small' }, coin.note) : null,
+        h('div', { class: 'conv-out small' }, h('span', null, `${coin.name}${fmtV(n)}枚 ＝`),
+          coins.filter((c) => c !== coin).map((c) => h('span', null, `${c.name} ${fmtV(base / c.value)}枚`)),
+          r.currency.yen > 0 ? h('span', { class: 'muted' }, `およそ ${UI.fmtNum(Math.round(base * r.currency.yen))}円`) : null)));
+    }
+    // 単位の名前
+    units.filter((u) => u.name === q).forEach((u) => {
+      const same = units.filter((x) => x.kind === u.kind && x !== u);
+      cards.push(h('div', { class: 'dict-item world-card' },
+        h('div', { class: 'dict-item-head' }, h('strong', null, u.name), h('span', { class: 'small muted' }, `この世界の${W.KIND_LABEL[u.kind]}の単位`)),
+        h('div', { class: 'conv-out small' }, h('span', null, `1${u.name} ＝ ${W.describeAmount(u).replace(/^.*（(.*)）$/, '$1')}`),
+          // 大きい方の単位を1として書く（「1里 ＝ 5,333歩」）
+          same.map((x) => h('span', null, u.amount >= x.amount ? `1${u.name} ＝ ${fmtV(u.amount / x.amount)}${x.name}` : `1${x.name} ＝ ${fmtV(x.amount / u.amount)}${u.name}`)))));
+    });
+    // 本文に書いたら指摘されるもの（「100メートル」「千円」「月曜日」「電話」など）→ この世界での言い方
+    if (W.active(r)) {
+      W.scan(q, r).forEach((f) => {
+        const word = q.slice(f.start, f.end);
+        cards.push(h('div', { class: 'dict-item world-card' },
+          h('div', { class: 'dict-item-head' }, h('strong', null, word), f.suggestion ? h('span', null, '→ ', h('strong', { class: 'world-sug' }, f.suggestion)) : null),
+          h('div', { class: 'small muted' }, f.message),
+          f.suggestion ? h('div', { class: 'chips' }, f.suggestion.split('・').map((x) => h('button', {
+            type: 'button', class: 'chip', title: '本文に入れる（選択中の語と置き換え）', onclick: () => { if (currentInsert) currentInsert(x); },
+          }, x))) : null));
+      });
+    }
+    return cards;
+  }
+  let currentInsert = null;
+
   /**
    * 辞書の画面を作る。
    * opts: { query, onInsert(text), onJump(chapterId, start, end), compact }
@@ -116,6 +164,7 @@
   function render(opts) {
     opts = opts || {};
     const root = h('div', { class: 'dict' + (opts.compact ? ' dict-compact' : '') });
+    currentInsert = opts.onInsert || null;
     let controller = null;
     let browseCat = D.CATEGORIES[0].id;
     const input = h('input', { class: 'input', type: 'search', value: opts.query || '', placeholder: '調べたい言葉', 'aria-label': '調べたい言葉' });
@@ -162,6 +211,9 @@
       if (!q) { browse(); return; }
       clear(out);
       const p = P();
+      // この世界では（世界観ルールの通貨・単位・暦・文明）
+      const wc = worldCards(q, p);
+      if (wc.length) out.appendChild(section('この世界では', ...wc));
       // 作品の中
       const w = inWork(q, p);
       if (w && (w.entries.length || w.readings.length || w.ideas.length || w.chapters.length)) {

@@ -1329,6 +1329,37 @@
       issueList(items, all.length ? 'この分類の指摘はありません' : '指摘はありません。'));
   }
 
+  /** 世界観ルール・NGワードの言い換えを、1つずつ確かめてからまとめて直す */
+  function bulkWorldFix(list) {
+    syncBody();
+    const text = S.textarea.value;
+    const picked = new Set(list.map((_, i) => i));
+    const rows = h('div', { class: 'bulk-list' }, list.map((it, i) => h('label', { class: 'bulk-row' },
+      h('input', { type: 'checkbox', checked: true, onchange: (e) => { if (e.target.checked) picked.add(i); else picked.delete(i); } }),
+      h('span', { class: 'bulk-ctx' }, text.slice(Math.max(0, it.start - 12), it.start).replace(/\n/g, '↵'),
+        h('del', { class: 'diff-del' }, it.text), h('ins', { class: 'diff-ins' }, it.suggestion),
+        text.slice(it.end, it.end + 12).replace(/\n/g, '↵')))));
+    UI.modal({
+      title: 'この世界の言い方にまとめて直す', wide: true,
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, '直したくない所はチェックを外してください。直す前の本文は「版の保存と履歴」に残るので、あとから戻せます。'),
+        rows),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: '直す', primary: true, onClick: () => {
+          const chosen = list.filter((_, i) => picked.has(i));
+          if (!chosen.length) return undefined;
+          pushSnapshot(S.ch, '世界観ルールでまとめて直す前', true);
+          S.textarea.value = NS.Proofread.applyFixes(S.textarea.value, chosen);
+          onInput();
+          runAnalysis();
+          toast(`${chosen.length}か所を直しました（履歴から元に戻せます）`);
+          return undefined;
+        } },
+      ],
+    });
+  }
+
   /** この話の語り手（地の文の視点）。世界観NGワードを地の文でチェックするかが変わる */
   function narratorRow() {
     const p = P();
@@ -1360,12 +1391,15 @@
     const p = P();
     const items = S.issues.filter((i) => i.source === 'consistency');
     const wrap = h('div', { class: 'stack-sm' });
-    if (!p.entries.length && !p.rules.ng.length) {
+    if (!p.entries.length && !p.rules.ng.length && !(NS.WorldRules && NS.WorldRules.active(p.rules))) {
       wrap.appendChild(h('div', { class: 'empty' },
-        h('p', null, '設定資料に人物・場所・用語を登録すると、名前の表記ゆれ、一人称や呼び方、髪や瞳の色、年齢、退場後の登場などの食い違いをチェックします。'),
+        h('p', null, '設定資料に人物・場所・用語を登録すると、名前の表記ゆれ、一人称や呼び方、髪や瞳の色、年齢、退場後の登場などの食い違いをチェックします。世界観ルールに通貨・単位・暦・文明の水準を決めると、この世界にない言葉も見つけます。'),
         btn('設定資料を開く', { icon: 'users', onClick: () => App().navigate('lore') })));
     }
     wrap.appendChild(narratorRow());
+    // 世界観ルール・NGワードの言い換えを、まとめて
+    const worldFix = items.filter((i) => (i.ruleId === 'world' || i.ruleId === 'ng-word') && i.suggestion != null && i.suggestion !== '');
+    if (worldFix.length >= 2) wrap.appendChild(btn(`この世界の言い方にまとめて直す（${worldFix.length}件）`, { small: true, icon: 'check', onClick: () => bulkWorldFix(worldFix) }));
     wrap.appendChild(issueList(items, '設定との食い違いは見つかりませんでした。'));
 
     // 話者推定
