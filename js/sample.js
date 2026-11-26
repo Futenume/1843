@@ -177,7 +177,8 @@
       const rr = Math.sqrt(rnd()) * 30;
       map.stamps.push({ id: E.sid(), a: 'tree-dead', x: Math.round((forestPt.x + Math.cos(a) * rr) * 10) / 10, y: Math.round((forestPt.y + Math.sin(a) * rr * 0.7) * 10) / 10, s: 0.9 + rnd() * 0.3, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 5) });
     }
-    map.stamps.push({ id: E.sid(), a: 'cave', x: forestPt.x, y: forestPt.y + 4, s: 1.2, r: 0, f: false, v: 0, name: '', entryId: forest.id, note: '' });
+    // 森の名前は曲がった文字で置くので、洞窟の下には出さない
+    map.stamps.push({ id: E.sid(), a: 'cave', x: forestPt.x, y: forestPt.y + 4, s: 1.2, r: 0, f: false, v: 0, name: '', entryId: forest.id, note: '', lp: 'none' });
     map.stamps.sort((a, b) => a.y - b.y);
     const mid = (a, b, j) => [Math.round(((a.x + b.x) / 2 + j) * 10) / 10, Math.round(((a.y + b.y) / 2 - j) * 10) / 10];
     map.lines = (map.lines || []).concat([

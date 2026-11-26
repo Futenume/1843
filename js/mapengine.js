@@ -24,7 +24,7 @@
       label: '羊皮紙',
       deep: [143, 172, 190], shallow: [196, 216, 220], glow: [226, 236, 230], ripple: [118, 150, 172], coast: [70, 56, 44],
       beach: [240, 228, 190],
-      ramp: [[0, [236, 226, 192]], [0.22, [226, 216, 172]], [0.45, [205, 188, 142]], [0.68, [180, 157, 120]], [0.86, [156, 134, 104]], [0.95, [244, 241, 234]]],
+      ramp: [[0, [236, 226, 192]], [0.22, [226, 216, 172]], [0.45, [205, 188, 142]], [0.68, [180, 157, 120]], [0.86, [156, 134, 104]], [1, [206, 196, 176]]],
       biome: { 1: [166, 184, 126], 2: [238, 219, 168], 3: [168, 176, 138], 4: [242, 244, 246], 5: [128, 160, 104], 6: [218, 204, 156], 7: [196, 190, 176], 8: [214, 204, 140], 9: [120, 108, 98] },
       paper: 5, ink: '#3a2e24', water: '#4c7aa3', road: '#7e5236', border: '#8c3b5e', halo: 'rgba(247,240,222,0.9)', glyph: '#6b5843', assets: 'parchment',
     },
@@ -32,7 +32,7 @@
       label: '地図帳',
       deep: [44, 98, 150], shallow: [126, 182, 220], glow: [196, 230, 246], ripple: [86, 142, 190], coast: [34, 62, 92],
       beach: [246, 232, 182],
-      ramp: [[0, [164, 204, 136]], [0.2, [192, 216, 146]], [0.42, [220, 204, 144]], [0.62, [194, 158, 110]], [0.82, [158, 122, 94]], [0.94, [250, 250, 250]]],
+      ramp: [[0, [164, 204, 136]], [0.2, [192, 216, 146]], [0.42, [220, 204, 144]], [0.62, [194, 158, 110]], [0.82, [158, 122, 94]], [1, [214, 206, 194]]],
       biome: { 1: [96, 156, 90], 2: [238, 212, 150], 3: [118, 156, 118], 4: [252, 252, 252], 5: [56, 132, 76], 6: [204, 208, 136], 7: [176, 172, 162], 8: [222, 210, 124], 9: [96, 86, 80] },
       paper: 0, ink: '#1f2a30', water: '#2f6fa8', road: '#a8432c', border: '#7a2f6b', halo: 'rgba(255,255,255,0.88)', glyph: '#6a4f37', assets: 'atlas',
     },
@@ -48,7 +48,7 @@
       label: '夜（暗い海）',
       deep: [22, 34, 52], shallow: [44, 70, 96], glow: [86, 120, 150], ripple: [70, 100, 130], coast: [12, 14, 18],
       beach: [168, 160, 136],
-      ramp: [[0, [126, 140, 112]], [0.25, [140, 146, 112]], [0.5, [150, 136, 108]], [0.75, [128, 112, 94]], [0.94, [226, 230, 236]]],
+      ramp: [[0, [126, 140, 112]], [0.25, [140, 146, 112]], [0.5, [150, 136, 108]], [0.75, [128, 112, 94]], [1, [176, 176, 178]]],
       biome: { 1: [84, 112, 80], 2: [176, 160, 120], 3: [86, 104, 90], 4: [220, 226, 234], 5: [60, 96, 66], 6: [146, 140, 104], 7: [134, 132, 126], 8: [156, 150, 100], 9: [70, 64, 60] },
       paper: 3, ink: '#f2ead8', water: '#9cc4e8', road: '#d8b080', border: '#e08ab0', halo: 'rgba(20,24,30,0.78)', glyph: '#e8dcc8', assets: 'atlas',
     },
@@ -215,7 +215,8 @@
     if (preset.blank != null) { H.fill(preset.blank); return H; }
     if (preset.world) {
       H = generateWorld(gw, gh, opts, preset);
-      return normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, true);
+      H = normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, true);
+      return opts.ranges === false ? H : addRanges(H, gw, gh, (opts.seed >>> 0) || 1, 4.2);
     }
     const seed = (opts.seed >>> 0) || 1;
     const fbm = makeNoise(seed);
@@ -241,7 +242,65 @@
         H[y * gw + x] = v;
       }
     }
-    return normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, !preset.gradient);
+    H = normalizeHeights(H, gw, gh, opts.land != null ? opts.land : preset.land, !preset.gradient);
+    return opts.ranges === false ? H : addRanges(H, gw, gh, seed, 2.3);
+  }
+
+  /**
+   * 山脈：陸の高さを「海岸からのなだらかな盛り上がり」と「細長い尾根の筋」に分け、
+   * 高い山は尾根の筋にだけできるようにする。陸の真ん中がひとかたまりの山にならず、
+   * 何本かの山脈が走り、その間に平野や高原が広がる地形になる。海岸線（陸と海の境）は変えない。
+   */
+  const RW = 0.075; // 山脈の太さ（ノイズの座標での、尾根の筋から裾までの距離）
+  /** ノイズが 0.5 になる線（尾根の筋）までの、おおよその距離（ノイズの座標で） */
+  function ridgeDist(noise, u, v) {
+    const e = 0.012;
+    const n = noise(u, v, 3);
+    const gx = (noise(u + e, v, 3) - n) / e;
+    const gy = (noise(u, v + e, 3) - n) / e;
+    return Math.abs(n - 0.5) / Math.max(0.35, Math.hypot(gx, gy));
+  }
+  function addRanges(H, gw, gh, seed, scale) {
+    const n1 = makeNoise(seed + 15485863);
+    const n2 = makeNoise(seed + 32452843);
+    const wn = makeNoise(seed + 49979687);
+    const aspect = gw / gh;
+    const out = new Float32Array(H.length);
+    let maxv = 1e-6;
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        const h = H[i];
+        if (h <= 0) { out[i] = h; continue; }
+        const nx = (x / gw) * aspect;
+        const ny = y / gh;
+        const wx = (wn(nx * 1.4, ny * 1.4, 3) - 0.5) * 0.55;
+        const wy = (wn(nx * 1.4 + 7.7, ny * 1.4 + 3.1, 3) - 0.5) * 0.55;
+        const u = (nx + wx) * scale;
+        const v = (ny + wy) * scale;
+        // 長い主脈と、そこから枝分かれする支脈（主脈の近くでだけ高くなる）
+        // 尾根の筋＝ノイズが 0.5 になる線。その線からの「距離」で山の高さを決めるので、
+        // ノイズがゆるやかな所でも山脈が太い塊にならず、どこでも同じくらいの幅の連なりになる。
+        // 断面はなめらかな山形（頂に折れ目を作らない：拡大したとき陰影が角ばらないように）
+        const t1 = ridgeDist(n1, u, v) / RW;
+        const r1 = t1 < 1 ? (1 - t1 * t1) * (1 - t1 * t1) : 0;
+        const t2 = r1 > 0 ? ridgeDist(n2, u * 2.6, v * 2.6) / (RW * 0.8) : 9;
+        const r2 = t2 < 1 ? (1 - t2 * t2) * (1 - t2 * t2) : 0;
+        const ridge = r1 * (0.7 + 0.3 * r2) + 0.22 * r2 * Math.min(1, r1 * 2.5);
+        const inland = Math.min(1, h / 0.14); // 海岸のすぐ近くは低いまま
+        // 陸の真ん中ほど高くなりすぎないよう、もとの高さの効きは弱め（山脈が大陸のあちこちに走る）
+        const val = h * 0.34 + inland * ridge * (0.78 + 0.22 * h) * 0.8;
+        out[i] = val;
+        if (val > maxv) maxv = val;
+      }
+    }
+    // 陸の高さを 0〜1 にそろえる（上位0.6%の峰を 1 に。ほんの一部の峰に引っぱられて全体が低くならないように）
+    const land = [];
+    for (let i = 0; i < out.length; i += 3) if (out[i] > 0) land.push(out[i]);
+    land.sort((a, b) => a - b);
+    const top = land.length ? land[Math.floor(land.length * 0.994)] : maxv;
+    for (let i = 0; i < out.length; i++) if (out[i] > 0) out[i] = Math.max(0.002, Math.min(1, out[i] / top));
+    return out;
   }
 
   /** 陸の割合に合わせて海面を決め、-1〜1 にそろえる。edges＝外周1〜2マスを海にする */
@@ -279,7 +338,7 @@
         const m = moist(x / gw * 4, y / gh * 4, 4);
         const temp = 1 - lat * 0.9 - h * 0.6;
         let b = 0;
-        if (temp < 0.16 || h > 0.86) b = 4;
+        if (temp < 0.16 || h > 0.94) b = 4;
         else if (h > 0.62) b = 7;
         else if (m > 0.6 && h < 0.12) b = 3;
         else if (m > 0.53) b = temp > 0.72 ? 5 : 1;
@@ -427,6 +486,30 @@
    * 地形が変わったときだけ計算し直す（高さの合計で変化を見分ける）。
    */
   const coastCache = new WeakMap();
+  /** 各マスの傾き（となりとの差）。陰影は、これを画素ごとになめらかに補間して使う */
+  const gradCache = new WeakMap();
+  function cellGradients(H, gw, gh, cell) {
+    let sum = 0;
+    for (let i = 0; i < H.length; i += 5) sum += H[i] * ((i % 11) + 1);
+    const hit = gradCache.get(H);
+    if (hit && hit.sum === sum) return hit;
+    const GX = new Float32Array(gw * gh);
+    const GY = new Float32Array(gw * gh);
+    for (let y = 0; y < gh; y++) {
+      const ya = Math.max(0, y - 1);
+      const yb = Math.min(gh - 1, y + 1);
+      for (let x = 0; x < gw; x++) {
+        const xa = Math.max(0, x - 1);
+        const xb = Math.min(gw - 1, x + 1);
+        GX[y * gw + x] = (H[y * gw + xb] - H[y * gw + xa]) / ((xb - xa || 1) * cell);
+        GY[y * gw + x] = (H[yb * gw + x] - H[ya * gw + x]) / ((yb - ya || 1) * cell);
+      }
+    }
+    const out = { sum, GX, GY };
+    gradCache.set(H, out);
+    return out;
+  }
+
   function coastDistance(H, gw, gh) {
     let sum = 0;
     for (let i = 0; i < H.length; i++) sum += H[i] * ((i % 7) + 1);
@@ -480,6 +563,7 @@
     const ice = !!(map.style && map.style.ice);
     const CD = coastDistance(H, map.gw, map.gh);
     const { gw, gh, cell } = map;
+    const GR = shade ? cellGradients(H, gw, gh, cell) : null;
     const W = img.width;
     const data = img.data;
     rx0 = Math.max(0, rx0 | 0); ry0 = Math.max(0, ry0 | 0);
@@ -556,7 +640,16 @@
           const rim = dist < 9 && dist > 1.5 ? 1 - (1 - (dist - 1.5) / 7.5) * 0.06 : 1;
           c = [c[0] * wc * rim, c[1] * wc * rim, c[2] * wc * rim];
           if (shade) {
-            const s = 1 + (-dhdx - dhdy) * 0.7071 * 9;
+            // 傾きを4つのマスから補間する（マスの境目で陰影が段にならない）
+            const GX = GR.GX;
+            const GY = GR.GY;
+            const i00 = ya * gw + xa;
+            const i10 = ya * gw + xb;
+            const i01 = yb * gw + xa;
+            const i11 = yb * gw + xb;
+            const sx = (GX[i00] + (GX[i10] - GX[i00]) * fx) * (1 - fy) + (GX[i01] + (GX[i11] - GX[i01]) * fx) * fy;
+            const sy = (GY[i00] + (GY[i10] - GY[i00]) * fx) * (1 - fy) + (GY[i01] + (GY[i11] - GY[i01]) * fx) * fy;
+            const s = 1 + (-sx - sy) * 0.7071 * 9;
             const k = Math.max(0.6, Math.min(1.3, s));
             c = [c[0] * k, c[1] * k, c[2] * k];
           }
@@ -679,11 +772,11 @@
     }
     cand.sort((a, b) => b.o - a.o);
     for (const c of cand) {
+      // 山は山脈の筋（地形の尾根）の上だけ。谷筋や、ところどころ（ゆるやかなノイズで決める）は空けて、連なりに切れ目を作る
       if (c.h > 0.42) {
-        // 谷筋や、ところどころ（ゆるやかなノイズで決める）は山を置かず、連なりの間に切れ目を作る
-        if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.32) && rnd() < 0.75) continue;
+        if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.3) && rnd() < 0.6) continue;
         const t = Math.min(1, (c.h - 0.42) / 0.45);
-        let sc = 0.75 + t * 1.15 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
+        let sc = 0.78 + t * 1.1 + Math.max(0, c.ridge) * 3 + rnd() * 0.15;
         // 小さな島などでは、裾が海にはみ出さない大きさまで縮める
         const fits = (k) => {
           const w = 15 * k;
@@ -694,17 +787,17 @@
         if (sc <= 0.6 && !fits(sc)) continue;
         const r = 14 * sc;
         // 横方向は重なりを少なく、縦方向（手前と奥）は少し重ねて奥行きを出す
-        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.74)) continue;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.78)) continue;
         const snowy = c.h > 0.74;
         const a = snowy ? (rnd() < 0.55 ? 'mountain-snow' : 'mountain-tall') : (c.h > 0.62 && rnd() < 0.18 ? 'mountain-snow' : 'mountain');
         put(a, c.x, c.y, sc);
         addPlaced({ x: c.x, y: c.y, r, kind: 'm' });
-      } else if (c.h <= 0.42 && rnd() < 0.35) {
-        // 裾野の丘
-        const sc = 0.8 + rnd() * 0.35;
+      } else if (c.h <= 0.42 ? (c.h > 0.26 && rnd() < 0.17) : rnd() < 0.08) {
+        // 裾野の丘・山脈から外れた高原の丘（まばらに）
+        const sc = 0.8 + rnd() * 0.35 + (c.h > 0.42 ? 0.15 : 0);
         if (sampleH(H, gw, gh, cell, c.x - 13 * sc, c.y) <= 0.03 || sampleH(H, gw, gh, cell, c.x + 13 * sc, c.y) <= 0.03) continue;
         const r = 12 * sc;
-        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.5) < (r + q.r) * (q.kind === 'm' ? 0.7 : 0.95))) continue;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.5) < (r + q.r) * (q.kind === 'm' ? 0.72 : 1.35))) continue;
         put('hill', c.x, c.y, sc);
         addPlaced({ x: c.x, y: c.y, r, kind: 'h' });
       }
@@ -721,7 +814,7 @@
         if (b === 1 && rnd() < 0.72) put(lat > 0.55 || rnd() < 0.3 ? 'tree-conifer' : 'tree-round', jx, jy, 0.85 + rnd() * 0.3);
         else if (b === 5 && rnd() < 0.75) put(rnd() < 0.82 ? 'tree-jungle' : 'tree-palm', jx, jy, 0.85 + rnd() * 0.3);
         else if (b === 4 && rnd() < 0.06) put('tree-snow', jx, jy, 0.9 + rnd() * 0.2);
-        else if (b === 2 && rnd() < 0.05) put('dune', jx, jy, 0.8 + rnd() * 0.4);
+        else if (b === 2 && rnd() < 0.018) put('dune', jx, jy, 0.8 + rnd() * 0.4);
         else if (b === 3 && rnd() < 0.2) put('reeds', jx, jy, 0.9 + rnd() * 0.2);
         else if (b === 7 && rnd() < 0.1) put('rocks', jx, jy, 0.8 + rnd() * 0.3);
         else if (b === 0 && rnd() < 0.012) put('tree-round', jx, jy, 0.9);
@@ -831,7 +924,7 @@
       style, layers: defaultLayers(),
       createdAt: Date.now(), updatedAt: Date.now(),
     };
-    if (opts.rivers !== false && !PRESETS[opts.preset || 'continent'].blank) map.lines = autoRivers(map, H, seed);
+    if (opts.rivers !== false && !pr.blank) map.lines = autoRivers(map, H, seed);
     // 町と道（国の地図）／大陸と海の仮の名前（世界地図）
     let towns = null;
     if (opts.towns && !pr.blank && !pr.world) {
@@ -1306,6 +1399,50 @@
    * opts：{ name, seed, rivers（川を足す）}
    * 戻り値：新しい地図（データ）と { zoom }。zoom は何倍に拡大したか
    */
+  /**
+   * 高さ base より上の部分を、1マスにつき slope ずつ下がる円すい形で外へ広げる（2回のなめで近似）。
+   * 陸の中だけで、海岸の近くは元の高さのまま
+   */
+  function widenRanges(H, gw, gh, base, slope) {
+    const N = gw * gh;
+    const D = new Float32Array(N);
+    for (let i = 0; i < N; i++) D[i] = H[i] > base ? H[i] - base : 0;
+    const sd = slope * Math.SQRT2;
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        let v = D[i];
+        if (x > 0) v = Math.max(v, D[i - 1] - slope);
+        if (y > 0) {
+          v = Math.max(v, D[i - gw] - slope);
+          if (x > 0) v = Math.max(v, D[i - gw - 1] - sd);
+          if (x < gw - 1) v = Math.max(v, D[i - gw + 1] - sd);
+        }
+        D[i] = v;
+      }
+    }
+    for (let y = gh - 1; y >= 0; y--) {
+      for (let x = gw - 1; x >= 0; x--) {
+        const i = y * gw + x;
+        let v = D[i];
+        if (x < gw - 1) v = Math.max(v, D[i + 1] - slope);
+        if (y < gh - 1) {
+          v = Math.max(v, D[i + gw] - slope);
+          if (x < gw - 1) v = Math.max(v, D[i + gw + 1] - sd);
+          if (x > 0) v = Math.max(v, D[i + gw - 1] - sd);
+        }
+        D[i] = v;
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const h = H[i];
+      if (h <= 0.02 || D[i] <= 0) continue;
+      const inland = Math.min(1, (h - 0.02) / 0.12);
+      const w = base + D[i];
+      if (w > h) H[i] = h + (w - h) * inland;
+    }
+  }
+
   function regionMap(src, Hs, Bs, rect, opts) {
     opts = opts || {};
     const cell = src.cell;
@@ -1372,6 +1509,9 @@
       const stretch = Math.max(1, Math.min(1.6, 0.72 / maxLand));
       for (let i = 0; i < N; i++) if (H[i] > 0) H[i] *= stretch;
     }
+    // 拡大すると元の地図の細い山脈が「一列の小さな山」になるので、山脈を裾へ向かって太らせる
+    // （高い所から、なだらかに下がる円すいを広げる。海岸線は変えない）
+    if (zoom > 1.4) widenRanges(H, gw, gh, 0.3, 0.5 / Math.max(5, zoom * 5.5));
     const W = gw * cell;
     const Hh = gh * cell;
     const tf = (p) => [Math.round((p[0] - x0) * zoom * 10) / 10, Math.round((p[1] - y0) * zoom * 10) / 10];

@@ -2135,15 +2135,18 @@
   }
 
   /** 道の下に敷く、地面から浮かせる淡い縁取り */
-  function roadCasing(ctx, pts, pl, width, dash) {
+  function roadCasing(ctx, pts, pl, width, dash, alpha) {
     ctx.save();
-    ctx.globalAlpha = pl === E.PALETTES.night ? 0.75 : 0.82;
+    ctx.globalAlpha = alpha != null ? alpha : (pl === E.PALETTES.night ? 0.75 : 0.82);
     ctx.strokeStyle = pl.halo;
     ctx.lineWidth = width;
     if (dash) ctx.setLineDash(dash);
     strokePoly(ctx, pts);
     ctx.restore();
   }
+
+  /** 2本線の道の、線の間の色（紙の色） */
+  function roadCore(pl) { return pl === E.PALETTES.night ? 'rgba(40,34,28,0.95)' : pl === E.PALETTES.atlas ? '#fffdf7' : 'rgba(251,245,228,0.98)'; }
 
   function drawPath(ctx, ln, pl) {
     if (ln.points.length < 2) return;
@@ -2174,39 +2177,42 @@
         break;
       }
       case 'highway':
-        // 街道：淡い縁取り → 濃い色の帯 → 明るい芯（2本線の道）
-        roadCasing(ctx, pts, pl, 6 * w);
+        // 街道：古地図の「2本の細い線」。うすい縁取りで森や山の上でも読め、線の間は紙の色
+        roadCasing(ctx, pts, pl, 5.4 * w, null, 0.6);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 3.8 * w;
+        ctx.lineWidth = 3.1 * w;
         strokePoly(ctx, pts);
-        ctx.strokeStyle = pl === E.PALETTES.night ? 'rgba(40,34,28,0.95)' : 'rgba(255,246,222,0.97)';
-        ctx.lineWidth = 1.35 * w;
+        ctx.strokeStyle = roadCore(pl);
+        ctx.lineWidth = 1.9 * w;
         strokePoly(ctx, pts);
         break;
       case 'road':
-        // 道：淡い縁取りの上に、はっきりした色の線
-        roadCasing(ctx, pts, pl, 4.4 * w);
+        // 道：細い線を長めの破線に（地図の上で「道」と分かる、昔ながらの描き方）
+        roadCasing(ctx, pts, pl, 3.8 * w, null, 0.55);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 2.1 * w;
+        ctx.lineWidth = 1.35 * w;
+        ctx.lineCap = 'butt';
+        ctx.setLineDash([6.5 * w, 2.4 * w]);
         strokePoly(ctx, pts);
         break;
       case 'trail':
-        // 小道：淡い縁取りの上に点線
-        roadCasing(ctx, pts, pl, 3.4 * w);
+        // 小道：まるい点を並べた点線
+        roadCasing(ctx, pts, pl, 3.2 * w, null, 0.5);
         ctx.strokeStyle = pl.road;
-        ctx.lineWidth = 1.6 * w;
-        ctx.setLineDash([3.4 * w, 2.4 * w]);
+        ctx.lineWidth = 1.45 * w;
+        ctx.setLineDash([0.01, 2.9 * w]);
         strokePoly(ctx, pts);
         break;
       case 'rail':
-        roadCasing(ctx, pts, pl, 5 * w);
+        // 鉄道：細い黒の線に、白黒交互の目盛り
+        roadCasing(ctx, pts, pl, 4.6 * w, null, 0.6);
         ctx.lineCap = 'butt';
-        ctx.strokeStyle = '#2b2b2b';
-        ctx.lineWidth = 2.8 * w;
+        ctx.strokeStyle = inkOf(pl);
+        ctx.lineWidth = 2.4 * w;
         strokePoly(ctx, pts);
-        ctx.strokeStyle = '#fafafa';
-        ctx.lineWidth = 1.6 * w;
-        ctx.setLineDash([6 * w, 6 * w]);
+        ctx.strokeStyle = roadCore(pl);
+        ctx.lineWidth = 1.3 * w;
+        ctx.setLineDash([4.5 * w, 4.5 * w]);
         strokePoly(ctx, pts);
         break;
       case 'border':
