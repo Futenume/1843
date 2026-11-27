@@ -1017,6 +1017,13 @@
         if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.3) && rnd() < 0.6) continue;
         const t = Math.min(1, (c.h - 0.42) / 0.45);
         let sc = 0.6 + t * 0.62 + Math.max(0, c.ridge) * 1.8 + rnd() * 0.16;
+        // 幅の広い山脈の内側では、峰を大きくする（小さな峰が一面に敷きつめられた模様にならないように）
+        let mass = 0;
+        for (let q = 0; q < 8; q++) {
+          const a = q * Math.PI / 4;
+          if (sampleH(H, gw, gh, cell, c.x + Math.cos(a) * 30, c.y + Math.sin(a) * 30) > 0.42) mass++;
+        }
+        sc *= 1 + Math.max(0, mass - 3) / 5 * 0.55;
         // 小さな島などでは、裾が海にはみ出さない大きさまで縮める
         const fits = (k) => {
           const w = 15 * k;

@@ -16,6 +16,7 @@
     { id: 'relmap', label: '相関図', icon: 'network' },
     { id: 'rules', label: '世界観ルール', icon: 'shield' },
     { id: 'timeline', label: '年表', icon: 'clock' },
+    { id: 'cast', label: '出番表', icon: 'list' },
   ];
 
   const SCHEMA = {
@@ -232,7 +233,7 @@
     clear(S.tabsEl);
     TABS.forEach((t) => {
       const n = TYPE_LABEL[t.id] ? p.entries.filter((e) => e.type === t.id).length
-        : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : t.id === 'relmap' ? 0 : p.timeline.length;
+        : t.id === 'rules' ? p.rules.ng.length + p.rules.style.length : t.id === 'relmap' || t.id === 'cast' ? 0 : p.timeline.length;
       S.tabsEl.appendChild(h('button', {
         type: 'button', class: 'lore-tab' + (S.tab === t.id ? ' active' : ''),
         onclick: () => {
@@ -402,6 +403,7 @@
     if (S.tab === 'relmap') { NS.RelMap.mount(S.detail); return; }
     if (S.tab === 'rules') { S.detail.appendChild(rulesPane()); return; }
     if (S.tab === 'timeline') { S.detail.appendChild(timelinePane()); return; }
+    if (S.tab === 'cast') { S.detail.appendChild(castPane()); return; }
     const p = P();
     const e = p.entries.find((x) => x.id === S.selected && x.type === S.tab);
     if (!e) {
@@ -1065,6 +1067,102 @@
     render();
     box.appendChild(list);
     box.appendChild(btn('出来事を追加', { icon: 'plus', onClick: () => { p.timeline.push({ id: UI.uid('t'), when: '', title: '', desc: '' }); touch(); render(); renderTabs(); } }));
+    return box;
+  }
+
+  /**
+   * 出番表：人物（や場所・用語・組織）が、どの話に何回出てくるかを一覧にする。
+   * 退場・死亡したあとに名前が出る話、初登場より前に出る話には印を付ける。
+   */
+  let castType = 'character';
+  let castSort = 'order';
+  function castPane() {
+    const p = P();
+    const box = h('div', { class: 'entry-form cast-pane' });
+    box.appendChild(h('h2', { class: 'pane-title' }, '出番表'));
+    box.appendChild(h('p', { class: 'muted small' }, 'どの話に、だれが何回出てくるか（名前・別名で数えます）。色が濃いほど多く出ています。マスを押すとその話を開きます。'));
+    if (!p.chapters.length) { box.appendChild(h('p', { class: 'muted' }, 'まだ話がありません。')); return box; }
+    if (!S.mentionCache) S.mentionCache = NS.Consistency.countMentionsByEntry(p.chapters.map((c) => c.body), p.entries);
+    const counts = S.mentionCache;
+    const chips = h('div', { class: 'chips' });
+    const sortSel = h('select', { class: 'input cast-sort', 'aria-label': '並べ方', onchange: (e) => { castSort = e.target.value; render(); } },
+      [['order', '登録した順'], ['total', '多く出ている順'], ['first', '初めて出た順'], ['last', '長く出ていない順']].map(([v, l]) => h('option', { value: v, selected: castSort === v }, l)));
+    const wrap = h('div', { class: 'cast-wrap' });
+    const notes = h('div', { class: 'cast-notes' });
+    const render = () => {
+      clear(chips);
+      ['character', 'place', 'term', 'org'].forEach((t) => {
+        const n = p.entries.filter((e) => e.type === t).length;
+        chips.appendChild(h('button', { type: 'button', class: 'chip' + (castType === t ? ' active' : ''), 'aria-pressed': String(castType === t),
+          onclick: () => { castType = t; render(); } }, TYPE_LABEL[t] + (n ? ' ' + n : '')));
+      });
+      clear(wrap);
+      clear(notes);
+      const nCh = p.chapters.length;
+      const rows = p.entries.filter((e) => e.type === castType).map((e, idx) => {
+        const per = counts.map((c) => c[e.id] || 0);
+        const total = per.reduce((a, b) => a + b, 0);
+        const first = per.findIndex((n) => n > 0);
+        let last = -1;
+        per.forEach((n, i) => { if (n > 0) last = i; });
+        return { e, idx, per, total, first, last };
+      });
+      if (!rows.length) { wrap.appendChild(h('p', { class: 'muted' }, `${TYPE_LABEL[castType]}がまだ登録されていません。`)); return; }
+      const key = { order: (r) => r.idx, total: (r) => -r.total, first: (r) => (r.first < 0 ? 1e9 : r.first), last: (r) => (r.last < 0 ? -1 : r.last) };
+      rows.sort((a, b) => key[castSort](a) - key[castSort](b) || a.idx - b.idx);
+      const max = Math.max(1, ...rows.map((r) => Math.max(...r.per)));
+      const warn = [];
+      const table = h('table', { class: 'cast-table' },
+        h('thead', null, h('tr', null,
+          h('th', { class: 'cast-name', scope: 'col' }, TYPE_LABEL[castType]),
+          p.chapters.map((c, i) => h('th', { scope: 'col', title: `第${i + 1}話 ${c.title || ''}` }, String(i + 1))),
+          h('th', { scope: 'col', class: 'cast-total' }, '計'))),
+        h('tbody', null, rows.map((r) => {
+          const ap = r.e.appear || {};
+          const from = +ap.from || 0;
+          const until = +ap.until || 0;
+          return h('tr', null,
+            h('th', { scope: 'row', class: 'cast-name' }, h('button', { type: 'button', class: 'linkish', title: '設定を開く', onclick: () => { S.tab = r.e.type; lastTab = r.e.type; openEntry(r.e); renderTabs(); renderList(); } },
+              h('span', { class: 'color-dot', style: { background: r.e.color || 'var(--line-strong)' } }), r.e.name)),
+            r.per.map((n, i) => {
+              const ch = i + 1;
+              const after = until && ch > until && n > 0;
+              const before = from && ch < from && n > 0;
+              if (after) warn.push(`${r.e.name}：第${until}話で${ap.reason || '退場'}のはずが、第${ch}話に${n}回出てきます`);
+              if (before) warn.push(`${r.e.name}：初登場は第${from}話のはずが、第${ch}話に${n}回出てきます`);
+              const gone = until && ch > until && !n;
+              const k = n ? 0.15 + 0.85 * (n / max) : 0;
+              return h('td', {
+                class: 'cast-cell' + (after || before ? ' bad' : '') + (gone ? ' gone' : ''),
+                style: n && !(after || before) ? { background: `color-mix(in srgb, var(--accent) ${Math.round(k * 70)}%, transparent)` } : null,
+                title: `第${ch}話 ${p.chapters[i].title || ''}：${n}回` + (after ? `（第${until}話で${ap.reason || '退場'}）` : before ? `（初登場は第${from}話）` : ''),
+                tabindex: n ? 0 : null,
+                onclick: n ? () => NS.App.navigate('write', { id: p.chapters[i].id }) : null,
+                onkeydown: n ? (ev) => { if (ev.key === 'Enter') NS.App.navigate('write', { id: p.chapters[i].id }); } : null,
+              }, n ? String(n) : (gone ? '†' : ''));
+            }),
+            h('td', { class: 'cast-total' }, String(r.total)));
+        })));
+      wrap.appendChild(table);
+      // 気づいたこと：長く出てこない主要人物、一度も出てこない項目、設定との食い違い
+      const tips = [];
+      if (castType === 'character' && nCh >= 4) {
+        rows.forEach((r) => {
+          if (r.total < 3 || r.last < 0) return;
+          const until = +(r.e.appear && r.e.appear.until) || 0;
+          if (until) return;
+          const away = nCh - 1 - r.last;
+          if (away >= Math.max(3, Math.ceil(nCh * 0.3))) tips.push(`${r.e.name}：第${r.last + 1}話を最後に、${away}話出てきていません`);
+        });
+      }
+      const never = rows.filter((r) => !r.total).map((r) => r.e.name);
+      if (never.length) tips.push(`まだ本文に出てこない${TYPE_LABEL[castType]}：${never.slice(0, 8).join('・')}${never.length > 8 ? ` ほか${never.length - 8}` : ''}`);
+      if (warn.length) notes.appendChild(h('div', { class: 'cast-warn' }, h('strong', null, '設定と違う登場'), h('ul', null, warn.slice(0, 12).map((w) => h('li', null, w)))));
+      if (tips.length) notes.appendChild(h('div', { class: 'cast-tips' }, h('strong', null, '気づいたこと'), h('ul', null, tips.map((w) => h('li', null, w)))));
+    };
+    render();
+    box.append(h('div', { class: 'row wrap cast-bar' }, chips, sortSel), notes, wrap,
+      h('p', { class: 'muted small' }, '†：退場・死亡したあとの話。登場範囲は人物の「初登場」「退場・死亡」で決めます。'));
     return box;
   }
 

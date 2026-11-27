@@ -110,6 +110,8 @@ function assert(cond, msg) {
   assert(await page.locator('.entry-item', { hasText: 'アレン・ウォーカー' }).count() === 1, '人物を追加できる');
   await page.locator('.lore-tab', { hasText: '年表' }).click();
   assert(await page.evaluate(() => document.querySelector('.tl-fields').getBoundingClientRect().width) > 200, '年表の入力欄が表示される');
+  await page.locator('.lore-tab', { hasText: '出番表' }).click();
+  assert(await page.locator('.cast-table tbody tr').count() === 4 && (await page.locator('.cast-warn').textContent()).includes('ガルド：第2話で死亡'), '出番表：人物ごとの登場と、死亡後の登場を表示');
   await page.locator('.lore-tab', { hasText: '世界観' }).click();
   assert(await page.locator('.ng-card').count() === 1, '世界観ルール：NGワードが1語ずつ表示される');
   assert((await page.locator('.ng-card').nth(0).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');
