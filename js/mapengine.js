@@ -54,7 +54,7 @@
       paint: { lush: [124, 134, 72], dry: [188, 168, 106], amount: 0.5, stroke: 0.09, grain: 0.07 }, peakSnow: false,
       paper: 4, ink: '#241b12', water: '#2c5c60', road: '#f4eedc', roadStyle: 'light', border: '#6b2a2a', halo: 'rgba(238,230,208,0.82)', glyph: '#3a2e22', assets: 'earth',
       rippleCount: 5, rippleGap: 5.6, rippleStrength: 0.62, rippleWidth: 1, rim: 0.2, seaMottle: 7, seaWaves: false,
-      seaLabel: 'rgba(214,234,226,0.9)', seaHalo: 'rgba(20,46,50,0.35)', shadeMax: 1.12,
+      seaLabel: 'rgba(214,234,226,0.9)', seaHalo: 'rgba(20,46,50,0.35)', shadeMax: 1.12, areaStyle: 'edge',
     },
     // 青緑の水彩の海と、黄みのある陸。灰色の山並みと赤茶の破線の道（古い手描き地図）
     watercolor: {
@@ -66,7 +66,7 @@
       paint: { lush: [176, 178, 112], dry: [226, 208, 144], amount: 0.38, stroke: 0.05, grain: 0.04 }, peakSnow: false,
       paper: 6, ink: '#2e2a22', water: '#2d5c62', road: '#7a2a22', border: '#7a2f2f', halo: 'rgba(244,238,220,0.85)', glyph: '#4a3b2c', assets: 'slate',
       rippleCount: 2, rippleGap: 6, rippleStrength: 0.45, rim: 0.14, seaMottle: 16,
-      seaLabel: '#264f63', seaHalo: 'rgba(200,222,214,0.55)', shadeMax: 1.16,
+      seaLabel: '#264f63', seaHalo: 'rgba(200,222,214,0.55)', shadeMax: 1.16, areaStyle: 'edge',
     },
     night: {
       label: '夜（暗い海）',
@@ -2238,6 +2238,16 @@
         labels.push({ id: lbId, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, text: names[r], style: 'region', size: fs, rotation: 0, vertical: false, curve: 0, gen: 'country', group: groupIds[r] });
       }
       areas.forEach((a) => { if (a.group === groupIds[r]) a.nameLabel = lbId; });
+      if (opts.heraldry && lbId) {
+        // 国名の横に、国の色の紋章の垂れ旗（布らしく、塗りの色より少し深い色に）
+        const col = COUNTRY_COLORS[colorIdx[r] % COUNTRY_COLORS.length];
+        const dk = (i) => Math.round(parseInt(col.slice(i, i + 2), 16) * 0.72).toString(16).padStart(2, '0');
+        const tint = '#' + dk(1) + dk(3) + dk(5);
+        const bs = Math.max(0.7, Math.min(1.3, fs / 20));
+        let bx = x - halfW - 6 * bs;
+        if (bx - 12 * bs < cell * 2) bx = x + halfW + 6 * bs;
+        stamps.push({ id: sid(), a: 'banner', x: Math.round(bx * 10) / 10, y: Math.round((y + 17 * bs) * 10) / 10, s: Math.round(bs * 100) / 100, r: 0, f: false, v: Math.floor(rnd() * 12), tint, lp: 'none', gen: 'country' });
+      }
       if (opts.capitals && !settle.some((st) => (st.name || st.entryId) && cellOf(st) === r)) {
         // 首都：国の中の、平らで住みやすい所。国名の文字とは重ならない所に
         const capName = name();

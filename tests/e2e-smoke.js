@@ -151,6 +151,17 @@ function assert(cond, msg) {
   await page.mouse.click(cx + 40, cy + 64);
   await page.locator('.map-inspector input[type="text"]').first().fill('テストの町');
   assert(await page.locator('.map-inspector').textContent().then((t) => t.includes('設定資料とつなぐ')), '素材を選んで名前を付けられる');
+  // 紋章：図柄と色を選べる
+  await page.locator('.map-tool[data-tool="stamp"]').click();
+  await page.locator('.chip', { hasText: '紋章・旗' }).click();
+  await page.locator('.asset-btn', { hasText: '紋章（盾）' }).click();
+  await page.mouse.click(cx - 120, cy - 110);
+  await page.locator('.map-tool[data-tool="select"]').click();
+  await page.mouse.click(cx - 120, cy - 118);
+  await page.locator('.herald-opt[aria-label="王冠"]').click();
+  await page.locator('.herald-colors .swatch').nth(1).click();
+  const sh = await page.evaluate(() => Tsuzuri.App.project.maps[0].stamps.find((s) => s.a === 'shield'));
+  assert(sh && sh.v === 8 && /^#[0-9a-f]{6}$/i.test(sh.tint || ''), '紋章の図柄と色を選べる（' + JSON.stringify(sh && { v: sh.v, tint: sh.tint }) + '）');
   await page.locator('.map-tool[data-tool="scatter"]').click();
   await page.mouse.move(cx - 160, cy + 120);
   await page.mouse.down();

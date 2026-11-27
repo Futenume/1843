@@ -179,6 +179,10 @@
     }
     // 森の名前は曲がった文字で置くので、洞窟の下には出さない
     map.stamps.push({ id: E.sid(), a: 'cave', x: forestPt.x, y: forestPt.y + 4, s: 1.2, r: 0, f: false, v: 0, name: '', entryId: forest.id, note: '', lp: 'none' });
+    // 国名の横に、王家の紋章（王冠）の垂れ旗
+    const flagPt = { x: Math.round(map.gw * cell * 0.5 - 158), y: Math.round(map.gh * cell * 0.27 + 22) };
+    clearAround({ x: flagPt.x, y: flagPt.y - 20 }, 22);
+    map.stamps.push({ id: E.sid(), a: 'banner', x: flagPt.x - 8, y: flagPt.y + 6, s: 1.5, r: 0, f: false, v: 8, tint: '#7d2620', name: '', entryId: '', note: '', lp: 'none' });
     map.stamps.sort((a, b) => a.y - b.y);
     const mid = (a, b, j) => [Math.round(((a.x + b.x) / 2 + j) * 10) / 10, Math.round(((a.y + b.y) / 2 - j) * 10) / 10];
     map.lines = (map.lines || []).concat([

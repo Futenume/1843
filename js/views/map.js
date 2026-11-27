@@ -76,7 +76,7 @@
     stamp: { a: 'castle', cat: '町・建物', s: 1, r: 0, randVar: true, randFlip: true },
     scatter: { set: 'forest', size: 22, density: 1, scale: 1 }, erase: { size: 16 },
     path: { kind: 'river', w: 1 }, area: { color: AREA_COLORS[0], opacity: 0.22 }, label: { style: 'region' },
-    travel: {},
+    travel: {}, countryHeraldry: true,
   }, UI.lsGet('tsuzuri.mapPref', null) || {});
   if (!PREF.travel || typeof PREF.travel !== 'object') PREF.travel = {};
   function savePref() { UI.lsSet('tsuzuri.mapPref', PREF); }
@@ -220,7 +220,7 @@
         ctx.setLineDash([]);
       });
       tmp.stamps.forEach((st) => {
-        const sp = AS.sprite(st.a, st.v, pk);
+        const sp = AS.sprite(st.a, st.v, pk, 1, st.tint);
         const k = st.s * res;
         ctx.setTransform(k * (st.f ? -1 : 1), 0, 0, k, st.x * res, st.y * res);
         ctx.drawImage(sp.canvas, sp.x0, sp.y0, sp.w, sp.h);
@@ -1583,7 +1583,7 @@
   }
 
   function stampHit(st, x, y, tol) {
-    const sp = AS.sprite(st.a, st.v, palKey());
+    const sp = AS.sprite(st.a, st.v, palKey(), 1, st.tint);
     let dx = x - st.x;
     let dy = y - st.y;
     if (st.r) {
@@ -1892,7 +1892,7 @@
 
     if (!layerHidden('areas')) {
       const landAreas = m.areas.filter((ar) => ar.land);
-      if (landAreas.length) drawLandAreas(ctx, landAreas, layerHidden('terrain') ? null : (opts.mask || M.mask));
+      if (landAreas.length) drawLandAreas(ctx, landAreas, layerHidden('terrain') ? null : (opts.mask || M.mask), st.areaStyle || pl.areaStyle || 'fill');
       m.areas.forEach((ar) => { if (!ar.land) drawArea(ctx, ar); });
     }
     // 方位線（海図のように、方位記号から放射状にのびる細い線。海の上だけ）
@@ -1920,7 +1920,7 @@
       for (const s of m.stamps) {
         if (isNatural(s) === (pass === 1)) continue;
         if (s.x < vis.x0 || s.x > vis.x1 || s.y < vis.y0 || s.y > vis.y1 + 40) continue;
-        const sp = AS.sprite(s.a, s.v, pk, AS.lineScaleFor(s.s));
+        const sp = AS.sprite(s.a, s.v, pk, AS.lineScaleFor(s.s), s.tint);
         const k = S * s.s;
         const fx = s.f ? -1 : 1;
         if (s.r) {
@@ -2060,7 +2060,7 @@
   let pathBoost = 1;
   let areaLayer = null;
   /** 陸だけを塗る領域（国など）：塗りと、内側の縁取りを、陸の形で切り抜いて描く */
-  function drawLandAreas(ctx, areas, mask) {
+  function drawLandAreas(ctx, areas, mask, look) {
     const paint = (c) => {
       areas.forEach((ar) => {
         if (ar.points.length < 3) return;
@@ -2071,6 +2071,26 @@
         for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
         c.closePath();
         const op = ar.opacity != null ? ar.opacity : 0.22;
+        if (look === 'edge') {
+          // 境の内側だけを、外から内へうすれていく色の帯で示す（中はほとんど塗らず、地形の絵を活かす）
+          c.fillStyle = hexA(ar.color, op * 0.22);
+          c.fill();
+          c.clip();
+          c.lineJoin = 'round';
+          const bw = Math.max(6, M.map.cell * 3.4);
+          const steps = 7;
+          const a = Math.min(0.2, op * 0.36);
+          c.strokeStyle = hexA(ar.color, a);
+          for (let i = 0; i < steps; i++) {
+            c.lineWidth = bw * 2 * (1 - i / steps);
+            c.stroke();
+          }
+          c.strokeStyle = hexA(ar.color, Math.min(0.85, op * 2.2));
+          c.lineWidth = Math.max(1.4, M.map.cell * 0.5);
+          c.stroke();
+          c.restore();
+          return;
+        }
         c.fillStyle = hexA(ar.color, op);
         c.fill();
         // 国の形がわかるよう、境の内側をはっきりした色の帯で縁取る（地図帳の国の塗り分けのように）
@@ -2521,7 +2541,7 @@
     m.stamps.forEach((s) => {
       const a = AS.BY_ID[s.a];
       if (!a) return;
-      const sp = AS.sprite(s.a, s.v, pk);
+      const sp = AS.sprite(s.a, s.v, pk, 1, s.tint);
       const box = [s.x + sp.x0 * s.s, s.y + sp.y0 * s.s, s.x + (sp.x0 + sp.w) * s.s, s.y + (sp.y0 + sp.h) * s.s];
       const natural = a.cat === '山・丘' || a.cat === '木・植物' || a.id === 'wave';
       if (!natural) icons.push({ s, box });
@@ -2562,7 +2582,7 @@
     if (!a || s.lp === 'none' || a.labelPos === 'none') return;
     const pos = s.lp || planned || a.labelPos || 'below';
     const { size, weight } = stampLabelFont(s, a);
-    const sp = AS.sprite(s.a, s.v, palKey());
+    const sp = AS.sprite(s.a, s.v, palKey(), 1, s.tint);
     const ink = pl.ink;
     const c = stampLabelAnchor(s, a, sp, size, pos, 0);
     if (pos === 'right') drawText(ctx, name, 0, 0, { size, weight, color: ink, halo: pl.halo, align: 'left', x: c.left, y: c.y });
@@ -2962,7 +2982,7 @@
     if (!obj || (k !== 'stamp' && k !== 'label') || layerLocked(layerOf(k))) return null;
     let cx; let cy; let x0; let y0; let x1; let y1; let deg;
     if (k === 'stamp') {
-      const sp = AS.sprite(obj.a, obj.v, palKey());
+      const sp = AS.sprite(obj.a, obj.v, palKey(), 1, obj.tint);
       cx = obj.x; cy = obj.y; deg = obj.r || 0;
       x0 = obj.f ? -(sp.x0 + sp.w) * obj.s : sp.x0 * obj.s;
       x1 = obj.f ? -sp.x0 * obj.s : (sp.x0 + sp.w) * obj.s;
@@ -3033,7 +3053,7 @@
       ctx.strokeStyle = '#2f6fed';
       ctx.setLineDash([4 / z, 3 / z]);
       if (k === 'stamp') {
-        const sp = AS.sprite(obj.a, obj.v, palKey());
+        const sp = AS.sprite(obj.a, obj.v, palKey(), 1, obj.tint);
         ctx.save();
         ctx.translate(obj.x, obj.y);
         if (obj.r) ctx.rotate(obj.r * Math.PI / 180);
@@ -3489,11 +3509,27 @@
           [['', '自動'], ['below', '下'], ['right', '右'], ['above', '上'], ['left', '左'], ['none', '表示しない']].map(([v, l]) => h('option', { value: v, selected: (obj.lp || '') === v }, l)))),
         UI.field('種類', h('select', { class: 'input', onchange: (e) => { beginEdit(); obj.a = e.target.value; obj.v = 0; changed(true); } },
           AS.ASSETS.filter((x) => x.cat === a.cat).map((x) => h('option', { value: x.id, selected: x.id === obj.a }, x.label))))));
+      if (a.tintable) {
+        // 紋章・旗：図柄と色
+        parts.push(UI.field('図柄', h('div', { class: 'herald-picker', role: 'radiogroup', 'aria-label': '図柄' },
+          a.designs.map((d, i) => h('button', {
+            type: 'button', class: 'herald-opt' + ((obj.v || 0) % a.variants === i ? ' on' : ''), title: d.label, 'aria-label': d.label,
+            'aria-pressed': String((obj.v || 0) % a.variants === i),
+            onclick: () => { beginEdit(); obj.v = i; changed(true); },
+          }, AS.thumb(obj.a, palKey(), 30, i, obj.tint))))));
+        const cur = (obj.tint || AS.TINTS[(obj.v || 0) % AS.TINTS.length]).toLowerCase();
+        const colorIn = h('input', { type: 'color', class: 'herald-color', value: cur, 'aria-label': '色を選ぶ', onchange: (e) => { beginEdit(); obj.tint = e.target.value; changed(true); } });
+        parts.push(UI.field('色', h('div', { class: 'swatches herald-colors' },
+          AS.TINTS.concat(E.COUNTRY_COLORS || []).filter((c, i, arr) => arr.indexOf(c) === i).slice(0, 12).map((c) => h('button', {
+            type: 'button', class: 'swatch' + (cur === c.toLowerCase() ? ' active' : ''), style: { background: c }, title: c, 'aria-label': '色 ' + c,
+            onclick: () => { beginEdit(); obj.tint = c; changed(true); },
+          })), colorIn)));
+      }
       parts.push(UI.field('大きさ', range(obj.s, 0.2, 5, 0.05, (v) => { beginEdit(); obj.s = v; changed(); }, (v) => Math.round(v * 100) + '%')));
       parts.push(UI.field('回転', range(obj.r || 0, 0, 359, 1, (v) => { beginEdit(); obj.r = v; changed(); }, (v) => v + '°')));
       parts.push(h('div', { class: 'row wrap' },
         btn('左右反転', { icon: 'flip', small: true, onClick: () => { beginEdit(); obj.f = !obj.f; changed(); } }),
-        a.variants > 1 ? btn('形を変える', { icon: 'dice', small: true, onClick: () => { beginEdit(); obj.v = ((obj.v || 0) + 1) % a.variants; changed(); } }) : null),
+        a.variants > 1 && !a.tintable ? btn('形を変える', { icon: 'dice', small: true, onClick: () => { beginEdit(); obj.v = ((obj.v || 0) + 1) % a.variants; changed(); } }) : null),
       h('div', { class: 'row wrap' },
         btn('最前面へ', { icon: 'up', small: true, ghost: true, title: 'ほかの素材より手前に描く', onClick: () => { beginEdit(); setStampZ(obj, 'front'); changed(true); } }),
         btn('最背面へ', { icon: 'down', small: true, ghost: true, title: 'ほかの素材より奥に描く', onClick: () => { beginEdit(); setStampZ(obj, 'back'); changed(true); } }),
@@ -3653,7 +3689,7 @@
     ctx.setLineDash([]);
     const pk = plt.assets;
     m.stamps.forEach((st) => {
-      const sp = AS.sprite(st.a, st.v, pk);
+      const sp = AS.sprite(st.a, st.v, pk, 1, st.tint);
       const k = st.s * res;
       ctx.setTransform(k * (st.f ? -1 : 1), 0, 0, k, st.x * res, st.y * res);
       ctx.drawImage(sp.canvas, sp.x0, sp.y0, sp.w, sp.h);
@@ -3721,10 +3757,11 @@
     let seed = (m.seed || 1) + (M.countrySeed || 0);
     const names = h('input', { type: 'checkbox', checked: true });
     const caps = h('input', { type: 'checkbox', checked: !m.stamps.some((s) => s.a === 'castle' && s.name) });
+    const herald = h('input', { type: 'checkbox', checked: !!PREF.countryHeraldry });
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: Math.round(300 * m.gh / m.gw), 'aria-label': 'プレビュー' });
     let result = null;
     const run = () => {
-      result = E.autoCountries(m, M.H, M.B, seed, { count: +count.value, names: names.checked, capitals: caps.checked });
+      result = E.autoCountries(m, M.H, M.B, seed, { count: +count.value, names: names.checked, capitals: caps.checked, heraldry: herald.checked });
       // プレビュー：今の地図の上に国を塗る
       const ctx = preview.getContext('2d');
       const k = preview.width / M.W;
@@ -3761,7 +3798,8 @@
       info.textContent = `${result.count}か国：` + result.labels.map((lb) => lb.text).join('・');
     };
     const info = h('p', { class: 'small muted' });
-    [count, names, caps].forEach((el) => el.addEventListener('change', run));
+    [count, names, caps, herald].forEach((el) => el.addEventListener('change', run));
+    herald.addEventListener('change', () => { PREF.countryHeraldry = herald.checked; savePref(); });
     UI.modal({
       title: '国に分ける', wide: true,
       body: h('div', { class: 'gen-dialog' },
@@ -3770,6 +3808,7 @@
           UI.field('国の数', count),
           h('label', { class: 'check' }, names, '国名を付ける'),
           h('label', { class: 'check' }, caps, '首都の印を置く'),
+          h('label', { class: 'check' }, herald, '国名の横に紋章の旗を置く（国の色・図柄は選んで変えられます）'),
           btn('別の分け方', { icon: 'dice', small: true, onClick: () => { seed = Math.floor(Math.random() * 1e6); run(); } }),
           had ? h('p', { class: 'small warn' }, '前に自動で作った国（塗り・国境・国名・首都）は、新しいものに入れ替わります。自分で描いた領域や文字はそのままです。') : null),
         h('div', { class: 'gen-preview-wrap' }, preview, info)),

@@ -471,6 +471,17 @@ test('国に分ける：国の数・陸だけの塗り・国境・国名・作�
       assert.ok(land, '国境の点が陸に接する');
     }));
   }
+  // 紋章の旗：国ごとに1つ、国の色を深くした色で、地図の中に
+  {
+    const m = MapEngine.newMap('t', { preset: 'continent', size: 'm', seed: 21, stamps: false });
+    const n = m.gw * m.gh;
+    const r = MapEngine.autoCountries(m, MapEngine.decodeHeights(m.height, n), MapEngine.decodeBiomes(m.biome, n), 21, { count: 4, heraldry: true });
+    const ban = r.stamps.filter((s) => s.a === 'banner');
+    assert.equal(ban.length, 4, '国ごとに紋章の旗');
+    assert.ok(ban.every((s) => /^#[0-9a-f]{6}$/.test(s.tint) && s.gen === 'country' && s.x > 0 && s.x < m.gw * m.cell && s.v >= 0 && s.v < 12));
+    const none = MapEngine.autoCountries(m, MapEngine.decodeHeights(m.height, n), MapEngine.decodeBiomes(m.biome, n), 21, { count: 4 });
+    assert.ok(!none.stamps.some((s) => s.a === 'banner'), '選ばなければ旗は置かない');
+  }
   // 世界地図は最初から国に分けられる（大陸名は外し、海の名前は残す）
   const w = MapEngine.newMap('世界', { preset: 'world', seed: 9, names: true, countries: true });
   assert.ok(w.areas.length >= 6);

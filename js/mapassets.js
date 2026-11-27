@@ -1885,6 +1885,283 @@
   // ───── 素材の一覧 ─────
   // box: [x0, y0, x1, y1]（素材の基準点＝足元からの範囲）。label: 名前の表示位置
   const A = [];
+  // ───── 紋章・旗 ─────
+  // 図柄（分け方と、中に置く印）。色は素材ごとに選べる（tint）。金属色は金と銀を交互に使う
+  const HERALDRY = [
+    { id: 'star', label: '星' }, { id: 'pale', label: '縦二分' }, { id: 'fess', label: '横帯' }, { id: 'chevron', label: '山形' },
+    { id: 'cross', label: '十字' }, { id: 'saltire', label: '斜め十字' }, { id: 'bend', label: '斜め帯' }, { id: 'quarterly', label: '四分割' },
+    { id: 'crown', label: '王冠' }, { id: 'tower', label: '塔' }, { id: 'sun', label: '太陽' }, { id: 'moon', label: '三日月' },
+  ];
+  const TINTS = ['#9b2d24', '#2d4d7a', '#2f5d3a', '#5a2d6b', '#26221e', '#a1662a'];
+  function heraldColors(C, v) {
+    const field = C.tint || TINTS[v % TINTS.length];
+    // 金と銀を交互に。地の色が金に近い（黄・茶・橙）ときは、見分けやすい銀にする
+    const r = parseInt(field.slice(1, 3), 16);
+    const g = parseInt(field.slice(3, 5), 16);
+    const b = parseInt(field.slice(5, 7), 16);
+    const nearGold = Math.hypot(r - 200, g - 150, b - 60) < 120 || (r > g && g > b && r - b > 90);
+    const light = r * 0.3 + g * 0.59 + b * 0.11 > 170;
+    let metal = v % 2 && !nearGold ? '#d7aa45' : '#efe8d8';
+    if (light) metal = '#3a2e24';
+    return { field, metal, ink: C.ink };
+  }
+  function starPath(ctx, x, y, r, n, inner) {
+    ctx.beginPath();
+    for (let i = 0; i < n * 2; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / n;
+      const rr = i % 2 ? r * (inner || 0.42) : r;
+      const px = x + Math.cos(a) * rr;
+      const py = y + Math.sin(a) * rr;
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  }
+  /** 枠（clip済み）の中に図柄を描く。b＝{x,y,w,h}：図柄を収める四角 */
+  function heraldField(ctx, v, K, b) {
+    const d = HERALDRY[v % HERALDRY.length].id;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h * 0.45;
+    const u = Math.min(b.w, b.h);
+    ctx.fillStyle = K.field;
+    ctx.fillRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+    ctx.fillStyle = K.metal;
+    ctx.strokeStyle = K.ink;
+    ctx.lineWidth = 0.35;
+    const bar = (pts) => { poly(ctx, pts, true); ctx.fill(); ctx.stroke(); };
+    switch (d) {
+      case 'pale': bar([[cx, b.y - 2], [b.x + b.w + 2, b.y - 2], [b.x + b.w + 2, b.y + b.h + 2], [cx, b.y + b.h + 2]]); break;
+      case 'fess': { const t = b.h * 0.17; bar([[b.x - 2, cy - t], [b.x + b.w + 2, cy - t], [b.x + b.w + 2, cy + t], [b.x - 2, cy + t]]); break; }
+      case 'chevron': {
+        const t = b.h * 0.15;
+        bar([[b.x - 2, cy + b.h * 0.32], [cx, cy - b.h * 0.12], [b.x + b.w + 2, cy + b.h * 0.32], [b.x + b.w + 2, cy + b.h * 0.32 + t * 1.6], [cx, cy - b.h * 0.12 + t * 1.6], [b.x - 2, cy + b.h * 0.32 + t * 1.6]]);
+        break;
+      }
+      case 'cross': {
+        const t = u * 0.11;
+        bar([[cx - t, b.y - 2], [cx + t, b.y - 2], [cx + t, cy - t], [b.x + b.w + 2, cy - t], [b.x + b.w + 2, cy + t], [cx + t, cy + t], [cx + t, b.y + b.h + 2], [cx - t, b.y + b.h + 2], [cx - t, cy + t], [b.x - 2, cy + t], [b.x - 2, cy - t], [cx - t, cy - t]]);
+        break;
+      }
+      case 'saltire': {
+        ctx.save();
+        ctx.translate(cx, cy);
+        const L = u * 1.2;
+        const t = u * 0.1;
+        [Math.PI / 4, -Math.PI / 4].forEach((a) => { ctx.save(); ctx.rotate(a); bar([[-L, -t], [L, -t], [L, t], [-L, t]]); ctx.restore(); });
+        ctx.restore();
+        break;
+      }
+      case 'bend': {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.atan2(b.h, b.w));
+        const L = u * 1.4;
+        const t = u * 0.14;
+        bar([[-L, -t], [L, -t], [L, t], [-L, t]]);
+        ctx.restore();
+        break;
+      }
+      case 'quarterly':
+        bar([[cx, b.y - 2], [b.x + b.w + 2, b.y - 2], [b.x + b.w + 2, cy], [cx, cy]]);
+        bar([[b.x - 2, cy], [cx, cy], [cx, b.y + b.h + 2], [b.x - 2, b.y + b.h + 2]]);
+        break;
+      case 'crown': {
+        const w = u * 0.62;
+        const h = u * 0.42;
+        const x0 = cx - w / 2;
+        const y1 = cy + h * 0.45;
+        poly(ctx, [[x0, y1], [x0, y1 - h * 0.55], [x0 + w * 0.2, y1 - h * 0.28], [cx, y1 - h], [x0 + w * 0.8, y1 - h * 0.28], [x0 + w, y1 - h * 0.55], [x0 + w, y1]], true);
+        ctx.fill(); ctx.stroke();
+        [[x0, y1 - h * 0.6], [cx, y1 - h * 1.06], [x0 + w, y1 - h * 0.6]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, u * 0.045, 0, TAU); ctx.fill(); ctx.stroke(); });
+        ctx.fillRect(x0, y1, w, h * 0.2); ctx.strokeRect(x0, y1, w, h * 0.2);
+        break;
+      }
+      case 'tower': {
+        const w = u * 0.36;
+        const h = u * 0.56;
+        const x0 = cx - w / 2;
+        const y1 = cy + h * 0.55;
+        const m = w / 5;
+        poly(ctx, [[x0, y1], [x0, y1 - h], [x0 + m, y1 - h], [x0 + m, y1 - h + m], [x0 + 2 * m, y1 - h + m], [x0 + 2 * m, y1 - h], [x0 + 3 * m, y1 - h], [x0 + 3 * m, y1 - h + m], [x0 + 4 * m, y1 - h + m], [x0 + 4 * m, y1 - h], [x0 + w, y1 - h], [x0 + w, y1]], true);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = K.field;
+        ctx.beginPath(); ctx.moveTo(cx - m * 0.7, y1); ctx.lineTo(cx - m * 0.7, y1 - h * 0.25); ctx.arc(cx, y1 - h * 0.25, m * 0.7, Math.PI, 0); ctx.lineTo(cx + m * 0.7, y1); ctx.closePath(); ctx.fill();
+        break;
+      }
+      case 'sun': {
+        const r = u * 0.17;
+        starPath(ctx, cx, cy, r * 2, 12, 0.62);
+        ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill(); ctx.stroke();
+        break;
+      }
+      case 'moon': {
+        const r = u * 0.27;
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = K.field;
+        ctx.beginPath(); ctx.arc(cx + r * 0.42, cy - r * 0.18, r * 0.86, 0, TAU); ctx.fill();
+        ctx.strokeStyle = K.ink;
+        ctx.beginPath(); ctx.arc(cx + r * 0.42, cy - r * 0.18, r * 0.86, Math.PI * 0.62, Math.PI * 1.36); ctx.stroke();
+        break;
+      }
+      default: {
+        starPath(ctx, cx, cy, u * 0.3, 5, 0.42);
+        ctx.fill(); ctx.stroke();
+      }
+    }
+  }
+  /** 布や盾に、光と影をうすく重ねる（平らな色紙に見えないように） */
+  function heraldShade(ctx, b) {
+    const g = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h * 0.4);
+    g.addColorStop(0, 'rgba(255,255,255,0.22)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.22)');
+    ctx.fillStyle = g;
+    ctx.fillRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+  }
+  function shieldPath(ctx, w, h, y0) {
+    const x = w / 2;
+    ctx.beginPath();
+    ctx.moveTo(-x, y0);
+    ctx.lineTo(x, y0);
+    ctx.lineTo(x, y0 + h * 0.45);
+    ctx.bezierCurveTo(x, y0 + h * 0.78, x * 0.45, y0 + h * 0.9, 0, y0 + h);
+    ctx.bezierCurveTo(-x * 0.45, y0 + h * 0.9, -x, y0 + h * 0.78, -x, y0 + h * 0.45);
+    ctx.closePath();
+  }
+  function shield(ctx, rnd, C, v) {
+    const K = heraldColors(C, v);
+    const w = 16;
+    const h = 19;
+    const y0 = -21;
+    // 影
+    ctx.save();
+    ctx.translate(0.8, 0.9);
+    shieldPath(ctx, w, h, y0);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    shieldPath(ctx, w, h, y0);
+    ctx.clip();
+    const b = { x: -w / 2, y: y0, w, h };
+    heraldField(ctx, v, K, b);
+    heraldShade(ctx, b);
+    ctx.restore();
+    // 縁：金属色の細い縁と、外側の墨の線
+    shieldPath(ctx, w - 1.6, h - 1.7, y0 + 0.8);
+    ctx.strokeStyle = K.metal;
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    shieldPath(ctx, w, h, y0);
+    ctx.strokeStyle = K.ink;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+  }
+  function banner(ctx, rnd, C, v) {
+    const K = heraldColors(C, v);
+    const w = 14;
+    const top = -31;
+    const bot = -1;
+    // 布：下は燕尾（二股）。ゆるやかにふくらむ
+    const cloth = (c) => {
+      c.beginPath();
+      c.moveTo(-w / 2, top);
+      c.lineTo(w / 2, top);
+      c.bezierCurveTo(w / 2 + 0.6, top + 10, w / 2 - 0.4, bot - 10, w / 2, bot);
+      c.lineTo(0, bot - 5.5);
+      c.lineTo(-w / 2, bot);
+      c.bezierCurveTo(-w / 2 + 0.4, bot - 10, -w / 2 - 0.6, top + 10, -w / 2, top);
+      c.closePath();
+    };
+    ctx.save();
+    ctx.translate(0.9, 1);
+    cloth(ctx);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    cloth(ctx);
+    ctx.clip();
+    const b = { x: -w / 2, y: top + 3, w, h: (bot - top) * 0.62 };
+    heraldField(ctx, v, K, b);
+    // 下の部分は無地の地の色
+    ctx.fillStyle = K.field;
+    ctx.fillRect(-w / 2 - 2, b.y + b.h, w + 4, bot - b.y - b.h + 2);
+    // 縦のしわ
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+    ctx.lineWidth = 0.8;
+    [-w * 0.22, w * 0.2].forEach((x) => line(ctx, x, top, x + 0.3, bot));
+    heraldShade(ctx, { x: -w / 2, y: top, w, h: bot - top });
+    ctx.restore();
+    // 縁取りの金の線
+    ctx.strokeStyle = K.metal;
+    ctx.lineWidth = 0.55;
+    ctx.beginPath(); ctx.moveTo(-w / 2 + 1.1, top + 1); ctx.lineTo(-w / 2 + 1.1, bot - 1.6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w / 2 - 1.1, top + 1); ctx.lineTo(w / 2 - 1.1, bot - 1.6); ctx.stroke();
+    cloth(ctx);
+    ctx.strokeStyle = K.ink;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    // 横木とひも
+    ctx.strokeStyle = K.ink;
+    ctx.lineWidth = 0.6;
+    line(ctx, -w / 2 - 2.5, top, 0, top - 4.5);
+    line(ctx, w / 2 + 2.5, top, 0, top - 4.5);
+    ctx.fillStyle = C.wood || '#8a6a44';
+    ctx.fillRect(-w / 2 - 2.6, top - 1, w + 5.2, 1.9);
+    ctx.strokeRect(-w / 2 - 2.6, top - 1, w + 5.2, 1.9);
+    ctx.fillStyle = K.metal;
+    [-w / 2 - 3.2, w / 2 + 3.2].forEach((x) => { ctx.beginPath(); ctx.arc(x, top - 0.05, 1.15, 0, TAU); ctx.fill(); ctx.stroke(); });
+    ctx.beginPath(); ctx.arc(0, top - 4.8, 0.9, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  function flag(ctx, rnd, C, v) {
+    const K = heraldColors(C, v);
+    const px = -5;
+    const top = -30;
+    const fw = 17;
+    const fh = 11;
+    const cloth = (c) => {
+      c.beginPath();
+      c.moveTo(px, top + 1);
+      c.bezierCurveTo(px + fw * 0.35, top - 1.4, px + fw * 0.65, top + 2.6, px + fw, top + 0.6);
+      c.lineTo(px + fw, top + fh + 0.6);
+      c.bezierCurveTo(px + fw * 0.65, top + fh + 2.6, px + fw * 0.35, top + fh - 1.4, px, top + fh + 1);
+      c.closePath();
+    };
+    ctx.save();
+    ctx.translate(0.8, 0.9);
+    cloth(ctx);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    cloth(ctx);
+    ctx.clip();
+    const b = { x: px, y: top, w: fw, h: fh + 2 };
+    heraldField(ctx, v, K, b);
+    // 波打つ布の明暗
+    const g = ctx.createLinearGradient(px, 0, px + fw, 0);
+    g.addColorStop(0, 'rgba(0,0,0,0.12)');
+    g.addColorStop(0.3, 'rgba(255,255,255,0.18)');
+    g.addColorStop(0.62, 'rgba(0,0,0,0.16)');
+    g.addColorStop(1, 'rgba(255,255,255,0.1)');
+    ctx.fillStyle = g;
+    ctx.fillRect(px, top - 3, fw, fh + 6);
+    ctx.restore();
+    cloth(ctx);
+    ctx.strokeStyle = K.ink;
+    ctx.lineWidth = 0.75;
+    ctx.stroke();
+    // 竿
+    ctx.fillStyle = C.wood || '#8a6a44';
+    ctx.fillRect(px - 1.1, top - 1.5, 1.3, 31.5);
+    ctx.lineWidth = 0.55;
+    ctx.strokeRect(px - 1.1, top - 1.5, 1.3, 31.5);
+    ctx.fillStyle = K.metal;
+    ctx.beginPath(); ctx.arc(px - 0.45, top - 2.3, 1.1, 0, TAU); ctx.fill(); ctx.stroke();
+    groundShadow(ctx, C, px - 0.4, 2.2, 0.7, 0.25);
+  }
+
   function def(id, cat, label, box, draw, o) {
     A.push(Object.assign({ id, cat, label, box, draw, variants: 4, labelPos: 'below' }, o || {}));
   }
@@ -1962,6 +2239,9 @@
 
   def('compass', '装飾', '方位記号（飾り）', [-34, -42, 34, 34], (c, r, C) => compass(c, r, C, true), { variants: 1, size: 60, anchor: 'center', labelPos: 'none' });
   def('compass-simple', '装飾', '方位記号', [-23, -29, 23, 23], (c, r, C) => compass(c, r, C, false), { variants: 1, size: 40, anchor: 'center', labelPos: 'none' });
+  def('shield', '紋章・旗', '紋章（盾）', [-10, -23, 10, 1], shield, { variants: HERALDRY.length, size: 16, tintable: true, designs: HERALDRY, labelPos: 'below' });
+  def('banner', '紋章・旗', '紋章の垂れ旗', [-11, -38, 11, 1], banner, { variants: HERALDRY.length, size: 24, tintable: true, designs: HERALDRY, labelPos: 'below' });
+  def('flag', '紋章・旗', '旗', [-8, -34, 14, 4], flag, { variants: HERALDRY.length, size: 24, tintable: true, designs: HERALDRY, labelPos: 'below' });
 
   [['capital', '首都'], ['city', '都市'], ['town', '町'], ['village', '村'], ['castle', '城'], ['fort', '砦'], ['port', '港'],
     ['temple', '神殿・寺院'], ['ruin', '遺跡'], ['cave', '洞窟・迷宮'], ['tower', '塔'], ['peak', '山頂'], ['station', '駅'],
@@ -1996,11 +2276,13 @@
   /** 大きく置いた素材は、線が太くなりすぎないよう細めの線で描いた版を使う（段階ごとに保存） */
   function lineScaleFor(s) { return s >= 1.75 ? 0.68 : s >= 1.3 ? 0.82 : 1; }
 
-  function sprite(id, variant, palKey, lineScale) {
+  const TINT_RE = /^#[0-9a-f]{6}$/i;
+  function sprite(id, variant, palKey, lineScale, tint) {
     const a = BY_ID[id] || BY_ID['sym-pin'];
     const v = Math.max(0, (variant | 0) % a.variants);
     const lk = lineScale && lineScale !== 1 ? lineScale : 1;
-    const key = a.id + ':' + v + ':' + palKey + (lk !== 1 ? ':' + lk : '');
+    const tn = a.tintable && tint && TINT_RE.test(tint) ? tint.toLowerCase() : '';
+    const key = a.id + ':' + v + ':' + palKey + (lk !== 1 ? ':' + lk : '') + (tn ? ':' + tn : '');
     let sp = cache.get(key);
     if (sp) return sp;
     const [x0, y0, x1, y1] = a.box;
@@ -2021,7 +2303,8 @@
       set(t, k, val) { t[k] = k === 'lineWidth' ? val * lk : val; return true; },
     });
     try {
-      a.draw(target, mulberry32(hashStr(a.id) + v * 7919 + 13), COLORS[palKey] || COLORS.parchment);
+      const C0 = COLORS[palKey] || COLORS.parchment;
+      a.draw(target, mulberry32(hashStr(a.id) + v * 7919 + 13), tn ? Object.assign({}, C0, { tint: tn }) : C0, v);
     } catch (e) { console.error('asset', a.id, e); }
     sp = { canvas: c, x0, y0, w, h };
     cache.set(key, sp);
@@ -2031,7 +2314,7 @@
   function clearCache() { cache.clear(); }
 
   /** 一覧用の小さな見本 */
-  function thumb(id, palKey, size) {
+  function thumb(id, palKey, size, variant, tint) {
     size = size || 44;
     const a = BY_ID[id];
     const c = document.createElement('canvas');
@@ -2042,7 +2325,7 @@
     c.style.height = size + 'px';
     c.className = 'asset-thumb';
     if (!a) return c;
-    const sp = sprite(id, 0, palKey);
+    const sp = sprite(id, variant || 0, palKey, 1, tint);
     const ctx = c.getContext('2d');
     const k = Math.min((size * dpr * 0.9) / sp.w, (size * dpr * 0.9) / sp.h);
     const dw = sp.w * k;
@@ -2052,5 +2335,5 @@
   }
 
   NS.MapAssets = {
-    lineScaleFor, ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr };
+    lineScaleFor, ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr, HERALDRY, TINTS };
 })(window.Tsuzuri = window.Tsuzuri || {});
