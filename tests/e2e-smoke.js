@@ -191,6 +191,17 @@ function assert(cond, msg) {
   assert(/\.jpe?g$/.test(dl2.suggestedFilename()), 'JPEG を書き出せる（' + dl2.suggestedFilename() + '）');
   await page.screenshot({ path: path.join(OUT, 'map-edited.png') });
 
+  // Word（.docx）：応募書式で書き出せる
+  await page.locator('button[title="書き出し・バックアップ"]').click();
+  await page.getByText('Word（.docx）で書き出す（応募書式）').click();
+  assert((await page.locator('.modal').textContent()).includes('およそ'), 'Word の書き出し：枚数の目安を表示');
+  const [dl3] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.locator('.modal').getByRole('button', { name: '書き出す' }).click()]);
+  const dpath = path.join(require('os').tmpdir(), 'tsuzuri-e2e-export.docx');
+  await dl3.saveAs(dpath);
+  const head = fs.readFileSync(dpath).subarray(0, 4);
+  fs.unlinkSync(dpath);
+  assert(/\.docx$/.test(dl3.suggestedFilename()) && head[0] === 0x50 && head[1] === 0x4b, 'Word（.docx）を書き出せる（' + dl3.suggestedFilename() + '）');
+
   console.log('保存と再読み込み');
   await page.waitForTimeout(1200);
   await page.reload();

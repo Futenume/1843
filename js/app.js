@@ -269,6 +269,7 @@
         { label: '全話をテキストで書き出す', icon: 'book', onClick: () => App.exportAllTxt() },
         { label: '投稿サイト用に書き出す（なろう・カクヨム・pixiv）', icon: 'upload', onClick: () => NS.PublishDialog.open({ chapterId: (App.currentChapter() || {}).id }) },
         { label: '電子書籍（EPUB）で書き出す', icon: 'book2', onClick: () => NS.PublishDialog.openEpub({ chapterId: (App.currentChapter() || {}).id }) },
+        { label: 'Word（.docx）で書き出す（応募書式）', icon: 'file', onClick: () => NS.PublishDialog.openDocx({ chapterId: (App.currentChapter() || {}).id }) },
         { label: '原稿用紙・応募書式で印刷（PDF）', icon: 'printer', onClick: () => NS.Manuscript.open() },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
         { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
@@ -446,7 +447,7 @@
       view.appendChild(wrap);
       wrap.appendChild(h('section', { class: 'home-hero' },
         h('h1', null, '綴り', h('small', null, '小説執筆スタジオ')),
-        h('p', { class: 'muted' }, '原稿（縦書きでも）・添削・設定資料・設定矛盾チェック・キャラ相関図・アイデア帳（伏線・読み方）・プロット・空想地図（世界地図・国・距離と旅の日数）・プレビュー・辞書・投稿サイト用の書き出し・電子書籍（EPUB）・原稿用紙での印刷を、ひとつの作品ごとにまとめて管理できます。データはこの端末のブラウザ内に保存されます。'),
+        h('p', { class: 'muted' }, '原稿（縦書きでも）・添削・設定資料・設定矛盾チェック・キャラ相関図・アイデア帳（伏線・読み方）・プロット・空想地図（世界地図・国・距離と旅の日数）・プレビュー・辞書・投稿サイト用の書き出し・電子書籍（EPUB）・Word（応募書式）・原稿用紙での印刷を、ひとつの作品ごとにまとめて管理できます。データはこの端末のブラウザ内に保存されます。'),
         h('div', { class: 'row wrap' },
           btn('新しい作品', { icon: 'plus', primary: true, onClick: async () => {
             const t = await UI.prompt('新しい作品', '', { placeholder: '作品名', okLabel: '作成' });

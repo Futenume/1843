@@ -152,5 +152,83 @@
     });
   }
 
-  NS.PublishDialog = { open, openEpub };
+  /** Word（.docx）で書き出す：新人賞などの応募書式に合わせた文書 */
+  const DOCX_PRESETS = [
+    { id: 'a4v40x34', label: 'A4横・縦書き 40字×34行（よくある応募書式）', vertical: true, chars: 40, lines: 34 },
+    { id: 'a4v40x30', label: 'A4横・縦書き 40字×30行', vertical: true, chars: 40, lines: 30 },
+    { id: 'a4v42x34', label: 'A4横・縦書き 42字×34行', vertical: true, chars: 42, lines: 34 },
+    { id: 'a4v20x20', label: 'A4横・縦書き 20字×20行（原稿用紙の字数）', vertical: true, chars: 20, lines: 20 },
+    { id: 'a4h40x30', label: 'A4縦・横書き 40字×30行', vertical: false, chars: 40, lines: 30 },
+    { id: 'custom', label: '字数と行数を指定' },
+  ];
+  function openDocx(opts) {
+    opts = opts || {};
+    const p = NS.App.project;
+    if (!p) return;
+    if (NS.Views.write && NS.Views.write.chapter && NS.Views.write.chapter()) {
+      const cur = NS.Views.write.chapter();
+      const text = NS.Views.write.getText();
+      if (cur && text !== cur.body) { cur.body = text; NS.App.touch(); }
+    }
+    const DP = Object.assign({ preset: 'a4v40x34', vertical: true, chars: 40, lines: 34, ruby: 'word', font: 'mincho', titlePage: true, chapterBreak: true, pageNumbers: true }, UI.lsGet('tsuzuri.docxPref', {}));
+    const title = h('input', { class: 'input', type: 'text', value: p.title, 'aria-label': '題' });
+    const author = h('input', { class: 'input', type: 'text', value: p.author || '', placeholder: '例：筆名', 'aria-label': '名前' });
+    const preset = h('select', { class: 'input', 'aria-label': '書式' }, DOCX_PRESETS.map((x) => h('option', { value: x.id, selected: DP.preset === x.id }, x.label)));
+    const dir = h('select', { class: 'input', 'aria-label': '組み方' }, h('option', { value: 'v', selected: DP.vertical }, '縦書き（A4横）'), h('option', { value: 'h', selected: !DP.vertical }, '横書き（A4縦）'));
+    const chars = h('input', { class: 'input', type: 'number', min: 10, max: 60, value: DP.chars, 'aria-label': '1行の字数' });
+    const lines = h('input', { class: 'input', type: 'number', min: 5, max: 60, value: DP.lines, 'aria-label': '1枚の行数' });
+    const custom = h('div', { class: 'grid-3' }, UI.field('組み方', dir), UI.field('1行の字数', chars), UI.field('1枚の行数', lines));
+    const ruby = h('select', { class: 'input', 'aria-label': 'ルビ' },
+      [['word', 'Word のルビにする'], ['paren', '（）で書く'], ['none', '外す（漢字だけ）']].map(([v, l]) => h('option', { value: v, selected: DP.ruby === v }, l)));
+    const font = h('select', { class: 'input', 'aria-label': '書体' },
+      [['mincho', '明朝'], ['gothic', 'ゴシック']].map(([v, l]) => h('option', { value: v, selected: DP.font === v }, l)));
+    const range = h('select', { class: 'input', 'aria-label': '書き出す範囲' },
+      h('option', { value: '*' }, `全話（${p.chapters.length}話）`),
+      p.chapters.map((c) => h('option', { value: c.id, selected: opts.only && opts.chapterId === c.id }, `${p.chapters.indexOf(c) + 1}. ${c.title || '無題'}だけ`)));
+    const chk = (v, label) => { const i = h('input', { type: 'checkbox', checked: !!v }); return { i, el: h('label', { class: 'check' }, i, label) }; };
+    const tp = chk(DP.titlePage, '1枚目に題と名前（扉）');
+    const cb = chk(DP.chapterBreak, '話ごとに新しいページから');
+    const pn = chk(DP.pageNumbers, 'ページ番号を付ける');
+    const info = h('p', { class: 'small muted' });
+    const cur = () => {
+      const ps = DOCX_PRESETS.find((x) => x.id === preset.value) || DOCX_PRESETS[0];
+      return ps.id === 'custom' ? { vertical: dir.value === 'v', chars: +chars.value || 40, lines: +lines.value || 34 } : ps;
+    };
+    const upd = () => {
+      custom.hidden = preset.value !== 'custom';
+      const c = cur();
+      const chs = range.value === '*' ? p.chapters : p.chapters.filter((x) => x.id === range.value);
+      const pages = NS.Docx.estimatePages(chs, { chars: c.chars, lines: c.lines, titlePage: tp.i.checked, chapterBreak: cb.i.checked });
+      info.textContent = `${c.vertical ? '縦書き' : '横書き'}・1行${c.chars}字・1枚${c.lines}行（${c.chars * c.lines}字）。およそ${pages}枚になります（扉・改ページを含む目安）。`;
+    };
+    [preset, dir, chars, lines, range, tp.i, cb.i].forEach((el) => el.addEventListener('change', upd));
+    [chars, lines].forEach((el) => el.addEventListener('input', upd));
+    upd();
+    UI.modal({
+      title: 'Word（.docx）で書き出す',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, '新人賞などの応募でよく指定される書式（A4・縦書き・40字×34行 など）に合わせた Word の文書にします。ルビ・傍点・縦中横（!? や2桁の数字）も Word の書き方で入ります。Word・Pages・Googleドキュメント・LibreOffice で開けます。'),
+        h('div', { class: 'grid-2' }, UI.field('題', title), UI.field('名前', author)),
+        UI.field('書式', preset), custom,
+        h('div', { class: 'grid-3' }, UI.field('ルビ', ruby), UI.field('書体', font), UI.field('書き出す範囲', range)),
+        h('div', { class: 'stack-sm' }, tp.el, cb.el, pn.el),
+        info,
+        h('p', { class: 'small muted' }, '応募先の決まり（字数・行数・書体・扉の書き方など）は、募集要項で必ず確かめてください。')),
+      actions: [
+        { label: 'キャンセル', ghost: true },
+        { label: '書き出す', primary: true, onClick: () => {
+          const c = cur();
+          Object.assign(DP, { preset: preset.value, vertical: c.vertical, chars: c.chars, lines: c.lines, ruby: ruby.value, font: font.value, titlePage: tp.i.checked, chapterBreak: cb.i.checked, pageNumbers: pn.i.checked });
+          UI.lsSet('tsuzuri.docxPref', DP);
+          if (!p.author && author.value.trim()) { p.author = author.value.trim(); NS.App.touch(); }
+          const chapters = range.value === '*' ? p.chapters : p.chapters.filter((x) => x.id === range.value);
+          const r = NS.Docx.build(p, { title: title.value.trim() || p.title, author: author.value.trim(), chapters, vertical: c.vertical, chars: c.chars, lines: c.lines, ruby: DP.ruby, font: DP.font, titlePage: DP.titlePage, chapterBreak: DP.chapterBreak, pageNumbers: DP.pageNumbers });
+          UI.download(UI.safeFilename(title.value.trim() || p.title) + '.docx', new Blob([r.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+          toast('Word の文書を書き出しました');
+        } },
+      ],
+    });
+  }
+
+  NS.PublishDialog = { open, openEpub, openDocx };
 })(window.Tsuzuri = window.Tsuzuri || {});

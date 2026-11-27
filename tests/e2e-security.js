@@ -189,6 +189,8 @@ fs.writeFileSync(evilPath, text);
     // EPUB の中身もエスケープされている
     const epub = await page.evaluate(() => new TextDecoder().decode(Tsuzuri.Epub.build(Tsuzuri.App.project, {}).data));
     ok(!/<img src=x|<script>/.test(epub), 'EPUB の中の HTML はエスケープされる');
+    const docx = await page.evaluate(() => new TextDecoder().decode(Tsuzuri.Docx.build(Tsuzuri.App.project, {}).data));
+    ok(!/<img src=x|<script>/.test(docx), 'Word（.docx）の中の HTML はエスケープされる');
     ok(errs.length === 0, 'エラーなし ' + errs.join(' | '));
     try { fs.unlinkSync(txtPath); } catch (e) { /* 何もしない */ }
     await page.close();

@@ -567,6 +567,46 @@ test('EPUB：ZIP の形（mimetype が先頭・無圧縮）、目次、縦書き
   assert.equal(Epub.crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
 });
 
+test('Word（.docx）：応募書式の用紙・字数・行数、縦書き、ルビ・傍点・縦中横、XML として正しい', () => {
+  require('../js/epub.js');
+  require('../js/docx.js');
+  const { Docx } = globalThis.Tsuzuri;
+  const p = { id: 'p1', title: '星の物語 & <A>', author: '作者', chapters: [{ title: '第一話', body: '　|魔物《まもの》が来た。《《本当に》》12時!?\u0001\n\n　次の段落。' }, { title: '第二話', body: '二話。' }] };
+  const r = Docx.build(p, { date: new Date('2026-01-02T03:04:05Z') });
+  assert.deepEqual(r.files.slice(0, 1), ['[Content_Types].xml']);
+  assert.ok(r.files.includes('word/document.xml') && r.files.includes('word/styles.xml') && r.files.includes('word/footer1.xml'));
+  const text = new TextDecoder().decode(r.data);
+  const docStart = text.indexOf('<w:document');
+  const doc = text.slice(docStart, text.indexOf('</w:document>') + 13);
+  // XML の開き・閉じタグがつり合っている
+  const stack = [];
+  doc.replace(/<(\/?)([a-zA-Z:]+)[^>]*?(\/?)>/g, (m, close, name, self) => {
+    if (self) return m;
+    if (close) assert.equal(stack.pop(), name, '閉じタグ ' + name);
+    else stack.push(name);
+    return m;
+  });
+  assert.equal(stack.length, 0);
+  assert.ok(doc.includes('<w:textDirection w:val="tbRl"/>'), '縦書き');
+  assert.ok(doc.includes('w:orient="landscape"'), 'A4横');
+  assert.ok(/<w:docGrid w:type="linesAndChars" w:linePitch="\d+" w:charSpace="-?\d+"\/>/.test(doc));
+  assert.ok(doc.includes('<w:rubyBase><w:r><w:t xml:space="preserve">魔物</w:t></w:r></w:rubyBase>') && doc.includes('>まもの</w:t>'), 'ルビ');
+  assert.ok(doc.includes('<w:em w:val="comma"/>'), '傍点');
+  assert.ok(/w:vert="1"[^>]*\/><\/w:rPr><w:t xml:space="preserve">12</.test(doc) && /w:vert="1"[^>]*\/><\/w:rPr><w:t xml:space="preserve">!\?</.test(doc), '縦中横');
+  assert.ok(doc.includes('星の物語 &amp; &lt;A&gt;') && !doc.includes('\u0001'));
+  assert.ok(doc.includes('<w:br w:type="page"/>'), '扉のあとと話ごとの改ページ');
+  // 1行の字数・1枚の行数が用紙に収まる（40字×34行）
+  const L = r.layout;
+  assert.ok(L.land && L.pw === 16838 && L.ph === 11906);
+  assert.ok(Math.abs((L.ph - L.top - L.bottom) - (L.pt + L.charSpace / 4096) * 20 * 40) < 30, '40字が1行に収まる');
+  assert.ok(Math.abs((L.pw - L.left - L.right) - L.linePitch * 34) < 30, '34行が1枚に収まる');
+  // 横書き・（）書きのルビ
+  const h = new TextDecoder().decode(Docx.build(p, { vertical: false, ruby: 'paren', chars: 40, lines: 30 }).data);
+  assert.ok(!h.includes('tbRl') && h.includes('魔物（まもの）') && !h.includes('<w:ruby>') && h.includes('<w:em w:val="dot"/>'));
+  // 枚数の目安
+  assert.equal(Docx.estimatePages([{ title: 'a', body: 'あ'.repeat(85) }], { chars: 40, lines: 34 }), 2);
+});
+
 test('原稿用紙の割り付け：題・名前の位置、ぶら下げ、開き括弧の送り、半角数字', () => {
   require('../js/publish.js');
   require('../js/genko.js');

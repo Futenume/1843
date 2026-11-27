@@ -54,6 +54,7 @@ const BAD = /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/;
     };
     for (const [name, fn] of [
       ['epub', () => Tsuzuri.PublishDialog.openEpub({})],
+      ['docx', () => Tsuzuri.PublishDialog.openDocx({})],
       ['genko', () => Tsuzuri.Manuscript.open()],
       ['import', () => Tsuzuri.ImportDialog.open()],
     ]) {
