@@ -3862,6 +3862,8 @@
       h('div', { class: 'grid-2' },
         sel('title', [['none', 'なし'], ['plain', '文字だけ'], ['banner', '帯（リボン）'], ['plaque', '額（飾り枠）']], '題名'),
         sel('frame', [['none', 'なし'], ['simple', 'シンプル'], ['ornate', '古地図風']], '枠')),
+      UI.field('国・領域の塗り方', h('select', { class: 'input', onchange: (e) => { set('areaStyle', e.target.value); renderInspector(); } },
+        [['fill', '中まで塗る'], ['edge', '境の内側だけ（うすれる色の帯）']].map(([v, l]) => h('option', { value: v, selected: (st.areaStyle || (E.PALETTES[st.palette] || {}).areaStyle || 'fill') === v }, l)))),
       UI.field('地名の大きさ', h('select', { class: 'input', onchange: (e) => { set('labelScale', parseFloat(e.target.value)); renderInspector(); } },
         [[0.8, '小さめ'], [1, 'ふつう'], [1.25, '大きめ'], [1.55, 'とても大きく']].map(([v, l]) => h('option', { value: v, selected: (st.labelScale || 1) === v }, l)))),
       h('div', { class: 'grid-2' },
