@@ -49,8 +49,9 @@
       label: '冒険の地図（深緑の海）',
       deep: [40, 84, 88], shallow: [76, 128, 124], glow: [118, 166, 158], ripple: [168, 210, 200], coast: [40, 31, 23],
       beach: [190, 170, 118],
-      ramp: [[0, [168, 154, 100]], [0.2, [154, 143, 90]], [0.42, [140, 121, 84]], [0.65, [122, 101, 74]], [0.86, [106, 89, 70]], [1, [132, 118, 100]]],
-      biome: { 1: [94, 106, 58], 2: [208, 180, 120], 3: [100, 110, 74], 4: [232, 234, 236], 5: [76, 100, 52], 6: [160, 150, 100], 7: [142, 132, 118], 8: [182, 164, 98], 9: [86, 76, 70] },
+      ramp: [[0, [168, 154, 100]], [0.2, [154, 143, 90]], [0.42, [140, 121, 84]], [0.65, [124, 104, 76]], [0.86, [112, 94, 72]], [1, [120, 104, 84]]],
+      biome: { 1: [94, 106, 58], 2: [208, 180, 120], 3: [100, 110, 74], 4: [232, 234, 236], 5: [76, 100, 52], 6: [160, 150, 100], 7: [128, 110, 82], 8: [182, 164, 98], 9: [86, 76, 70] },
+      paint: { lush: [124, 134, 72], dry: [188, 168, 106], amount: 0.5, stroke: 0.09, grain: 0.07 }, peakSnow: false,
       paper: 4, ink: '#241b12', water: '#2c5c60', road: '#f4eedc', roadStyle: 'light', border: '#6b2a2a', halo: 'rgba(238,230,208,0.82)', glyph: '#3a2e22', assets: 'earth',
       rippleCount: 5, rippleGap: 5.6, rippleStrength: 0.62, rippleWidth: 1, rim: 0.2, seaMottle: 7, seaWaves: false,
       seaLabel: 'rgba(214,234,226,0.9)', seaHalo: 'rgba(20,46,50,0.35)', shadeMax: 1.12,
@@ -62,6 +63,7 @@
       beach: [226, 212, 158],
       ramp: [[0, [216, 204, 146]], [0.22, [204, 192, 128]], [0.45, [188, 170, 112]], [0.68, [168, 150, 104]], [0.86, [150, 136, 104]], [1, [212, 208, 198]]],
       biome: { 1: [146, 158, 90], 2: [228, 200, 150], 3: [140, 146, 100], 4: [240, 242, 244], 5: [114, 138, 76], 6: [198, 184, 128], 7: [184, 178, 166], 8: [208, 192, 116], 9: [110, 98, 90] },
+      paint: { lush: [176, 178, 112], dry: [226, 208, 144], amount: 0.38, stroke: 0.05, grain: 0.04 }, peakSnow: false,
       paper: 6, ink: '#2e2a22', water: '#2d5c62', road: '#7a2a22', border: '#7a2f2f', halo: 'rgba(244,238,220,0.85)', glyph: '#4a3b2c', assets: 'slate',
       rippleCount: 2, rippleGap: 6, rippleStrength: 0.45, rim: 0.14, seaMottle: 16,
       seaLabel: '#264f63', seaHalo: 'rgba(200,222,214,0.55)', shadeMax: 1.16,
@@ -439,6 +441,55 @@
     return n < 0 ? 0 : n > 1 ? 1 : n;
   }
 
+  /**
+   * 手で塗ったような地面：乾いた草地と緑の濃い草地の大きなむら、一方向に流れる筆の跡、
+   * 拡大したときだけ見える細かな草のつぶ。
+   */
+  function paintGround(P, c, b, h, wx, wy, res) {
+    const wgt = (b === 0 || b === 6 || b === 8 ? 1 : b === 1 || b === 5 || b === 3 ? 0.55 : 0.3) * Math.min(1, (0.7 - h) / 0.3);
+    const m = vnoise(wx * 0.0065 + 31.7, wy * 0.0065 + 5.3) * 0.6 + vnoise(wx * 0.019 + 2.1, wy * 0.019 + 11.4) * 0.4;
+    const t = (m - 0.5) * 2;
+    const a = Math.min(1, Math.abs(t) * 1.8) * P.amount * wgt;
+    if (a > 0) c = mix(c, t > 0 ? P.lush : P.dry, a);
+    // 筆の跡（斜めに流れる、細長いむら）
+    const st = vnoise(wx * 0.05 + wy * 0.018, wy * 0.21 - wx * 0.035 + 7.3) - 0.5;
+    let k = 1 + st * P.stroke;
+    // 細かな草のつぶ（拡大したときだけ。遠くでは細かすぎてちらつくので付けない）
+    const f1 = res > 1.1 ? Math.min(1, (res - 1.1) / 1.2) : 0;
+    const f2 = res > 2.2 ? Math.min(1, (res - 2.2) / 1.5) : 0;
+    if (f1 > 0) k += (vnoise(wx * 0.42 + 3.1, wy * 0.42) - 0.5) * P.grain * 2 * f1;
+    if (f2 > 0) k += (vnoise(wx * 1.1, wy * 1.1 + 9.2) - 0.5) * P.grain * f2;
+    return [c[0] * k, c[1] * k, c[2] * k];
+  }
+
+  /**
+   * 湿地：横に長い水たまり（ふちを濃く）と、そのあいだの短い横線（古地図の湿地の記号）。
+   */
+  function marsh(pal, c, wx, wy, res) {
+    const n = tnoise(wx * 0.11 + 4.2, wy * 0.2 + 1.3) * 0.75 + vnoise(wx * 0.4, wy * 0.6) * 0.25;
+    const k = 0.93 + vnoise(wx * 0.05, wy * 0.05) * 0.1;
+    c = [c[0] * k, c[1] * k, c[2] * k];
+    const water = mix(pal.shallow, pal.deep, 0.15);
+    if (n > 0.66) {
+      const t = Math.min(1, (n - 0.66) / 0.025);
+      c = mix(c, water, 0.85 * t);
+      // 水面のかすかな光
+      if (n > 0.72 && Math.sin(wy * 1.9 + vnoise(wx * 0.2, wy * 0.2) * 3) > 0.92) c = mix(c, pal.glow || pal.shallow, 0.4);
+      // ふちの濃い線
+      const e = Math.abs(n - 0.67) / 0.01;
+      if (e < 1) c = mix(c, pal.coast, (1 - e) * 0.45);
+      return c;
+    }
+    // 横線（細かいので、ある程度大きく描くときだけ）
+    const f = res > 0.9 ? Math.min(1, (res - 0.9) / 0.8) : 0;
+    if (f > 0 && n < 0.62) {
+      const row = Math.floor(wy / 3.4);
+      const fr = wy / 3.4 - row;
+      if (fr < 0.2 && vnoise(wx * 0.3 + row * 7.31, row * 3.7) > 0.56) c = mix(c, pal.coast, 0.32 * f * (1 - Math.abs(fr - 0.1) / 0.1));
+    }
+    return c;
+  }
+
   function texture(b, c, wx, wy) {
     switch (b) {
       case 1: {
@@ -657,7 +708,9 @@
     const ice = !!(map.style && map.style.ice);
     const CD = coastDistance(H, map.gw, map.gh);
     const { gw, gh, cell } = map;
-    const GR = shade ? cellGradients(H, gw, gh, cell) : null;
+    const GR = cellGradients(H, gw, gh, cell);
+    const GX = GR.GX;
+    const GY = GR.GY;
     const NC = ripples ? coastNearest(H, gw, gh, cell) : null;
     const W = img.width;
     const data = img.data;
@@ -684,9 +737,20 @@
         const top = h00 + (h10 - h00) * fx;
         const bot = h01 + (h11 - h01) * fx;
         let h = top + (bot - top) * fy;
+        // 傾き：4つのマスの傾きをなめらかに補間する（マスの境目で傾きが飛ばないので、海岸からの距離や陰影が段にならない）
+        const i00 = ya * gw + xa;
+        const i10 = ya * gw + xb;
+        const i01 = yb * gw + xa;
+        const i11 = yb * gw + xb;
+        const sx = (GX[i00] + (GX[i10] - GX[i00]) * fx) * (1 - fy) + (GX[i01] + (GX[i11] - GX[i01]) * fx) * fy;
+        const sy = (GY[i00] + (GY[i10] - GY[i00]) * fx) * (1 - fy) + (GY[i01] + (GY[i11] - GY[i01]) * fx) * fy;
+        // 海岸線のすぐ近くは、そのマスの中の正確な傾きを使う（海岸線の位置がずれない）
         const dhdx = ((h10 - h00) * (1 - fy) + (h11 - h01) * fy) / cell;
         const dhdy = (bot - top) / cell;
-        const gm = Math.sqrt(dhdx * dhdx + dhdy * dhdy) + 1e-6;
+        const gl = Math.sqrt(dhdx * dhdx + dhdy * dhdy);
+        const gsm = Math.sqrt(sx * sx + sy * sy);
+        const near = Math.min(1, Math.abs(h) / Math.max(1e-6, gl * cell * 1.5));
+        const gm = gl + (gsm - gl) * near + 1e-6;
         // 海岸線の細かな凹凸（平らな所では付けない）
         const amp = Math.min(0.05, gm * 3.5);
         if (amp > 0.002) h += ((vnoise(wx * 0.09, wy * 0.09) * 0.65 + vnoise(wx * 0.31, wy * 0.31) * 0.35) - 0.5) * amp;
@@ -717,13 +781,24 @@
               const PYa = NC.PY;
               const Da = NC.D;
               let best = 1e9;
-              const ids = [ya * gw + xa, ya * gw + xb, yb * gw + xa, yb * gw + xb];
-              for (let q = 0; q < 4; q++) {
-                const j = ids[q];
-                if (Da[j] >= 1e9) continue;
-                const dd = Math.hypot(wx - PXa[j], wy - PYa[j]);
-                if (dd < best) best = dd;
+              // まわり3×3マスの「近い点」を調べる（2つの海岸から等しく離れた所でも、線が途切れない）
+              const cx0 = Math.round(gx);
+              const cy0 = Math.round(gy);
+              for (let oy = -1; oy <= 1; oy++) {
+                const yy = cy0 + oy;
+                if (yy < 0 || yy >= gh) continue;
+                for (let ox = -1; ox <= 1; ox++) {
+                  const xx = cx0 + ox;
+                  if (xx < 0 || xx >= gw) continue;
+                  const j = yy * gw + xx;
+                  if (Da[j] >= 1e9) continue;
+                  const ddx = wx - PXa[j];
+                  const ddy = wy - PYa[j];
+                  const dd = ddx * ddx + ddy * ddy;
+                  if (dd < best) best = dd;
+                }
               }
+              if (best < 1e9) best = Math.sqrt(best);
               if (best < 1e9) sdist = best;
             }
             for (let k = 0; k < rn; k++) {
@@ -744,13 +819,62 @@
         } else {
           c = ramp(pal.ramp, h);
           // 地面の境目を、マス目の角ばりではなく、ゆるやかに波打つ形にする（細かなざらつきも少し残す）
-          const jx = (vnoise(wx * 0.11 + 13.1, wy * 0.11) - 0.5) * 1.7 + (hash2(px, py, 1337) - 0.5) * 0.35;
-          const jy = (vnoise(wx * 0.11, wy * 0.11 + 7.7) - 0.5) * 1.7 + (hash2(py, px, 1338) - 0.5) * 0.35;
-          const bxi = Math.max(0, Math.min(gw - 1, Math.round(gx + jx)));
-          const byi = Math.max(0, Math.min(gh - 1, Math.round(gy + jy)));
-          const b = B ? B[byi * gw + bxi] : 0;
-          if (b && pal.biome[b] && h < 0.82) c = mix(c, pal.biome[b], b === 4 ? 0.88 : 0.68);
-          c = texture(b, c, wx, wy);
+          const jx = (vnoise(wx * 0.11 + 13.1, wy * 0.11) - 0.5) * 1.7 + (vnoise(wx * 0.5 + 3.3, wy * 0.5) - 0.5) * 0.5 + (hash2(px, py, 1337) - 0.5) * 0.12;
+          const jy = (vnoise(wx * 0.11, wy * 0.11 + 7.7) - 0.5) * 1.7 + (vnoise(wx * 0.5, wy * 0.5 + 5.1) - 0.5) * 0.5 + (hash2(py, px, 1338) - 0.5) * 0.12;
+          let b = 0;
+          if (B) {
+            // まわり4マスの地面の色を、境目がなめらかな曲線になるように混ぜる（拡大しても階段状にならない）
+            const qx = gx + jx;
+            const qy = gy + jy;
+            const qx0 = Math.floor(qx);
+            const qy0 = Math.floor(qy);
+            const cxa = Math.max(0, Math.min(gw - 1, qx0));
+            const cxb = Math.max(0, Math.min(gw - 1, qx0 + 1));
+            const cya = Math.max(0, Math.min(gh - 1, qy0));
+            const cyb = Math.max(0, Math.min(gh - 1, qy0 + 1));
+            const tx = qx - qx0;
+            const ty = qy - qy0;
+            const b00 = biomeAt(B, H, cya * gw + cxa, pal);
+            const b10 = biomeAt(B, H, cya * gw + cxb, pal);
+            const b01 = biomeAt(B, H, cyb * gw + cxa, pal);
+            const b11 = biomeAt(B, H, cyb * gw + cxb, pal);
+            if (b00 === b10 && b00 === b01 && b00 === b11) {
+              b = b00;
+              if (h < 0.82 && b && pal.biome[b]) c = mix(c, pal.biome[b], b === 4 ? 0.88 : 0.68);
+            } else {
+              // 種類ごとの重み（なめらかに補間）を強めてから混ぜる：境目は細い帯になり、形はマス目に沿わない曲線になる
+              const ks = [b00, b10, b01, b11];
+              const ws = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
+              const kinds = [];
+              const wsum = [];
+              for (let q = 0; q < 4; q++) {
+                const j = kinds.indexOf(ks[q]);
+                if (j < 0) { kinds.push(ks[q]); wsum.push(ws[q]); } else wsum[j] += ws[q];
+              }
+              let tot = 0;
+              let best = 0;
+              for (let q = 0; q < kinds.length; q++) {
+                const v = wsum[q] * wsum[q];
+                wsum[q] = v * v * v;
+                tot += wsum[q];
+                if (wsum[q] > wsum[best]) best = q;
+              }
+              b = kinds[best];
+              if (h < 0.82) {
+                const base = c;
+                let r = 0; let g = 0; let bl = 0;
+                for (let q = 0; q < kinds.length; q++) {
+                  const k = kinds[q];
+                  const cc = k && pal.biome[k] ? mix(base, pal.biome[k], k === 4 ? 0.88 : 0.68) : base;
+                  const w = wsum[q] / tot;
+                  r += cc[0] * w; g += cc[1] * w; bl += cc[2] * w;
+                }
+                c = [r, g, bl];
+              }
+            }
+          }
+          c = b === 3 ? marsh(pal, c, wx, wy, res) : texture(b, c, wx, wy);
+          if (pal.paint && h < 0.7) c = paintGround(pal.paint, c, b, h, wx, wy, res);
           if (dist < 2.4 && h < 0.25) c = mix(c, pal.beach, (1 - dist / 2.4) * 0.55);
           // 手描きの水彩のような、ゆるやかな色むら＋海岸の内側をわずかに濃く
           const wc = 1 + (vnoise(wx * 0.008 + 17, wy * 0.008) - 0.5) * 0.07;
@@ -758,15 +882,6 @@
           const rim = dist < 9 && dist > 1.5 ? 1 - (1 - (dist - 1.5) / 7.5) * rimK : 1;
           c = [c[0] * wc * rim, c[1] * wc * rim, c[2] * wc * rim];
           if (shade) {
-            // 傾きを4つのマスから補間する（マスの境目で陰影が段にならない）
-            const GX = GR.GX;
-            const GY = GR.GY;
-            const i00 = ya * gw + xa;
-            const i10 = ya * gw + xb;
-            const i01 = yb * gw + xa;
-            const i11 = yb * gw + xb;
-            const sx = (GX[i00] + (GX[i10] - GX[i00]) * fx) * (1 - fy) + (GX[i01] + (GX[i11] - GX[i01]) * fx) * fy;
-            const sy = (GY[i00] + (GY[i10] - GY[i00]) * fx) * (1 - fy) + (GY[i01] + (GY[i11] - GY[i01]) * fx) * fy;
             const s = 1 + (-sx - sy) * 0.7071 * 9;
             const k = Math.max(0.6, Math.min(pal.shadeMax || 1.3, s));
             c = [c[0] * k, c[1] * k, c[2] * k];
@@ -807,6 +922,13 @@
         data[o + 3] = 255;
       }
     }
+  }
+
+  /** マスの地面の種類（山の絵を置く配色では、山の上の雪を岩に読み替える） */
+  function biomeAt(B, H, i, pal) {
+    const b = B[i];
+    if (b === 4 && pal.peakSnow === false && H[i] > 0.45) return 7;
+    return b;
   }
 
   function sampleH(H, gw, gh, cell, wx, wy) {
@@ -894,21 +1016,32 @@
       if (c.h > 0.42) {
         if (c.h < 0.72 && (c.ridge < -0.015 || c.gap < 0.3) && rnd() < 0.6) continue;
         const t = Math.min(1, (c.h - 0.42) / 0.45);
-        let sc = 0.7 + t * 0.85 + Math.max(0, c.ridge) * 2.5 + rnd() * 0.15;
+        let sc = 0.6 + t * 0.62 + Math.max(0, c.ridge) * 1.8 + rnd() * 0.16;
         // 小さな島などでは、裾が海にはみ出さない大きさまで縮める
         const fits = (k) => {
           const w = 15 * k;
           const pts = [[-w, 0], [w, 0], [-w * 0.55, -w * 0.5], [w * 0.55, -w * 0.5], [0, -w * 0.9], [0, 2]];
           return pts.every(([dx, dy]) => sampleH(H, gw, gh, cell, c.x + dx, c.y + dy) > 0.03);
         };
-        while (sc > 0.6 && !fits(sc)) sc *= 0.86;
-        if (sc <= 0.6 && !fits(sc)) continue;
+        while (sc > 0.5 && !fits(sc)) sc *= 0.86;
+        if (sc <= 0.5 && !fits(sc)) continue;
         const r = 14 * sc;
         // 横方向は重なりを少なく、縦方向（手前と奥）は少し重ねて奥行きを出す
-        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.7)) continue;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.64)) continue;
         const snowy = c.h > 0.74;
         const a = snowy ? (rnd() < 0.55 ? 'mountain-snow' : 'mountain-tall') : (c.h > 0.62 && rnd() < 0.18 ? 'mountain-snow' : 'mountain');
         put(a, c.x, c.y, sc);
+        addPlaced({ x: c.x, y: c.y, r, kind: 'm' });
+      } else if (c.h > 0.35 && c.h <= 0.42 && c.ridge > -0.01 && rnd() < 0.5) {
+        // 山脈の両わきの低い峰（山並みに厚みを出す）
+        const sc = 0.5 + (c.h - 0.35) * 1.6 + rnd() * 0.1;
+        const r = 14 * sc;
+        const w = 15 * sc;
+        if (![[-w, 0], [w, 0], [0, 2]].every(([dx, dy]) => sampleH(H, gw, gh, cell, c.x + dx, c.y + dy) > 0.03)) continue;
+        if (near(c.x, c.y, (q) => Math.hypot(c.x - q.x, (c.y - q.y) * 1.45) < (r + q.r) * 0.62)) continue;
+        // 山脈から離れたところには置かない（平地の真ん中にぽつんと峰が立たないように）
+        if (!near(c.x, c.y, (q) => q.kind === 'm' && Math.hypot(c.x - q.x, c.y - q.y) < (r + q.r) * 1.6)) continue;
+        put('mountain', c.x, c.y, sc);
         addPlaced({ x: c.x, y: c.y, r, kind: 'm' });
       } else if (c.h <= 0.42 ? (c.h > 0.26 && rnd() < 0.17) : rnd() < 0.08) {
         // 裾野の丘・山脈から外れた高原の丘（まばらに）
