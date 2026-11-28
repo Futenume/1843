@@ -912,3 +912,23 @@ test('生物の図：地図に置く素材として登録し、形が変われ�
   assert.equal(AS.BY_ID['creature:e1'], undefined, '消えた生物は素材から外す');
   assert.ok(!AS.CATEGORIES.includes(AS.CREATURE_CAT), 'ふつうの素材の分類は変えない');
 });
+
+test('設定チェック：生物の大きさの描写が設定と大きく違うと知らせる（距離は見ない・この世界の単位も換算）', () => {
+  require('../js/worldrules.js');
+  require('../js/creature.js');
+  const entries = [
+    { id: 'd', type: 'creature', name: '黒竜', reading: '', aliases: [], fields: { length: '五十歩' }, relations: [], custom: [], appear: {} },
+    { id: 'w', type: 'creature', name: '霧狼', reading: '', aliases: [], fields: { length: '三歩ほど' }, relations: [], custom: [], appear: {} },
+  ];
+  const rules = { units: { list: [{ kind: 'length', name: '歩', amount: 0.75 }] } };
+  const t = '　全長十メートルの黒竜が舞い降りた。黒竜は五十歩もある巨体を揺らした。黒竜は十メートル先に降り立った。霧狼の体長は二十歩を超える。霧狼は三歩ほどの体で跳んだ。';
+  const sz = Consistency.check(t, { entries, rules }).issues.filter((i) => i.ruleId === 'size');
+  assert.deepEqual(sz.map((i) => i.text), ['十メートル', '二十歩']);
+  assert.match(sz[0].message, /全長は「五十歩」（約38m）/);
+  assert.match(sz[1].message, /大きすぎ/);
+  // 名前がすぐ前の文にあるとき
+  const t2 = '　霧狼だ。先頭の一頭は、体長が十歩を超えていた。';
+  assert.deepEqual(Consistency.check(t2, { entries, rules }).issues.filter((i) => i.ruleId === 'size').map((i) => i.text), ['十歩']);
+  // 無効にすれば出さない
+  assert.equal(Consistency.check(t, { entries, rules, enabled: { size: false } }).issues.filter((i) => i.ruleId === 'size').length, 0);
+});

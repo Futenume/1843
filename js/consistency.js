@@ -22,6 +22,8 @@
       desc: '設定した髪色・瞳の色と違う描写を検出します。' },
     { id: 'age', name: '年齢の食い違い', severity: 'info', default: true,
       desc: '設定年齢と違う「〇歳」の表記を検出します。' },
+    { id: 'size', name: '生物の大きさの食い違い', severity: 'info', default: true,
+      desc: '「全長十メートルの黒竜」のような大きさの描写が、設定資料の生物の全長・高さ・翼の幅と大きく違うときに知らせます（この世界の単位も換算します）。' },
     { id: 'timeline', name: '登場範囲の食い違い', severity: 'warning', default: true,
       desc: '退場（死亡）したはずの人物の発言や、初登場前の発言を検出します。' },
   ];
@@ -609,6 +611,8 @@
     if (enabled('appearance')) checkAppearance(a, mentions, index, add);
     // 年齢
     if (enabled('age')) checkAge(a, mentions, index, add);
+    // 生物の大きさ
+    if (enabled('size')) checkSize(a, mentions, index, add, ctx.rules);
 
     const out = [];
     const seen = new Set();
@@ -747,6 +751,60 @@
       if (age >= set.min && age <= set.max) continue;
       add('age', mm.index, end,
         `設定では${e.name}は${e.fields.age}${/歳|才/.test(e.fields.age) ? '' : '歳'}です（本文：「${mm[0]}」）`, null, { entryId: e.id });
+    }
+  }
+
+  /**
+   * 生物の大きさ：「全長十メートルの黒竜」「黒竜は翼を広げると百歩にもなる」のような描写を、設定の全長・高さ・翼の幅と比べる。
+   * 「十メートル先」のような距離は見ない。設定のどれかに近ければ（±35%）よしとする
+   */
+  function checkSize(a, mentions, index, add, rules) {
+    const Cr = NS.Creature;
+    if (!Cr) return;
+    const creatures = mentions.filter((x) => x.entryId && index.byId[x.entryId] && index.byId[x.entryId].type === 'creature');
+    if (!creatures.length) return;
+    const m = a.masked;
+    const units = ((rules && rules.units && rules.units.list) || []).filter((u) => u && u.kind === 'length' && u.name && u.amount > 0);
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const unitRe = units.map((u) => esc(u.name)).concat(['キロメートル', 'センチメートル', 'メートル', 'キロ', 'センチ', 'km', 'ｋｍ', 'cm', 'ｃｍ', 'm(?![a-zA-Z])', 'ｍ', '尺', '丈', 'フィート']).join('|');
+    const re = new RegExp('([0-9０-９]+(?:[.．][0-9０-９]+)?|[〇一二三四五六七八九十百千万]+)\\s*(' + unitRe + ')', 'g');
+    const KEY = /全長|体長|身長|体高|背丈|身の丈|大きさ|翼開長|翼を広げ|翼の幅|両翼|巨体|頭から尾|鼻先から|尾の先まで|高さ/;
+    const FAR = /^(?:ほど|ばかり|くらい|ぐらい)?(?:先|離|向こう|下|上空|の距離|手前|後ろ|奥|四方|以内|範囲|進|歩い|走|飛ん|落ち|潜)/;
+    const BIG = /^(?:も|は)?(?:ある|あろう|を超え|超え|近い|にも|もの|ほどの|ほどもある|はあろう)/;
+    let mm;
+    while ((mm = re.exec(m)) !== null) {
+      const end = mm.index + mm[0].length;
+      const after = m.slice(end, end + 8);
+      if (FAR.test(after)) continue;
+      const s = sentenceAt(a, mm.index);
+      if (!s) continue;
+      const sentence = m.slice(s.start, s.end);
+      if (!KEY.test(sentence) && !BIG.test(after)) continue;
+      // 同じ文の中の、いちばん近い生物（なければ、すぐ前の文に出てきた生物：「霧狼だ。体長は十歩を超える」）
+      let cands = creatures.filter((x) => x.start >= s.start && x.end <= s.end);
+      if (!cands.length && s.start > 0) {
+        const prev = sentenceAt(a, Math.max(0, s.start - 2));
+        if (prev && prev.start < s.start) {
+          const inPrev = creatures.filter((x) => x.start >= prev.start && x.end <= prev.end);
+          if (new Set(inPrev.map((x) => x.entryId)).size === 1) cands = inPrev;
+        }
+      }
+      if (!cands.length) continue;
+      cands.sort((x, y) => Math.abs(x.start - mm.index) - Math.abs(y.start - mm.index));
+      const e = index.byId[cands[0].entryId];
+      const f = e.fields || {};
+      const found = Cr.parseSize(mm[0], units);
+      if (!found) continue;
+      const dims = [['length', '全長'], ['height', '高さ'], ['wingspan', '翼を広げた幅']]
+        .map(([k, label]) => ({ k, label, text: f[k], v: Cr.parseSize(f[k], units) })).filter((d) => d.v);
+      if (!dims.length) continue;
+      if (dims.some((d) => found >= d.v / 1.35 && found <= d.v * 1.35)) continue;
+      // 文の言葉から比べる寸法を選ぶ（翼・高さ・それ以外は全長）
+      const want = /翼/.test(sentence) ? 'wingspan' : /高さ|身長|体高|背丈|身の丈/.test(sentence) ? 'height' : 'length';
+      const d = dims.find((x) => x.k === want) || dims[0];
+      const approx = (v) => Cr.fmtLen(v);
+      add('size', mm.index, end,
+        `設定では${e.name}の${d.label}は「${d.text}」（約${approx(d.v)}）です。本文の「${mm[0]}」は約${approx(found)}で、${found > d.v ? '大きすぎ' : '小さすぎ'}ます`, null, { entryId: e.id });
     }
   }
 
