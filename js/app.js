@@ -271,6 +271,7 @@
         { label: '電子書籍（EPUB）で書き出す', icon: 'book2', onClick: () => NS.PublishDialog.openEpub({ chapterId: (App.currentChapter() || {}).id }) },
         { label: 'Word（.docx）で書き出す（応募書式）', icon: 'file', onClick: () => NS.PublishDialog.openDocx({ chapterId: (App.currentChapter() || {}).id }) },
         { label: '原稿用紙・応募書式で印刷（PDF）', icon: 'printer', onClick: () => NS.Manuscript.open() },
+        { label: '設定資料集を印刷（PDF）', icon: 'printer', onClick: () => NS.Lore.printBook() },
         { label: '設定資料をMarkdownで書き出す', icon: 'users', onClick: () => App.exportLoreMd() },
         { label: 'プレビュー・印刷（PDF）', icon: 'printer', onClick: () => NS.Preview.open({ chapterId: (App.currentChapter() || {}).id }) },
         null,

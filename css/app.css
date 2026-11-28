@@ -586,6 +586,33 @@ ruby rt { font-size: 0.5em; }
 .pv-article .pv-title { font-size: 1.4em; margin: 0 0 1.4em; font-weight: 600; }
 .pv-chapter-nav { max-width: 36em; margin: 3em auto 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .pv-print { display: none; }
+/* 設定資料集（印刷用） */
+.lore-book { display: none; }
+.book-opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px; }
+@media print {
+  body.printing-lore { overflow: visible; background: #fff; }
+  body.printing-lore #app, body.printing-lore .pv-overlay, body.printing-lore #toast, body.printing-lore .modal-overlay { display: none !important; }
+  body.printing-lore .lore-book { display: block; color: #111; font-family: var(--font-serif); font-size: 10pt; line-height: 1.7; }
+  .book-cover { break-after: page; min-height: 85vh; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+  .book-cover h1 { font-size: 26pt; letter-spacing: 0.15em; margin: 0.3em 0; }
+  .book-kicker { letter-spacing: 0.5em; font-size: 12pt; color: #555; margin: 0; }
+  .book-synopsis { max-width: 32em; margin: 2em auto 0; text-align: left; font-size: 10pt; color: #333; white-space: pre-wrap; }
+  .book-date { margin-top: 3em; color: #777; font-size: 9pt; }
+  .book-section { break-before: page; }
+  .book-section h2 { font-size: 16pt; border-bottom: 1.5pt solid #333; padding-bottom: 4pt; margin: 0 0 12pt; letter-spacing: 0.1em; }
+  .book-section h3 { font-size: 12pt; margin: 14pt 0 6pt; }
+  .book-entry { break-inside: avoid; border: 0.6pt solid #bbb; border-radius: 4pt; padding: 8pt 10pt; margin: 0 0 10pt; }
+  .book-entry h3 { margin: 0 0 6pt; font-size: 13pt; }
+  .book-reading { font-size: 9pt; color: #666; margin-left: 8pt; font-weight: 400; }
+  .book-figure { margin: 0 0 8pt; line-height: 0; }
+  .book-figure svg { width: 100%; height: auto; }
+  .book-kv { display: grid; grid-template-columns: 7.5em 1fr; gap: 2pt 10pt; margin: 0; }
+  .book-kv dt { color: #555; }
+  .book-kv dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .book-table { width: 100%; border-collapse: collapse; }
+  .book-table th, .book-table td { border-bottom: 0.5pt solid #ccc; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  .book-table th { width: 9em; font-weight: 600; color: #333; }
+}
 
 @media print {
   body.printing { overflow: visible; background: #fff; }

@@ -502,9 +502,12 @@
       { label: '本文で探す', icon: 'search', onClick: () => searchInChapters(e) },
       null,
       { label: '削除', icon: 'trash', danger: true, onClick: async () => {
-        if (!(await UI.confirm(`「${e.name}」を削除します。`, { danger: true, okLabel: '削除' }))) return;
+        // 生物は、地図に置いた絵もいっしょに消す（残すと目印の形だけが残るため）
+        const onMaps = e.type === 'creature' ? p.maps.reduce((n, m) => n + (m.stamps || []).filter((st) => st.a === 'creature:' + e.id).length, 0) : 0;
+        if (!(await UI.confirm(`「${e.name}」を削除します。${onMaps ? `地図に置いた${onMaps}か所の絵も消えます。` : ''}`, { danger: true, okLabel: '削除' }))) return;
         p.entries.splice(p.entries.indexOf(e), 1);
         p.entries.forEach((x) => { x.relations = x.relations.filter((r) => r.targetId !== e.id); });
+        if (onMaps) p.maps.forEach((m) => { m.stamps = (m.stamps || []).filter((st) => st.a !== 'creature:' + e.id); });
         S.selected = null;
         touch();
         if (NS.App.params && NS.App.params.id) { lastTab = S.tab; openedFromList = false; NS.App.navigate('lore'); return; }
@@ -1368,7 +1371,116 @@
     return box;
   }
 
-  NS.Lore = { TYPE_LABEL, TYPE_ICON, SCHEMA, newEntry, summaryList };
+  // ───── 設定資料集（印刷・PDF） ─────
+  const BOOK_SECTIONS = [
+    ['character', '人物'], ['place', '場所'], ['term', '用語・アイテム'], ['org', '組織'], ['creature', '生物'], ['rules', '世界観ルール'], ['timeline', '年表'],
+  ];
+  function printBook() {
+    const p = P();
+    const prefs = UI.lsGet('tsuzuri.loreBook', {}) || {};
+    const on = (k) => prefs[k] !== false;
+    const boxes = {};
+    const counts = { character: 0, place: 0, term: 0, org: 0, creature: 0 };
+    p.entries.forEach((e) => { if (counts[e.type] != null) counts[e.type]++; });
+    counts.timeline = p.timeline.length;
+    const list = h('div', { class: 'book-opts' }, BOOK_SECTIONS.map(([k, label]) => {
+      boxes[k] = h('input', { type: 'checkbox', checked: on(k) });
+      const n = counts[k];
+      return h('label', { class: 'check' }, boxes[k], label + (n != null ? `（${n}）` : ''));
+    }));
+    boxes.figures = h('input', { type: 'checkbox', checked: prefs.figures !== false });
+    UI.modal({
+      title: '設定資料集を印刷・PDF',
+      body: h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, '設定資料を、本のように読める形で印刷します。印刷画面で「PDFに保存」を選ぶとPDFになります。'),
+        list,
+        h('label', { class: 'check' }, boxes.figures, '生物の姿の図を入れる')),
+      actions: [{ label: 'キャンセル', ghost: true }, { label: '印刷する', primary: true, icon: 'printer', onClick: () => {
+        const sel = {};
+        Object.keys(boxes).forEach((k) => { sel[k] = boxes[k].checked; });
+        UI.lsSet('tsuzuri.loreBook', sel);
+        setTimeout(() => doPrintBook(sel), 80);
+      } }],
+    });
+  }
+  function bookRoot(p, sel) {
+    const root = h('div', { class: 'lore-book' });
+    const units = (p.rules.units && p.rules.units.list) || [];
+    root.appendChild(h('section', { class: 'book-cover' },
+      h('p', { class: 'book-kicker' }, '設定資料集'),
+      h('h1', null, p.title || '無題'),
+      p.synopsis ? h('p', { class: 'book-synopsis' }, p.synopsis) : null,
+      h('p', { class: 'book-date' }, UI.fmtDate(Date.now()))));
+    const kv = (rows) => h('dl', { class: 'book-kv' }, rows.filter((r) => r[1] && String(r[1]).trim()).map(([k, v]) => [h('dt', null, k), h('dd', null, String(v))]));
+    BOOK_SECTIONS.forEach(([type, label]) => {
+      if (!sel[type]) return;
+      if (TYPE_LABEL[type]) {
+        const items = p.entries.filter((e) => e.type === type);
+        if (!items.length) return;
+        const sec = h('section', { class: 'book-section' }, h('h2', null, label));
+        items.forEach((e) => {
+          const rows = [];
+          if (e.aliases.length) rows.push(['別名', e.aliases.join('、')]);
+          (SCHEMA[type] || []).forEach((f) => {
+            if (!f.key) return;
+            let v = e.fields[f.key];
+            if (f.type === 'entry') v = entryName(p, v);
+            rows.push([f.label, v]);
+          });
+          e.custom.forEach((c) => rows.push([c.k || '（項目）', c.v]));
+          e.relations.forEach((r) => {
+            const t = entryName(p, r.targetId);
+            if (t) rows.push(['→ ' + t, [r.note, r.calls ? `「${r.calls}」と呼ぶ` : ''].filter(Boolean).join('／') || '（関係あり）']);
+          });
+          if (e.appear.from || e.appear.until) rows.push(['登場', `${e.appear.from ? '第' + e.appear.from + '話から' : ''}${e.appear.until ? '　第' + e.appear.until + '話で' + (e.appear.reason || '退場') : ''}`]);
+          rows.push(['メモ', e.notes]);
+          const card = h('article', { class: 'book-entry' },
+            h('h3', null, e.name, e.reading ? h('span', { class: 'book-reading' }, e.reading) : null));
+          if (type === 'creature' && sel.figures && NS.Creature) {
+            const fig = h('div', { class: 'book-figure' });
+            try { fig.innerHTML = NS.Creature.render(e, { width: 900, height: 520, units }); card.appendChild(fig); } catch (err) { /* 図が描けなくても文章は出す */ }
+          }
+          card.appendChild(kv(rows));
+          sec.appendChild(card);
+        });
+        root.appendChild(sec);
+      } else if (type === 'rules') {
+        const lines = [];
+        if (p.rules.world) lines.push('## 世界観', '', p.rules.world, '');
+        LoreFormat.worldLines(p).forEach((x) => lines.push(x));
+        if (p.rules.ng.length) { lines.push('## 作中で使わない言葉', ''); p.rules.ng.forEach((r) => lines.push(`- ${r.word}${r.reason ? '：' + r.reason : ''}${r.suggestion ? '（→' + r.suggestion + '）' : ''}`)); }
+        if (!lines.some((x) => x.trim())) return;
+        const sec = h('section', { class: 'book-section' }, h('h2', null, label));
+        let ul = null;
+        lines.forEach((ln) => {
+          if (/^## /.test(ln)) { ul = null; sec.appendChild(h('h3', null, ln.slice(3))); } else if (/^- /.test(ln)) {
+            if (!ul) { ul = h('ul'); sec.appendChild(ul); }
+            ul.appendChild(h('li', null, ln.slice(2)));
+          } else if (ln.trim()) { ul = null; sec.appendChild(h('p', null, ln)); }
+        });
+        root.appendChild(sec);
+      } else if (type === 'timeline') {
+        if (!p.timeline.length) return;
+        root.appendChild(h('section', { class: 'book-section' }, h('h2', null, label),
+          h('table', { class: 'book-table' }, h('tbody', null, p.timeline.map((t) => h('tr', null, h('th', null, t.when || ''), h('td', null, h('strong', null, t.title || ''), t.desc ? h('div', null, t.desc) : null)))))));
+      }
+    });
+    return root;
+  }
+  function doPrintBook(sel) {
+    const root = bookRoot(P(), sel);
+    document.body.appendChild(root);
+    document.body.classList.add('printing-lore');
+    const done = () => {
+      document.body.classList.remove('printing-lore');
+      root.remove();
+      window.removeEventListener('afterprint', done);
+    };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => { window.print(); setTimeout(() => { if (document.body.classList.contains('printing-lore')) done(); }, 1000); }, 60);
+  }
+
+  NS.Lore = { TYPE_LABEL, TYPE_ICON, SCHEMA, newEntry, summaryList, printBook, bookRoot };
   NS.LoreFormat = LoreFormat;
   NS.Views.lore = V;
 })(window.Tsuzuri = window.Tsuzuri || {});

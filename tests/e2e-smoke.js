@@ -127,6 +127,12 @@ function assert(cond, msg) {
   const [dlc] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '画像で保存（PNG）' }).click()]);
   const pngHead = fs.readFileSync(await dlc.path()).slice(0, 4);
   assert(pngHead[0] === 0x89 && pngHead[1] === 0x50, '生物：図を PNG で保存できる');
+  // 設定資料集（印刷用）：生物の図・人物・世界観ルール・年表が入る
+  const book = await page.evaluate(() => {
+    const root = Tsuzuri.Lore.bookRoot(Tsuzuri.App.project, { character: true, place: true, term: true, org: true, creature: true, rules: true, timeline: true, figures: true });
+    return { sections: root.querySelectorAll('.book-section').length, entries: root.querySelectorAll('.book-entry').length, svgs: root.querySelectorAll('.book-figure svg').length, text: root.textContent.slice(0, 20000) };
+  });
+  assert(book.sections === 7 && book.entries === (await page.evaluate(() => Tsuzuri.App.project.entries.length)) && book.svgs === 2 && book.text.includes('通貨・物価'), `設定資料集：7章・全項目・生物の図2枚（${JSON.stringify({ s: book.sections, e: book.entries, f: book.svgs })}）`);
   await page.locator('.lore-tab', { hasText: '世界観' }).click();
   assert(await page.locator('.ng-card').count() === 1, '世界観ルール：NGワードが1語ずつ表示される');
   assert((await page.locator('.ng-card').nth(0).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');
