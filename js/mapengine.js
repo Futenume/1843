@@ -2290,12 +2290,47 @@
     }
     const bestAt = new Array(n).fill(-1);
     const bestSc = new Array(n).fill(-Infinity);
+    const cands = Array.from({ length: n }, () => []);
     for (let k = 0; k < N; k++) {
       const r = lab[k];
       if (r < 0 || H[k] <= 0) continue;
       const sc = Math.min(inner[k], 14) - Math.max(0, H[k] - 0.35) * 25 + inner[k] * 0.02;
       if (sc > bestSc[r]) { bestSc[r] = sc; bestAt[r] = k; }
+      if (inner[k] >= 2 && (k % gw) % 2 === 0 && ((k / gw) | 0) % 2 === 0) cands[r].push({ k, sc });
     }
+    // 国名の置き場所：大きい国から順に、ほかの国名・地図にある文字と重ならない所を選ぶ
+    const boxes = (map.labels || []).filter((lb) => lb && lb.gen !== 'country' && lb.text).map((lb) => {
+      const w = String(lb.text).length * (lb.size || 16) * 1.3;
+      const hh = (lb.size || 16) * 1.3;
+      return { x0: lb.x - w / 2, x1: lb.x + w / 2, y0: lb.y - hh / 2, y1: lb.y + hh / 2 };
+    });
+    const hit = (b) => boxes.some((o) => b.x0 < o.x1 + 6 && b.x1 > o.x0 - 6 && b.y0 < o.y1 + 4 && b.y1 > o.y0 - 4);
+    const posOf = new Array(n).fill(null);
+    Array.from({ length: n }, (_, r) => r).filter((r) => size[r] && bestAt[r] >= 0).sort((a, b) => size[b] - size[a]).forEach((r) => {
+      let fs0 = Math.round(Math.max(world ? 15 : 13, Math.min(world ? 28 : 30, Math.sqrt(size[r]) * (world ? 0.42 : 0.5))));
+      const len = names[r].length;
+      if (len > 6) fs0 = Math.max(12, Math.round(fs0 * 6 / len));
+      const list = [{ k: bestAt[r], sc: bestSc[r] }].concat(cands[r].sort((a, b) => b.sc - a.sc).slice(0, 300));
+      const at = (k, fs) => {
+        const halfW = (len * fs * 1.55) / 2 + 6;
+        const x = Math.max(halfW + cell * 2, Math.min(gw * cell - halfW - cell * 2, (k % gw + 0.5) * cell));
+        const y = Math.max(fs + cell * 3, Math.min(gh * cell - fs - cell * 3, (((k / gw) | 0) + 0.5) * cell));
+        return { x, y, fs, halfW, box: { x0: x - halfW, x1: x + halfW, y0: y - fs * 0.7, y1: y + fs * 0.7 } };
+      };
+      let pick = null;
+      for (const f of [1, 0.85, 0.72]) {
+        const fs = Math.max(11, Math.round(fs0 * f));
+        for (const c of list) {
+          if (c.sc < bestSc[r] - 6) break;
+          const q = at(c.k, fs);
+          if (!hit(q.box)) { pick = q; break; }
+        }
+        if (pick) break;
+      }
+      if (!pick) pick = at(bestAt[r], Math.max(11, Math.round(fs0 * 0.72)));
+      boxes.push(pick.box);
+      posOf[r] = pick;
+    });
     const labels = [];
     const stamps = [];
     // 地図にもともとある町・城など（首都はこれと重ならない所に。名前のある町がある国には首都を足さない）
@@ -2306,15 +2341,9 @@
       return lab[gy * gw + gx];
     };
     for (let r = 0; r < n; r++) {
-      if (!size[r] || bestAt[r] < 0) continue;
-      const k = bestAt[r];
-      let fs = Math.round(Math.max(world ? 15 : 13, Math.min(world ? 28 : 30, Math.sqrt(size[r]) * (world ? 0.42 : 0.5))));
-      // 長い国名は少し小さく。地図の端からはみ出さないよう、文字の幅の分だけ内側へ
-      const len = names[r].length;
-      if (len > 6) fs = Math.max(12, Math.round(fs * 6 / len));
-      const halfW = (len * fs * 1.55) / 2 + 6;
-      const x = Math.max(halfW + cell * 2, Math.min(gw * cell - halfW - cell * 2, (k % gw + 0.5) * cell));
-      const y = Math.max(fs + cell * 3, Math.min(gh * cell - fs - cell * 3, (((k / gw) | 0) + 0.5) * cell));
+      if (!size[r] || bestAt[r] < 0 || !posOf[r]) continue;
+      // 長い国名は少し小さく。地図の端からはみ出さないよう、文字の幅の分だけ内側へ（置き場所は上で決めた）
+      const { x, y, fs, halfW } = posOf[r];
       let lbId = '';
       if (opts.names !== false) {
         lbId = 'lb' + sid();

@@ -932,3 +932,35 @@ test('設定チェック：生物の大きさの描写が設定と大きく違�
   // 無効にすれば出さない
   assert.equal(Consistency.check(t, { entries, rules, enabled: { size: false } }).issues.filter((i) => i.ruleId === 'size').length, 0);
 });
+
+test('地図：気候で地面と木が変わる・国名どうしが重ならない', () => {
+  require('../js/mapengine.js');
+  const E = globalThis.Tsuzuri.MapEngine;
+  const count = (climate) => {
+    const m = E.newMap('t', { preset: 'continent', size: 's', seed: 24680, land: 0.45, climate });
+    const B = E.decodeBiomes(m.biome, m.gw * m.gh);
+    const c = {};
+    B.forEach((b) => { c[b] = (c[b] || 0) + 1; });
+    const st = {};
+    m.stamps.forEach((s) => { st[s.a] = (st[s.a] || 0) + 1; });
+    return { c, st, climate: m.style.climate };
+  };
+  const t = count();
+  assert.equal(t.climate, 'temperate', '標準は温帯');
+  assert.ok(!t.c[5] && !t.st['tree-jungle'] && !t.st['tree-palm'], '温帯の国に密林・ヤシは出ない');
+  const w = count('warm');
+  assert.ok(w.c[5] > 0 && (w.st['tree-jungle'] || 0) > 0, '暖かい気候では密林');
+  const cold = count('cold');
+  assert.ok((cold.c[4] || 0) > (t.c[4] || 0) && (cold.st['tree-conifer'] || 0) > (cold.st['tree-round'] || 0), '寒い気候は雪原と針葉樹が多い');
+  const dry = count('dry');
+  assert.ok((dry.c[2] || 0) > (t.c[2] || 0) * 3, '乾いた気候は砂漠が多い');
+  // 世界地図の国名は重ならない
+  for (const seed of [1, 2, 3, 4]) {
+    const m = E.newMap('t', { preset: 'world', size: 'w', seed, land: 0.3, countries: true, names: true });
+    const L = m.labels.filter((l) => l.gen === 'country').map((l) => { const hw = l.text.length * l.size * 1.55 / 2; return { x0: l.x - hw, x1: l.x + hw, y0: l.y - l.size * 0.7, y1: l.y + l.size * 0.7 }; });
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+      const a = L[i]; const b = L[j];
+      assert.ok(!(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0), `seed ${seed}：国名が重ならない`);
+    }
+  }
+});
