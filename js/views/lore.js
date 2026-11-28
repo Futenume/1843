@@ -1203,6 +1203,7 @@
         opts.appendChild(sel('翼', C.OPTIONS.wings, r.wings, (v) => set('wings', v, true)));
         if (r.wings !== 'none') opts.appendChild(sel('翼の姿勢', C.OPTIONS.wingPose, r.wingPose, (v) => set('wingPose', v)));
       }
+      if (['quad', 'biped', 'serpent'].includes(plan)) opts.appendChild(sel('頭の数', C.HEADS_LIST.map((n) => [String(n), n === 1 ? '1つ' : n + 'つ']), String(r.heads), (v) => set('heads', +v)));
       if (['quad', 'biped', 'serpent', 'fish'].includes(plan)) opts.appendChild(sel('背', C.OPTIONS.ridge, r.ridge, (v) => set('ridge', v)));
       if (['quad', 'biped', 'serpent'].includes(plan)) opts.appendChild(sel('尾の先', C.OPTIONS.tailTip.filter((o) => !/fluke|fin|fan/.test(o[0])), r.tailTip, (v) => set('tailTip', v)));
       if (plan === 'fish') opts.appendChild(sel('尾びれ', C.OPTIONS.tailTip.filter((o) => /fluke|fin/.test(o[0])), r.tailTip, (v) => set('tailTip', v)));
@@ -1225,6 +1226,7 @@
           const res = await NS.AI.creatureShape(p, e);
           const nf = keepView({ preset: C.PRESETS[res.preset] ? res.preset : r.preset });
           ['neck', 'tail', 'legs', 'bulk', 'head', 'wing'].forEach((k) => { if (Number.isFinite(+res[k])) nf[k] = Math.max(0, Math.min(1, +res[k])); });
+          if (Number.isFinite(+res.heads) && +res.heads >= 1) nf.heads = Math.max(1, Math.min(9, Math.round(+res.heads)));
           ['horns', 'wings', 'ridge', 'tailTip'].forEach((k) => { if (typeof res[k] === 'string' && /^[a-z]{1,16}$/i.test(res[k])) nf[k] = res[k]; });
           ['color', 'belly'].forEach((k) => { if (/^#[0-9a-f]{6}$/i.test(res[k] || '')) nf[k] = res[k]; });
           e.figure = nf;

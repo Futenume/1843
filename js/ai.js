@@ -498,10 +498,11 @@
     const num = (d) => ({ type: 'number', description: d });
     const schema = {
       type: 'object', additionalProperties: false,
-      required: ['preset', 'neck', 'tail', 'legs', 'bulk', 'head', 'wing', 'horns', 'wings', 'ridge', 'tailTip', 'color', 'belly', 'length'],
+      required: ['preset', 'neck', 'tail', 'legs', 'bulk', 'head', 'wing', 'heads', 'horns', 'wings', 'ridge', 'tailTip', 'color', 'belly', 'length'],
       properties: {
         preset: { type: 'string', enum: Object.keys(C.PRESETS) },
         neck: num('首の長さ 0〜1'), tail: num('尾（蛇などは体）の長さ 0〜1'), legs: num('脚の長さ 0〜1'), bulk: num('体の太さ 0〜1'), head: num('頭の大きさ 0〜1'), wing: num('翼の大きさ 0〜1'),
+        heads: { type: 'integer', description: '頭の数（ふつうは1。ヒュドラやケルベロスなど多頭なら、その数。9まで）' },
         horns: enumOf(C.OPTIONS.horns), wings: enumOf(C.OPTIONS.wings), ridge: enumOf(C.OPTIONS.ridge), tailTip: enumOf(C.OPTIONS.tailTip),
         color: { type: 'string', description: '体の色。#rrggbb の形' }, belly: { type: 'string', description: '腹・模様の色。#rrggbb の形' },
         length: { type: 'string', description: '全長（巨人などは身長）。設定に書かれていれば「40m」のように。分からなければ空文字' },

@@ -166,6 +166,7 @@
         ['neck', 'tail', 'legs', 'bulk', 'head', 'wing'].forEach((k) => { if (Number.isFinite(+fg[k]) && fg[k] !== '' && fg[k] !== null) out[k] = Math.max(0, Math.min(1, +fg[k])); });
         ['color', 'belly'].forEach((k) => { if (typeof fg[k] === 'string' && /^#[0-9a-f]{6}$/i.test(fg[k])) out[k] = fg[k]; });
         if (Number.isFinite(+fg.seed)) out.seed = Math.max(0, Math.min(1e6, Math.round(+fg.seed)));
+        if (Number.isFinite(+fg.heads) && fg.heads !== null && fg.heads !== '') out.heads = Math.max(1, Math.min(9, Math.round(+fg.heads)));
         e.figure = out;
       }
     });

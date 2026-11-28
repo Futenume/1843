@@ -838,6 +838,9 @@ test('生物の図：大きさの読み取り（数・漢数字・この世界�
   assert.equal(C.guessPreset('霧狼'), 'wolf');
   assert.equal(C.guessPreset('赤鬼'), 'giant');
   assert.equal(C.guessPreset('ふしぎな何か'), null);
+  assert.equal(C.guessPreset('八岐大蛇'), 'orochi');
+  assert.equal(C.guessPreset('地獄の番犬ケルベロス'), 'cerberus');
+  assert.equal(C.guessPreset('沼のヒュドラ'), 'hydra');
 });
 
 test('生物の図：全部の形を描ける・大きさと体重の目安・SVG として正しい・名前は文字として扱う', () => {
@@ -883,6 +886,14 @@ test('生物の図：全部の形を描ける・大きさと体重の目安・SV
   const b = C.render({ name: 'b', figure: { preset: 'wolf' } });
   const ids = (s) => [...s.matchAll(/id="([^"]+)"/g)].map((x) => x[1]);
   assert.equal(ids(a).filter((x) => ids(b).includes(x)).length, 0);
+  // 多頭：頭の数だけ頭（目）を描く。数は 1〜9、魚などの形では 1
+  const eyes = (f) => C.build(f).prims.filter((q) => q.t === 'circle' && q.fill === 'eye').length;
+  assert.equal(eyes({ preset: 'hydra' }), 5);
+  assert.equal(eyes({ preset: 'cerberus' }), 3);
+  assert.equal(eyes({ preset: 'orochi' }), 8);
+  assert.equal(eyes({ preset: 'dragon', heads: 3 }), 3);
+  assert.equal(C.resolve({ preset: 'dragon', heads: 99 }).heads, 9);
+  assert.equal(C.resolve({ preset: 'whale', heads: 4 }).heads, 1);
   // 形の設定は 0〜1 にまとめ、知らない形はひな形に戻す
   const r = C.resolve({ preset: 'nope', neck: 5, horns: 'zzz' });
   assert.equal(r.preset, 'dragon');

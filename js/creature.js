@@ -127,6 +127,9 @@
     griffin: { label: 'グリフォン', plan: 'quad', head: 'beak', feet: 'paw', frontFeet: 'talon', wings: 'feather', horns: 'none', ridge: 'none', tailTip: 'tuft', skin: 'fur', neck: 0.35, tail: 0.45, legs: 0.5, bulk: 0.5, headSize: 0.5, wing: 0.55, size: 4, color: '#a8834f', belly: '#efe6d2' },
     bird: { label: '鳥・怪鳥', plan: 'bird', head: 'beak', feet: 'talon', wings: 'feather', horns: 'none', ridge: 'none', tailTip: 'fan', skin: 'feather', neck: 0.45, tail: 0.4, legs: 0.45, bulk: 0.5, headSize: 0.5, wing: 0.6, size: 1, color: '#6b5440', belly: '#d8c8a8' },
     giant: { label: '巨人・鬼', plan: 'humanoid', head: 'human', feet: 'foot', wings: 'none', horns: 'none', ridge: 'none', tailTip: 'none', skin: 'smooth', neck: 0.3, tail: 0, legs: 0.5, bulk: 0.55, headSize: 0.5, wing: 0, size: 8, color: '#8f7a64', belly: '#a89480' },
+    hydra: { label: 'ヒュドラ（多頭の竜）', plan: 'quad', head: 'reptile', feet: 'claw', wings: 'none', horns: 'none', ridge: 'spikes', tailTip: 'none', skin: 'scale', neck: 0.7, tail: 0.45, legs: 0.38, bulk: 0.65, headSize: 0.38, wing: 0.5, size: 20, color: '#3f5a3a', belly: '#b8b07a', heads: 5 },
+    cerberus: { label: 'ケルベロス（三つ首の犬）', plan: 'quad', head: 'canine', feet: 'paw', wings: 'none', horns: 'none', ridge: 'none', tailTip: 'none', skin: 'fur', neck: 0.35, tail: 0.4, legs: 0.45, bulk: 0.6, headSize: 0.5, wing: 0, size: 4, color: '#2e2a28', belly: '#5a4a40', heads: 3 },
+    orochi: { label: '八岐大蛇（八つの頭の大蛇）', plan: 'serpent', head: 'snake', feet: 'none', wings: 'none', horns: 'none', ridge: 'spikes', tailTip: 'none', skin: 'scale', neck: 0.6, tail: 0.55, legs: 0, bulk: 0.6, headSize: 0.5, wing: 0, size: 60, color: '#4a3d2c', belly: '#a8463a', heads: 8 },
     whale: { label: '鯨・海の巨獣', plan: 'fish', head: 'whale', feet: 'none', wings: 'none', horns: 'none', ridge: 'none', tailTip: 'fluke', skin: 'smooth', neck: 0, tail: 0.5, legs: 0, bulk: 0.5, headSize: 0.5, wing: 0, size: 25, color: '#3e5266', belly: '#c9d2d6' },
     fish: { label: '大魚・鮫', plan: 'fish', head: 'shark', feet: 'none', wings: 'none', horns: 'none', ridge: 'fin', tailTip: 'fin', skin: 'smooth', neck: 0, tail: 0.5, legs: 0, bulk: 0.4, headSize: 0.5, wing: 0, size: 6, color: '#5d6e7a', belly: '#e3e6e2' },
     insect: { label: '大蟲（甲虫）', plan: 'insect', head: 'insect', feet: 'none', wings: 'none', horns: 'none', ridge: 'none', tailTip: 'none', skin: 'shell', neck: 0, tail: 0.5, legs: 0.5, bulk: 0.5, headSize: 0.5, wing: 0, size: 2, color: '#3b2e2a', belly: '#5a4438' },
@@ -141,6 +144,7 @@
     tailTip: [['none', 'そのまま'], ['spade', '矢じり'], ['tuft', '房'], ['club', 'こぶ'], ['bushy', 'ふさふさ'], ['hair', '長い毛'], ['fan', '扇の羽根'], ['fluke', '尾びれ（横）'], ['fin', '尾びれ（縦）']],
   };
   const VIEWS = [['figure', '姿'], ['skeleton', '骨格'], ['xray', '透かし']];
+  const HEADS_LIST = [1, 2, 3, 5, 7, 8, 9];
   const COLORS = ['#55604a', '#2f6b5e', '#3e5266', '#6b4a3a', '#8a2f2a', '#3a3430', '#6e6a64', '#b08a52', '#8a6a4a', '#d8d2c4', '#4f9ccf', '#6a4a8a'];
   const BELLIES = ['#c8b48a', '#d9c27a', '#efe6d2', '#c9d2d6', '#8a705a', '#b84a3a', '#bfe3f5', '#3a3430'];
 
@@ -159,6 +163,7 @@
       ridge: pick('ridge', OPTIONS.ridge), tailTip: pick('tailTip', OPTIONS.tailTip),
       color: HEX.test(fig.color || '') ? fig.color : P.color, belly: HEX.test(fig.belly || '') ? fig.belly : P.belly,
       seed: Number.isFinite(+fig.seed) ? +fig.seed : 1,
+      heads: P.plan === 'quad' || P.plan === 'biped' || P.plan === 'serpent' ? clamp(Math.round(Number.isFinite(+fig.heads) && +fig.heads > 0 ? +fig.heads : (P.heads || 1)), 1, 9) : 1,
     };
   }
 
@@ -254,6 +259,8 @@
     const H = HEADS[type];
     if (!H) return null;
     opts = opts || {};
+    // 描く層：ふつうは頭の層。多頭の生物の奥の頭は胴の後ろ（暗く）、手前の頭は脚の層に
+    const LY = opts.far ? { shape: 'far', detail: 'farDetail', back: 'far', fill: 'far' } : opts.near ? { shape: 'near', detail: 'nearDetail', back: 'near', fill: 'skin' } : { shape: 'head', detail: 'headDetail', back: 'mane0', fill: 'skin' };
     const ux = dir(angle);
     const uy = perp(ux);
     const T = (p) => {
@@ -262,21 +269,21 @@
     };
     const TT = (arr) => arr.map(T);
     // 角（頭の後ろに）
-    hornsAt(m, c, T(H.horn), angle, L, H.upright);
-    if (H.ear && c.horns !== 'antler') m.shape('head', TT(H.ear), 'skin', { smooth: 0.6 });
-    m.shape('head', TT(H.shape), 'skin', { tex: true });
-    if (H.beak) m.shape('headDetail', TT(H.beak), 'beak');
+    hornsAt(m, c, T(H.horn), angle, L, H.upright, LY);
+    if (H.ear && c.horns !== 'antler') m.shape(LY.shape, TT(H.ear), LY.fill, { smooth: 0.6 });
+    m.shape(LY.shape, TT(H.shape), LY.fill, { tex: !opts.far });
+    if (H.beak) m.shape(LY.detail, TT(H.beak), 'beak');
     // 目・口・鼻
     const eye = T(H.eye);
     const er = L * (type === 'beak' ? 0.075 : type === 'human' ? 0.05 : 0.06);
-    m.circle('headDetail', eye, er, 'eye');
-    if (/reptile|eastern|snake/.test(type)) m.prims.push({ t: 'ellipse', layer: 'headDetail', c: eye, rx: er * 0.25, ry: er * 0.8, rot: angle, fill: 'pupil' });
-    else m.circle('headDetail', eye, er * 0.55, 'pupil');
-    m.circle('headDetail', add(eye, mul(add(ux, uy), er * 0.25)), er * 0.22, 'glint');
-    if (H.jaw) m.line('headDetail', TT(H.jaw), 'ink', 1.1);
+    m.circle(LY.detail, eye, er, 'eye');
+    if (/reptile|eastern|snake/.test(type)) m.prims.push({ t: 'ellipse', layer: LY.detail, c: eye, rx: er * 0.25, ry: er * 0.8, rot: angle, fill: 'pupil' });
+    else m.circle(LY.detail, eye, er * 0.55, 'pupil');
+    m.circle(LY.detail, add(eye, mul(add(ux, uy), er * 0.25)), er * 0.22, 'glint');
+    if (H.jaw) m.line(LY.detail, TT(H.jaw), 'ink', 1.1);
     if (H.nose) {
-      if (H.noseBlob) m.circle('headDetail', T(H.nose), L * 0.05, 'pupil');
-      else m.circle('headDetail', T(H.nose), L * 0.022, 'pupil');
+      if (H.noseBlob) m.circle(LY.detail, T(H.nose), L * 0.05, 'pupil');
+      else m.circle(LY.detail, T(H.nose), L * 0.022, 'pupil');
     }
     if (H.teeth && /reptile|eastern/.test(type)) {
       const [a, b] = H.teeth;
@@ -285,26 +292,26 @@
         const x = lerp(a, b, (i + 0.5) / n);
         const y = interpY(H.jaw, x);
         if (y == null) continue;
-        m.shape('headDetail', [T([x - 0.025, y + 0.004]), T([x + 0.025, y + 0.004]), T([x, y - 0.05, 1])], 'tooth', { smooth: 0 });
+        m.shape(LY.detail, [T([x - 0.025, y + 0.004]), T([x + 0.025, y + 0.004]), T([x, y - 0.05, 1])], 'tooth', { smooth: 0 });
       }
     } else if (H.teeth && /canine|feline|bear/.test(type)) {
       // 獣は牙を一本だけ
       const x = H.teeth[1] - 0.06;
       const y = interpY(H.jaw, x);
-      if (y != null) m.shape('headDetail', [T([x - 0.03, y + 0.01]), T([x + 0.02, y + 0.01]), T([x - 0.01, y - 0.09, 1])], 'tooth', { smooth: 0 });
+      if (y != null) m.shape(LY.detail, [T([x - 0.03, y + 0.01]), T([x + 0.02, y + 0.01]), T([x - 0.01, y - 0.09, 1])], 'tooth', { smooth: 0 });
     }
-    if (H.tongue) m.line('headDetail', [T([0.98, -0.04]), T([1.14, -0.06]), T([1.22, -0.02])], 'tongue', 1.2);
+    if (H.tongue) m.line(LY.detail, [T([0.98, -0.04]), T([1.14, -0.06]), T([1.22, -0.02])], 'tongue', 1.2);
     if (H.whiskers) {
       const s = T([0.95, 0.06]);
-      m.line('headDetail', [s, T([1.2, 0.0]), T([1.45, 0.12]), T([1.7, 0.02])], 'mane', 1.6, { smooth: 1 });
-      m.line('headDetail', [T([0.9, -0.02]), T([1.1, -0.15]), T([1.32, -0.1]), T([1.5, -0.24])], 'mane', 1.4, { smooth: 1 });
+      m.line(LY.detail, [s, T([1.2, 0.0]), T([1.45, 0.12]), T([1.7, 0.02])], 'mane', 1.6, { smooth: 1 });
+      m.line(LY.detail, [T([0.9, -0.02]), T([1.1, -0.15]), T([1.32, -0.1]), T([1.5, -0.24])], 'mane', 1.4, { smooth: 1 });
       // あごひげ
-      m.shape('mane0', [T([0.3, -0.18]), T([0.55, -0.15]), T([0.5, -0.36]), T([0.38, -0.5, 1]), T([0.3, -0.34])], 'mane');
+      m.shape(LY.back, [T([0.3, -0.18]), T([0.55, -0.15]), T([0.5, -0.36]), T([0.38, -0.5, 1]), T([0.3, -0.34])], 'mane');
     }
-    if (type === 'human' && opts.tusks) m.shape('headDetail', [T([0.18, 0.3]), T([0.22, 0.32]), T([0.24, 0.48, 1])], 'tooth', { smooth: 0 });
+    if (type === 'human' && opts.tusks) m.shape(LY.detail, [T([0.18, 0.3]), T([0.22, 0.32]), T([0.24, 0.48, 1])], 'tooth', { smooth: 0 });
     // 骨
-    m.boneShape(TT(H.skull), { holes: H.holes.map((h0) => ({ c: T([h0[0], h0[1]]), rx: h0[2] * L, ry: h0[3] * L, rot: H.upright ? 0 : angle })) });
-    m.boneShape(TT(H.jawBone));
+    m.boneShape(TT(H.skull), { far: !!opts.far, holes: H.holes.map((h0) => ({ c: T([h0[0], h0[1]]), rx: h0[2] * L, ry: h0[3] * L, rot: H.upright ? 0 : angle })) });
+    m.boneShape(TT(H.jawBone), { far: !!opts.far });
     if (H.teeth && c.plan !== 'fish') {
       const [a, b] = H.teeth;
       const n = Math.round(lerp(4, 9, (b - a)));
@@ -332,7 +339,8 @@
   }
 
   /** 角 */
-  function hornsAt(m, c, p, angle, L, upright) {
+  function hornsAt(m, c, p, angle, L, upright, LY) {
+    LY = LY || { detail: 'headDetail', back: 'mane0', far: false };
     if (c.horns === 'none') return;
     const back = upright ? 90 : angle + 180;
     const curve = (start, a0, a1, length, w0) => {
@@ -353,7 +361,7 @@
       return left.concat([[q[0], q[1], 1]], right.reverse());
     };
     const put = (pts, far) => {
-      m.shape(far ? 'mane0' : 'headDetail', pts, far ? 'hornFar' : 'horn');
+      m.shape(far ? LY.back : LY.detail, pts, far || LY.fill === 'far' ? 'hornFar' : 'horn');
       m.boneShape(pts);
     };
     if (c.horns === 'back') {
@@ -375,7 +383,7 @@
     } else if (c.horns === 'antler') {
       const stem = (s, a, l, w, depth, far) => {
         const e = add(s, mul(dir(a), l));
-        m.line(far ? 'mane0' : 'headDetail', [s, e], far ? 'hornFar' : 'horn', 0, { width: w * 1, cap: true });
+        m.line(far ? LY.back : LY.detail, [s, e], far || LY.fill === 'far' ? 'hornFar' : 'horn', 0, { width: w * 1, cap: true });
         m.bone(s, e, w * 0.9, { plain: true });
         if (depth > 0) {
           stem(lerp2(s, e, 0.55), a - 38, l * 0.55, w * 0.7, depth - 1, far);
@@ -393,7 +401,7 @@
       put(pts);
       for (let i = 1; i < 5; i++) {
         const q = lerp2(base, tip, i / 5);
-        m.line('headDetail', [add(q, mul(nr, L * 0.05 * (1 - i / 5))), add(add(q, mul(dir(a), L * 0.04)), mul(nr, -L * 0.05 * (1 - i / 5)))], 'ink', 0.6);
+        m.line(LY.detail, [add(q, mul(nr, L * 0.05 * (1 - i / 5))), add(add(q, mul(dir(a), L * 0.04)), mul(nr, -L * 0.05 * (1 - i / 5)))], 'ink', 0.6);
       }
     } else if (c.horns === 'bull') {
       put(curve(add(p, mul(dir(back + 60), L * 0.02)), back - 100, back - 190, L * 0.45, L * 0.12), true);
@@ -826,6 +834,29 @@
     return { chain: [top, root, r.joint, r.end, ball, toe], widths, top: true };
   }
 
+  /** 多頭の生物：首の付け根から、扇のように首を足す（奇数番は胴の奥に暗く、偶数番は手前に） */
+  function extraHeads(m, c, o) {
+    const n = clamp(c.heads | 0, 1, 9);
+    for (let k = 1; k < n; k++) {
+      const rank = Math.ceil(k / 2);
+      const side = k % 2 ? 1 : -1;
+      const far = k % 2 === 1;
+      const a = o.angle + side * rank * o.spread;
+      const L = o.neckLen * (1 - 0.06 * rank) * (far ? 1.04 : 0.94);
+      const b0 = add(o.base, [far ? 0.03 : -0.01, far ? 0.02 : 0]);
+      const mid = add(b0, mul(dir(a + 10), L * 0.5));
+      const end = add(mid, mul(dir(a - (o.bend || 18)), L * 0.5));
+      const pts = crSample([b0, mid, end], 8).pts;
+      const widths = pts.map((_, i) => lerp(o.w0, o.w1, i / (pts.length - 1)));
+      const outline = limbOutline(pts, widths);
+      const ly = far ? 'far' : 'near';
+      m.shape(ly, outline, far ? 'far' : 'skin', { tex: !far, noStroke: true });
+      m.line(ly, outline.slice(1, -1), far ? 'farLine' : 'ink', 1, { smooth: 1, edge: true });
+      for (let i = 0; i + 2 < pts.length; i += 2) m.bone(pts[i], pts[i + 2], Math.max(o.w1 * 0.35, 0.01), { far });
+      placeHead(m, o.type, end, o.headA + side * rank * 5, o.headLen * (1 - 0.04 * rank), c, far ? { far: true } : { near: true });
+    }
+  }
+
   function buildQuad(m, c) {
     const bulk = 0.7 + c.bulk * 0.8;
     const T = c.head === 'bear' ? 0.82 : 1;
@@ -903,6 +934,10 @@
     } else ridgeAlong(m, spine, Math.round(spine.length * 0.04), spine.length - 2, c);
     tailTipAt(m, spine, c);
     placeHead(m, c.head, B, headA, headLen, c);
+    if (c.heads > 1) {
+      const nt = (0.18 + 0.11 * bulk) * neckThick;
+      extraHeads(m, c, { base: add(S, mul(dir(neckA), neckLen * 0.1)), angle: neckA, neckLen, headLen, headA, w0: nt * 1.1, w1: headLen * 0.5, type: c.head, spread: reptile ? 17 : 24, bend: reptile ? 22 : 8 });
+    }
     legAt(m, hindNear.chain, hindNear.widths, 'near', 'skin', c.feet, { top: true });
     legAt(m, frontNear.chain, frontNear.widths, 'near', 'skin', c.frontFeet, { claws: true, top: true });
     if (c.wings !== 'none') {
@@ -980,6 +1015,7 @@
     ridgeAlong(m, spine, Math.round(spine.length * 0.04), spine.length - 2, c);
     tailTipAt(m, spine, c);
     placeHead(m, c.head, B, headA, headLen, c);
+    if (c.heads > 1) extraHeads(m, c, { base: add(S, mul(dir(neckA), neckLen * 0.1)), angle: neckA, neckLen, headLen, headA, w0: (0.2 + 0.09 * bulk) * 1.1, w1: headLen * 0.5, type: c.head, spread: 16, bend: 25 });
     legAt(m, near.chain, near.widths, 'near', 'skin', c.feet, { top: true });
     const shR = add(S, mul(dir(th - 90), 0.12 * bulk));
     if (!wyvern) {
@@ -1241,6 +1277,12 @@
     if (c.ridge !== 'none') ridgeAlong(m, spine, Math.round(spine.length * 0.08), spine.length - 3, c, { k: c.ridge === 'mane' ? 1 : 0.8 });
     tailTipAt(m, spine, c);
     placeHead(m, c.head, last, headA, headLen, c);
+    if (c.heads > 1) {
+      // 胴の前のほうから、何本もの首が立ち上がる
+      const sb = spine[Math.round(spine.length * 0.7)];
+      const up = ang(sub(last, sb.p));
+      extraHeads(m, c, { base: sb.p, angle: clamp(up, 35, 85), neckLen: len(sub(last, sb.p)) * 0.95, headLen, headA, w0: th * 1.9, w1: headLen * 0.48, type: c.head, spread: 11, bend: 30 });
+    }
     if (c.legs4) {
       // 四本の短い脚（空をつかむように）
       const legAtFrac = (fr, far, front) => {
@@ -2000,9 +2042,10 @@
 
   // 名前や分類から、体の形のひな形を推し量る（先にあるものほど優先）
   const GUESS = [
+    [/八岐大蛇|ヤマタノオロチ|やまたのおろち|オロチ|大蛇.*八つ/, 'orochi'], [/ヒュドラ|ヒドラ|ハイドラ|多頭の竜|九頭竜|九頭龍/, 'hydra'], [/ケルベロス|三つ首|三頭犬|オルトロス|双頭の犬/, 'cerberus'],
     [/恐竜|ラプトル|レックス/, 'raptor'], [/飛竜|ワイバーン/, 'wyvern'], [/龍|東洋の竜/, 'eastern'], [/竜|ドラゴン|ドレイク/, 'dragon'],
     [/大蛇|蛇|ヘビ|へび|サーペント|ナーガ|ワーム|バジリスク/, 'serpent'], [/天馬|ペガサス|一角獣|ユニコーン|麒麟/, 'pegasus'],
-    [/グリフォン|グリフィン|ヒッポグリフ/, 'griffin'], [/狼|オオカミ|ウルフ|犬|フェンリル|ケルベロス|ハウンド/, 'wolf'],
+    [/グリフォン|グリフィン|ヒッポグリフ/, 'griffin'], [/狼|オオカミ|ウルフ|犬|フェンリル|ハウンド/, 'wolf'],
     [/獅子|ライオン|猫|ネコ|虎|トラ|豹|キャット|マンティコア|スフィンクス/, 'lion'], [/熊|クマ|ベア/, 'bear'], [/馬|鹿|シカ|ホース|ディア/, 'horse'],
     [/鳥|鷲|鷹|鴉|カラス|フェニックス|不死鳥|鳳凰|ロック|怪鳥|ハーピー|グリフ/, 'bird'],
     [/巨人|鬼|オーガ|トロール|ジャイアント|ゴーレム|オーク|サイクロプス|タイタン/, 'giant'],
@@ -2109,5 +2152,5 @@
     return render(entry, { width: size || 160, height: Math.round((size || 160) * 0.62), title: false, dims: false, compare: 'none' });
   }
 
-  NS.Creature = { PRESETS, OPTIONS, VIEWS, COLORS, BELLIES, COMPARE_LIST, resolve, build, render, thumb, measure, parseSize, parseWeight, fmtLen, fmtWeight, flightNote, guessPreset, figureOf, aspect, drawCanvas, esc };
+  NS.Creature = { PRESETS, OPTIONS, VIEWS, HEADS_LIST, COLORS, BELLIES, COMPARE_LIST, resolve, build, render, thumb, measure, parseSize, parseWeight, fmtLen, fmtWeight, flightNote, guessPreset, figureOf, aspect, drawCanvas, esc };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));
