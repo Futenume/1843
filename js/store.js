@@ -147,7 +147,7 @@
     p.entries = arr(p.entries).filter((e) => e && typeof e === 'object');
     p.entries.forEach((e) => {
       e.id = okId(e.id) ? e.id : UI.uid('e');
-      e.type = ['character', 'place', 'term', 'org'].includes(e.type) ? e.type : 'character';
+      e.type = ['character', 'place', 'term', 'org', 'creature'].includes(e.type) ? e.type : 'character';
       e.name = str(e.name);
       e.reading = str(e.reading);
       e.color = color(e.color);
@@ -158,6 +158,16 @@
       e.relations = arr(e.relations).filter((r) => r && typeof r === 'object').map((r) => Object.assign(r, { targetId: str(r.targetId), calls: str(r.calls), note: str(r.note) }, r.kind != null ? { kind: str(r.kind) } : {}));
       e.appear = obj(e.appear);
       e.notes = str(e.notes);
+      // 生物の図の設定（形・表示・色）
+      if (e.figure != null) {
+        const fg = obj(e.figure);
+        const out = {};
+        ['preset', 'view', 'compare', 'horns', 'wings', 'wingPose', 'ridge', 'tailTip'].forEach((k) => { if (typeof fg[k] === 'string' && /^[a-z]{1,16}$/i.test(fg[k])) out[k] = fg[k]; });
+        ['neck', 'tail', 'legs', 'bulk', 'head', 'wing'].forEach((k) => { if (Number.isFinite(+fg[k]) && fg[k] !== '' && fg[k] !== null) out[k] = Math.max(0, Math.min(1, +fg[k])); });
+        ['color', 'belly'].forEach((k) => { if (typeof fg[k] === 'string' && /^#[0-9a-f]{6}$/i.test(fg[k])) out[k] = fg[k]; });
+        if (Number.isFinite(+fg.seed)) out.seed = Math.max(0, Math.min(1e6, Math.round(+fg.seed)));
+        e.figure = out;
+      }
     });
     p.rules = obj(p.rules);
     p.rules.ng = arr(p.rules.ng).filter((r) => r && typeof r === 'object')

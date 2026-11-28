@@ -275,6 +275,28 @@ select.input { padding-right: 28px; }
 .type-badge.t-place { background: rgba(106, 153, 78, 0.16); color: #4c7a36; }
 .type-badge.t-term { background: rgba(217, 164, 65, 0.18); color: #946812; }
 .type-badge.t-org { background: rgba(140, 59, 94, 0.14); color: #8c3b5e; }
+.type-badge.t-creature { background: rgba(70, 110, 60, 0.15); color: #4d6e3c; }
+/* 生物の図 */
+.creature-fig { display: flex; flex-direction: column; gap: 10px; }
+.cf-stage { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #efe6d2; line-height: 0; }
+.cf-stage svg { width: 100%; height: auto; display: block; }
+.cf-note { margin: 0; line-height: 1.7; }
+.cf-tools { display: flex; flex-direction: column; gap: 10px; }
+.cf-row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.cf-row > .field { min-width: 150px; flex: 1 1 150px; }
+.cf-row > .field:last-child { flex: 2 1 220px; }
+.cf-more { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--surface-2); }
+.cf-more > summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 2px 0; }
+.cf-more[open] > summary { margin-bottom: 10px; }
+.cf-more > * + * { margin-top: 10px; }
+.cf-sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 18px; }
+.cf-slider { display: grid; grid-template-columns: 6.5em 1fr 2.2em; align-items: center; gap: 8px; font-size: 13px; }
+.cf-slider input { width: 100%; accent-color: var(--accent); }
+.cf-val { text-align: right; font-variant-numeric: tabular-nums; }
+.cf-color { width: 30px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.cf-thumb { line-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.cf-thumb svg { width: 100%; height: auto; display: block; }
+.kv .cf-thumb-row { grid-column: 1 / -1; margin-bottom: 6px; }
 :root[data-theme="dark"] .type-badge { filter: brightness(1.6); }
 .spinner {
   width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent);

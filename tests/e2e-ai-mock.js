@@ -22,7 +22,8 @@ export default class Anthropic {
     this.beta = { messages: { stream(params, ro) { window.__aiCalls.push({ params, opts: self.opts });
       const isCons = params.system.includes('整合性');
       const isAsk = !params.output_config.format;
-      const payload = isAsk ? '展開には無理がありません。ラスト案：1. ……' : JSON.stringify(isCons
+      const isCreature = params.system.includes('幻想生物');
+      const payload = isCreature ? JSON.stringify({ preset: 'wyvern', neck: 0.7, tail: 0.8, legs: 0.4, bulk: 0.3, head: 0.6, wing: 0.9, horns: 'ram', wings: 'bat', ridge: 'spikes', tailTip: 'spade', color: '#8a2f2a', belly: '#d9c27a', length: '20m' }) : isAsk ? '展開には無理がありません。ラスト案：1. ……' : JSON.stringify(isCons
         ? { summary: 'セレナの髪色に食い違いがあります。', items: [{ quote: 'セレナの金色の髪', problem: '髪色が設定と違います', setting: '銀色のロングヘア', suggestion: 'セレナの銀色の髪', severity: 'warning' }] }
         : { summary: 'テンポのよい導入です。', items: [{ quote: '違和感を感じたのは', suggestion: '違和感を覚えたのは', reason: '「違和感」と「感じる」が重複', category: '表現', severity: 'warning' }, { quote: '存在しない引用', suggestion: '', reason: 'テスト', category: 'その他', severity: 'info' }] });
       const handlers = {};
@@ -82,6 +83,19 @@ function assert(c, m) { if (!c) throw new Error('FAIL: ' + m); console.log('  �
   const c3 = (await page.evaluate(() => window.__aiCalls)).slice(-1)[0].params;
   assert(c3.system.includes('国語辞典') && c3.messages[0].content.includes('黄昏') && c3.output_config.effort === 'low', '辞書から語の意味をAIに聞ける');
   assert((await page.locator('.dict-ai .ai-answer').textContent()).length > 5, '辞書にAIの回答を表示');
+  // 生物：説明から図の形を決める
+  await page.evaluate(() => Tsuzuri.App.navigate('lore'));
+  await page.locator('.lore-tab', { hasText: '生物' }).click();
+  await page.getByRole('button', { name: '追加' }).click();
+  await page.locator('.entry-name-input').fill('紅の翼竜');
+  await page.locator('.field', { hasText: '姿の特徴' }).locator('textarea').fill('赤い鱗、巻いた角。翼が前脚になっている');
+  await page.getByRole('button', { name: '説明から形を決める（AI）' }).click();
+  await page.waitForTimeout(600);
+  const c4 = (await page.evaluate(() => window.__aiCalls)).slice(-1)[0].params;
+  assert(c4.system.includes('幻想生物') && c4.messages[0].content.includes('赤い鱗') && c4.output_config.format.schema.properties.preset.enum.includes('wyvern'), '生物の説明を送り、形のひな形から選ばせる');
+  const fig = await page.evaluate(() => { const e = Tsuzuri.App.project.entries.find((x) => x.name === '紅の翼竜'); return { figure: e.figure, length: e.fields.length }; });
+  assert(fig.figure.preset === 'wyvern' && fig.figure.horns === 'ram' && fig.figure.color === '#8a2f2a' && fig.length === '20m', 'AIの答えで図の形・色・全長が決まる');
+  assert((await page.locator('.cf-stage').textContent()).includes('全長 20m'), '決まった形と大きさで図を描き直す');
   assert(errs.length === 0, 'エラーなし ' + errs.join('/'));
   await browser.close();
 })().catch((e) => { console.error(e); process.exit(1); });

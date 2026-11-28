@@ -88,7 +88,22 @@
     Object.assign(stone.fields, { kind: '鉱石', desc: '星の光を蓄える青い鉱石。魔法の触媒になる', rule: '感情が高ぶると光る。砕くと力を失う' });
     const order = NS.Lore.newEntry('org', '王国騎士団');
     Object.assign(order.fields, { kind: '騎士団', base: rune.id, desc: '王都を守る騎士の集団。見習いは訓練場で修行する' });
-    p.entries = [rio, serena, gald, kingdom, rune, forest, port, stone, order];
+    const wolf = NS.Lore.newEntry('creature', '霧狼');
+    wolf.reading = 'きりおおかみ';
+    Object.assign(wolf.fields, {
+      kind: '魔獣', habitat: '黒霧の森', diet: '肉食。霧にまぎれて群れで狩る', danger: '一頭なら騎士一人で互角。群れは手に負えない', rarity: '十頭ほどの群れで暮らす',
+      length: '三歩ほど', looks: '灰色の毛並みに赤い瞳。霧の中では姿がほとんど見えない', ability: '霧を吐いて姿を隠す', weakness: '強い光（星晶石の光）を嫌う',
+    });
+    wolf.figure = { preset: 'wolf', color: '#5c5a58', belly: '#cfc8bb' };
+    const dragon = NS.Lore.newEntry('creature', '星喰らいの黒竜');
+    dragon.aliases = ['黒竜'];
+    Object.assign(dragon.fields, {
+      kind: '古竜', habitat: '北の山脈の奥', diet: '星晶石の力を喰らう', lifespan: '千年を超える', danger: '騎士団の全軍でも歯が立たない', rarity: '言い伝えにだけ残る一頭',
+      length: '五十歩', wingspan: '', looks: '黒い鱗のところどころに、青白く光る星晶石が埋まっている。後ろへ反った二本の角', ability: '星晶石の光を吸い、黒い霧を吐く', weakness: '不明',
+      desc: '星降りの夜に目覚めたと言われる。黒霧の森の異変との関わりは、まだ誰も知らない',
+    });
+    dragon.figure = { preset: 'dragon', color: '#33363d', belly: '#7a8a9a', neck: 0.6, wing: 0.7 };
+    p.entries = [rio, serena, gald, kingdom, rune, forest, port, stone, order, wolf, dragon];
 
     p.rules.world = '剣と魔法の中世風ファンタジー。火薬・電気・機械はない。長さの単位は「歩（ほ）」「里（り）」を使う。';
     p.rules.ng = [

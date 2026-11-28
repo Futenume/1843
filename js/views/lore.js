@@ -6,13 +6,14 @@
   const UI = NS.UI;
   const { h, icon, btn, clear, toast } = UI;
 
-  const TYPE_LABEL = { character: '人物', place: '場所', term: '用語', org: '組織' };
-  const TYPE_ICON = { character: 'users', place: 'map', term: 'tag', org: 'flag' };
+  const TYPE_LABEL = { character: '人物', place: '場所', term: '用語', org: '組織', creature: '生物' };
+  const TYPE_ICON = { character: 'users', place: 'map', term: 'tag', org: 'flag', creature: 'paw' };
   const TABS = [
     { id: 'character', label: '人物', icon: 'users' },
     { id: 'place', label: '場所', icon: 'map' },
     { id: 'term', label: '用語・アイテム', icon: 'tag' },
     { id: 'org', label: '組織', icon: 'flag' },
+    { id: 'creature', label: '生物', icon: 'paw' },
     { id: 'relmap', label: '相関図', icon: 'network' },
     { id: 'rules', label: '世界観ルール', icon: 'shield' },
     { id: 'timeline', label: '年表', icon: 'clock' },
@@ -57,6 +58,25 @@
       { key: 'members', label: '主な構成員', type: 'textarea' },
       { key: 'desc', label: '説明', type: 'textarea' },
     ],
+    creature: [
+      { section: '基本' },
+      { key: 'kind', label: '分類', placeholder: '竜／魔獣／幻獣／精霊 など' },
+      { key: 'habitat', label: 'すみか', placeholder: '北の山脈、深い森、海の底 など' },
+      { key: 'diet', label: '食べもの', placeholder: '肉食／草食／魔力を食べる など' },
+      { key: 'lifespan', label: '寿命' },
+      { key: 'danger', label: '強さ・危険度', placeholder: '例：騎士団一隊でようやく互角' },
+      { key: 'rarity', label: '数・珍しさ', placeholder: '世界に数頭／群れで暮らす など' },
+      { section: '大きさ', hint: '図の大きさに使います' },
+      { key: 'length', label: '全長', placeholder: '例：40m／旅客機ほど／象の3倍', hint: '巨人などは身長', size: true },
+      { key: 'height', label: '高さ', placeholder: '例：12m', size: true },
+      { key: 'wingspan', label: '翼を広げた幅', placeholder: '例：60m', size: true },
+      { key: 'weight', label: '体重', placeholder: '例：80t', size: true },
+      { section: '姿・能力' },
+      { key: 'looks', label: '姿の特徴', type: 'textarea', placeholder: '鱗の色、角の形、目の色 など' },
+      { key: 'ability', label: '能力・習性', type: 'textarea', placeholder: '火を吐く、群れで狩る、人の言葉を話す など' },
+      { key: 'weakness', label: '弱点', type: 'textarea' },
+      { key: 'desc', label: '人との関わり・言い伝え', type: 'textarea' },
+    ],
   };
 
   function newEntry(type, name) {
@@ -74,6 +94,11 @@
   /** 資料パネル用の要約 */
   function summaryList(e, p) {
     const dl = h('dl', { class: 'kv' });
+    if (e.type === 'creature' && NS.Creature) {
+      const th = h('div', { class: 'cf-thumb', role: 'img', 'aria-label': e.name + 'の姿' });
+      try { th.innerHTML = NS.Creature.render(e, { width: 320, height: 190, title: false, dims: false, units: (p.rules.units && p.rules.units.list) || [] }); } catch (err) { /* 図が描けなくても資料は出す */ }
+      dl.appendChild(h('dd', { class: 'cf-thumb-row' }, th));
+    }
     const add = (k, v) => { if (v && String(v).trim()) dl.append(h('dt', null, k), h('dd', null, v)); };
     if (e.aliases.length) add('別名', e.aliases.join('、'));
     (SCHEMA[e.type] || []).forEach((f) => {
@@ -109,6 +134,14 @@
         const t = entryName(p, r.targetId);
         if (t) lines.push(`  - ${t}との関係: ${[r.note, r.calls ? '呼び方「' + r.calls + '」' : ''].filter(Boolean).join('、')}`);
       });
+      if (e.type === 'creature' && NS.Creature) {
+        try {
+          const C = NS.Creature;
+          const fig = C.figureOf(e);
+          const ms = C.measure(fig, e.fields, (p.rules.units && p.rules.units.list) || []);
+          lines.push(`  - 体の形: ${C.PRESETS[fig.preset].label}（図から見積もった体重 約${C.fmtWeight(ms.weight)}${ms.wingspan ? '、翼を広げた幅 約' + C.fmtLen(ms.wingspan) : ''}）`);
+        } catch (err) { /* 見積もれなくても書き出す */ }
+      }
       if (e.appear.from) lines.push(`  - 初登場: 第${e.appear.from}話`);
       if (e.appear.until) lines.push(`  - 第${e.appear.until}話で${e.appear.reason || '退場'}`);
       if (e.notes) lines.push(`  - メモ: ${e.notes.replace(/\n/g, ' ')}`);
@@ -165,7 +198,7 @@
     toMarkdown(p) {
       const out = ['# ' + p.title + '　設定資料', ''];
       if (p.synopsis) out.push('## あらすじ', '', p.synopsis, '');
-      ['character', 'place', 'term', 'org'].forEach((t) => {
+      ['character', 'place', 'term', 'org', 'creature'].forEach((t) => {
         const list = p.entries.filter((e) => e.type === t);
         if (!list.length) return;
         out.push('## ' + TYPE_LABEL[t], '');
@@ -304,7 +337,8 @@
       const list = p.entries.filter((e) => e.type === S.tab && (!q || e.name.indexOf(q) >= 0 || (e.reading || '').indexOf(q) >= 0 || e.aliases.some((a) => a.indexOf(q) >= 0)));
       if (!list.length) items.appendChild(h('li', { class: 'muted small empty-li' }, q ? '見つかりません' : 'まだ登録がありません'));
       list.forEach((e) => {
-        const sub = e.type === 'character' ? [e.fields.role, e.fields.age ? e.fields.age + (/歳|才/.test(e.fields.age) ? '' : '歳') : ''].filter(Boolean).join('・') : (e.fields.kind || '');
+        const sub = e.type === 'character' ? [e.fields.role, e.fields.age ? e.fields.age + (/歳|才/.test(e.fields.age) ? '' : '歳') : ''].filter(Boolean).join('・')
+          : e.type === 'creature' ? [e.fields.kind, e.fields.length].filter(Boolean).join('・') : (e.fields.kind || '');
         items.appendChild(h('li', {
           class: 'entry-item' + (S.selected === e.id ? ' active' : ''), tabindex: 0,
           onclick: () => openEntry(e),
@@ -398,6 +432,7 @@
 
   function renderDetail() {
     clear(S.detail);
+    S.refreshFigure = null;
     syncLayout();
     S.detail.classList.toggle('full', S.tab === 'relmap');
     if (S.tab === 'relmap') { NS.RelMap.mount(S.detail); return; }
@@ -485,27 +520,34 @@
     })));
     form.appendChild(h('div', { class: 'entry-head' },
       h('span', { class: 'type-badge t-' + e.type }, TYPE_LABEL[e.type]),
-      textInput(e.name, (v) => { e.name = v; changed(e, true); }, { class: 'entry-name-input', placeholder: '名前' }),
+      textInput(e.name, (v) => { e.name = v; changed(e, true); if (S.refreshFigure) S.refreshFigure(); }, { class: 'entry-name-input', placeholder: '名前' }),
       more));
     form.appendChild(h('div', { class: 'grid-2' },
       UI.field('読み', textInput(e.reading, (v) => { e.reading = v; changed(e); }, { placeholder: 'ふりがな' })),
       UI.field('別名・愛称', textInput(e.aliases.join('、'), (v) => { e.aliases = v.split(/[、,，\/／]/).map((s) => s.trim()).filter(Boolean); changed(e); }, { placeholder: '、で区切る' }),
         '本文中の呼び名も登録すると検出精度が上がります')));
     form.appendChild(UI.field('色', colorRow));
+    if (e.type === 'creature' && NS.Creature) form.appendChild(creatureFigure(e));
 
     // 項目
     let grid = h('div', { class: 'grid-2' });
     form.appendChild(grid);
     (SCHEMA[e.type] || []).forEach((f) => {
       if (f.section) {
-        form.appendChild(h('h3', { class: 'form-section' }, f.section));
+        form.appendChild(h('h3', { class: 'form-section' }, f.section, f.hint ? h('span', { class: 'check-note' }, f.hint) : null));
         grid = h('div', { class: 'grid-2' });
         form.appendChild(grid);
         return;
       }
       let input;
       if (f.type === 'entry') input = entrySelect(p, f.entryType, e.fields[f.key], (v) => { e.fields[f.key] = v; changed(e); }, e.id);
-      else input = textInput(e.fields[f.key], (v) => { e.fields[f.key] = v; changed(e, f.key === 'role' || f.key === 'kind' || f.key === 'age'); }, { textarea: f.type === 'textarea', placeholder: f.placeholder });
+      else {
+        input = textInput(e.fields[f.key], (v) => {
+          e.fields[f.key] = v;
+          changed(e, f.key === 'role' || f.key === 'kind' || f.key === 'age' || f.key === 'length');
+          if (e.type === 'creature' && S.refreshFigure && (f.size || f.key === 'kind' || f.key === 'looks')) S.refreshFigure();
+        }, { textarea: f.type === 'textarea', placeholder: f.placeholder });
+      }
       const fl = UI.field(f.label, input, f.hint);
       if (f.check) fl.classList.add('field-checked');
       if (f.type === 'textarea') fl.classList.add('span-2');
@@ -1070,6 +1112,154 @@
     return box;
   }
 
+  // ───── 生物の図 ─────
+  let figTimer = 0;
+  function creatureFigure(e) {
+    const p = P();
+    const C = NS.Creature;
+    const units = () => (p.rules.units && p.rules.units.list) || [];
+    const fig = () => { if (!e.figure || typeof e.figure !== 'object') e.figure = {}; return e.figure; };
+    const box = h('section', { class: 'creature-fig' });
+    const stage = h('div', { class: 'cf-stage' });
+    const note = h('p', { class: 'small muted cf-note' });
+    const tools = h('div', { class: 'cf-tools' });
+    const current = () => C.figureOf(e);
+    const draw = () => {
+      const f = current();
+      try {
+        // 狭い画面では小さめの図にして、文字が読める大きさを保つ
+        const W = narrow() ? 480 : 900;
+        stage.innerHTML = C.render({ name: e.name, fields: e.fields, figure: f }, { width: W, height: Math.round(W * 0.6), view: f.view || 'figure', units: units() });
+      } catch (err) {
+        stage.textContent = '図を描けませんでした';
+        return;
+      }
+      const ms = C.measure(f, e.fields, units());
+      const bits = [];
+      if (ms.basis === 'default') bits.push(`大きさが未入力なので、${C.PRESETS[f.preset].label}の目安（${C.fmtLen(ms.length)}）で描いています。下の「全長」に「40m」「旅客機ほど」「象の3倍」のように書くと、その大きさになります。`);
+      else bits.push(`${{ length: ms.lengthLabel, height: '高さ', wingspan: '翼を広げた幅' }[ms.basis]}の設定（${e.fields[ms.basis]}）から描いています。`);
+      bits.push(`体の大きさから見積もった体重：約${C.fmtWeight(ms.weight)}${ms.weightSet ? `（設定は${C.fmtWeight(ms.weightSet)}）` : ''}`);
+      const fl = C.flightNote(ms);
+      if (fl) bits.push(`飛ぶこと：${fl}`);
+      note.textContent = bits.join('　');
+    };
+    const keepView = (nf) => { ['view', 'compare'].forEach((k) => { if (e.figure && e.figure[k]) nf[k] = e.figure[k]; }); return nf; };
+    const set = (k, v, rebuild) => { const f = fig(); if (!f.preset) f.preset = current().preset; f[k] = v; changed(e); draw(); if (rebuild) renderTools(); };
+    S.refreshFigure = () => {
+      clearTimeout(figTimer);
+      figTimer = setTimeout(() => { if (S && S.refreshFigure && stage.isConnected) draw(); }, 150);
+    };
+    const sel = (label, list, value, onChange) => UI.field(label, h('select', { class: 'input', onchange: (ev) => onChange(ev.target.value) },
+      list.map(([v, l]) => h('option', { value: v, selected: v === value }, l))));
+    const SLIDERS = [['neck', '首の長さ'], ['tail', '尾・体の長さ'], ['legs', '脚の長さ'], ['bulk', '体の太さ'], ['head', '頭の大きさ'], ['wing', '翼の大きさ']];
+    const SKIP = { quad: [], biped: [], bird: [], humanoid: ['neck', 'tail'], serpent: ['legs'], fish: ['neck', 'legs'], insect: ['neck', 'tail', 'head'], spider: ['neck', 'tail', 'head'], blob: ['neck', 'tail', 'legs', 'head'] };
+    let open = false;
+    const renderTools = () => {
+      clear(tools);
+      const f = current();
+      const r = C.resolve(f);
+      const plan = C.PRESETS[r.preset].plan;
+      const views = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': '表し方' }, C.VIEWS.map(([v, l]) => h('button', {
+        type: 'button', class: 'chip' + ((f.view || 'figure') === v ? ' active' : ''), 'aria-pressed': String((f.view || 'figure') === v),
+        onclick: () => set('view', v, true),
+      }, l)));
+      tools.appendChild(h('div', { class: 'cf-row' },
+        sel('体の形', Object.keys(C.PRESETS).map((k) => [k, C.PRESETS[k].label]), f.preset, (v) => { e.figure = keepView({ preset: v }); changed(e); draw(); renderTools(); }),
+        sel('比べるもの', C.COMPARE_LIST, f.compare || 'auto', (v) => set('compare', v)),
+        UI.field('表し方', views)));
+      // 細かな形と色
+      const more = h('details', { class: 'cf-more', ontoggle: (ev) => { open = ev.target.open; } });
+      if (open) more.open = true;
+      more.appendChild(h('summary', null, '形や色を細かく変える'));
+      const grid = h('div', { class: 'cf-sliders' });
+      SLIDERS.forEach(([k, label]) => {
+        if ((SKIP[plan] || []).includes(k)) return;
+        if (k === 'wing' && r.wings === 'none') return;
+        const val = Math.round(r[k === 'head' ? 'headSize' : k] * 100);
+        const out = h('span', { class: 'small muted cf-val' }, String(val));
+        grid.appendChild(h('label', { class: 'cf-slider' }, h('span', null, label),
+          h('input', { type: 'range', min: 0, max: 100, step: 1, value: val,
+            oninput: (ev) => { out.textContent = ev.target.value; const fo = fig(); if (!fo.preset) fo.preset = r.preset; fo[k] = +ev.target.value / 100; changed(e); draw(); } }), out));
+      });
+      more.appendChild(grid);
+      const opts = h('div', { class: 'cf-row' });
+      if (!['serpent', 'fish', 'spider', 'blob'].includes(plan)) opts.appendChild(sel('角', C.OPTIONS.horns, r.horns, (v) => set('horns', v)));
+      if (['quad', 'biped', 'bird', 'humanoid'].includes(plan)) {
+        opts.appendChild(sel('翼', C.OPTIONS.wings, r.wings, (v) => set('wings', v, true)));
+        if (r.wings !== 'none') opts.appendChild(sel('翼の姿勢', C.OPTIONS.wingPose, r.wingPose, (v) => set('wingPose', v)));
+      }
+      if (['quad', 'biped', 'serpent', 'fish'].includes(plan)) opts.appendChild(sel('背', C.OPTIONS.ridge, r.ridge, (v) => set('ridge', v)));
+      if (['quad', 'biped', 'serpent'].includes(plan)) opts.appendChild(sel('尾の先', C.OPTIONS.tailTip.filter((o) => !/fluke|fin|fan/.test(o[0])), r.tailTip, (v) => set('tailTip', v)));
+      if (plan === 'fish') opts.appendChild(sel('尾びれ', C.OPTIONS.tailTip.filter((o) => /fluke|fin/.test(o[0])), r.tailTip, (v) => set('tailTip', v)));
+      more.appendChild(opts);
+      const swatch = (key, list, cur) => h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': key === 'color' ? '体の色' : '腹・模様の色' },
+        list.map((col) => h('button', { type: 'button', class: 'swatch' + (cur === col ? ' active' : ''), style: { background: col }, title: col, 'aria-label': col,
+          onclick: () => set(key, col, true) })),
+        h('input', { type: 'color', class: 'cf-color', value: cur, title: 'ほかの色', 'aria-label': 'ほかの色', onchange: (ev) => set(key, ev.target.value, true) }));
+      more.appendChild(h('div', { class: 'grid-2' }, UI.field('体の色', swatch('color', C.COLORS, r.color)), UI.field('腹・模様の色', swatch('belly', C.BELLIES, r.belly))));
+      more.appendChild(h('div', { class: 'row wrap' },
+        btn('ひな形に戻す', { small: true, ghost: true, icon: 'undo', onClick: () => { e.figure = keepView({ preset: r.preset }); changed(e); draw(); renderTools(); } })));
+      tools.appendChild(more);
+      // 保存・AI
+      const aiBtn = btn('説明から形を決める（AI）', { small: true, ghost: true, icon: 'sparkles', title: '設定の文章を読んで、体の形・角・翼・色などをAIが選びます', onClick: async () => {
+        if (!NS.AI || !NS.AI.getKey()) { toast('AIを使うには、設定でAPIキーを入れてください', 'error'); return; }
+        aiBtn.disabled = true;
+        const label = aiBtn.textContent;
+        aiBtn.textContent = 'AIが考えています…';
+        try {
+          const res = await NS.AI.creatureShape(p, e);
+          const nf = keepView({ preset: C.PRESETS[res.preset] ? res.preset : r.preset });
+          ['neck', 'tail', 'legs', 'bulk', 'head', 'wing'].forEach((k) => { if (Number.isFinite(+res[k])) nf[k] = Math.max(0, Math.min(1, +res[k])); });
+          ['horns', 'wings', 'ridge', 'tailTip'].forEach((k) => { if (typeof res[k] === 'string' && /^[a-z]{1,16}$/i.test(res[k])) nf[k] = res[k]; });
+          ['color', 'belly'].forEach((k) => { if (/^#[0-9a-f]{6}$/i.test(res[k] || '')) nf[k] = res[k]; });
+          e.figure = nf;
+          let msg = '説明から形を決めました';
+          const filled = !e.fields.length && res.length && C.parseSize(res.length, units());
+          if (filled) { e.fields.length = res.length; msg += `（全長は「${res.length}」にしました）`; }
+          changed(e);
+          if (filled) renderDetail();
+          else if (stage.isConnected) { draw(); renderTools(); }
+          toast(msg);
+        } catch (err) {
+          toast(err.message || String(err), 'error');
+        } finally {
+          aiBtn.disabled = false;
+          aiBtn.textContent = label;
+        }
+      } });
+      tools.appendChild(h('div', { class: 'row wrap cf-actions' },
+        btn('画像で保存（PNG）', { small: true, icon: 'download', onClick: () => saveFigure(e, 'png') }),
+        btn('SVGで保存', { small: true, ghost: true, icon: 'download', onClick: () => saveFigure(e, 'svg') }),
+        aiBtn));
+    };
+    box.append(h('h3', { class: 'form-section' }, '姿の図', h('span', { class: 'check-note' }, '体の形と大きさの設定から描きます')), stage, note, tools);
+    renderTools();
+    draw();
+    return box;
+  }
+
+  /** 生物の図を PNG・SVG で保存 */
+  async function saveFigure(e, kind) {
+    const p = P();
+    const C = NS.Creature;
+    const W = 1800; const H = 1080;
+    const svg = C.render(e, { width: W, height: H, view: C.figureOf(e).view, units: (p.rules.units && p.rules.units.list) || [] });
+    const name = UI.safeFilename(e.name || '生物');
+    if (kind === 'svg') { UI.download(name + '.svg', svg, 'image/svg+xml'); return; }
+    try {
+      const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('画像を作れませんでした')); img.src = url; });
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      cv.getContext('2d').drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      cv.toBlob((b) => { if (b) UI.download(name + '.png', b); else toast('画像を作れませんでした', 'error'); }, 'image/png');
+    } catch (err) {
+      toast(err.message || '画像を作れませんでした', 'error');
+    }
+  }
+
   /**
    * 出番表：人物（や場所・用語・組織）が、どの話に何回出てくるかを一覧にする。
    * 退場・死亡したあとに名前が出る話、初登場より前に出る話には印を付ける。
@@ -1091,7 +1281,7 @@
     const notes = h('div', { class: 'cast-notes' });
     const render = () => {
       clear(chips);
-      ['character', 'place', 'term', 'org'].forEach((t) => {
+      ['character', 'place', 'term', 'org', 'creature'].forEach((t) => {
         const n = p.entries.filter((e) => e.type === t).length;
         chips.appendChild(h('button', { type: 'button', class: 'chip' + (castType === t ? ' active' : ''), 'aria-pressed': String(castType === t),
           onclick: () => { castType = t; render(); } }, TYPE_LABEL[t] + (n ? ' ' + n : '')));

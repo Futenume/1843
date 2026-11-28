@@ -112,6 +112,21 @@ function assert(cond, msg) {
   assert(await page.evaluate(() => document.querySelector('.tl-fields').getBoundingClientRect().width) > 200, '年表の入力欄が表示される');
   await page.locator('.lore-tab', { hasText: '出番表' }).click();
   assert(await page.locator('.cast-table tbody tr').count() === 4 && (await page.locator('.cast-warn').textContent()).includes('ガルド：第2話で死亡'), '出番表：人物ごとの登場と、死亡後の登場を表示');
+  // 生物：大きさの設定（この世界の単位・たとえ）から図を描く
+  await page.locator('.lore-tab', { hasText: '生物' }).click();
+  await page.locator('.entry-item', { hasText: '星喰らいの黒竜' }).click();
+  await page.waitForTimeout(300);
+  assert(await page.locator('.cf-stage svg').count() === 1 && (await page.locator('.cf-stage').textContent()).includes('全長 38m'), '生物：「五十歩」（1歩＝0.75m）から全長38mの図を描く');
+  await page.locator('.field', { hasText: '全長' }).locator('input').fill('旅客機ほど');
+  await page.waitForTimeout(400);
+  assert((await page.locator('.cf-stage').textContent()).includes('旅客機') && (await page.locator('.cf-stage').textContent()).includes('全長 40m'), '生物：「旅客機ほど」で全長40m、旅客機と並べて比べる');
+  await page.locator('.cf-row .chip', { hasText: '骨格' }).click();
+  await page.waitForTimeout(200);
+  assert((await page.locator('.cf-stage').textContent()).includes('骨格'), '生物：骨格の図に切り替えられる');
+  await page.screenshot({ path: path.join(OUT, 'creature.png') });
+  const [dlc] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '画像で保存（PNG）' }).click()]);
+  const pngHead = fs.readFileSync(await dlc.path()).slice(0, 4);
+  assert(pngHead[0] === 0x89 && pngHead[1] === 0x50, '生物：図を PNG で保存できる');
   await page.locator('.lore-tab', { hasText: '世界観' }).click();
   assert(await page.locator('.ng-card').count() === 1, '世界観ルール：NGワードが1語ずつ表示される');
   assert((await page.locator('.ng-card').nth(0).locator('input').nth(1).getAttribute('placeholder')) === '言い換え', '世界観ルール：空欄に紛らわしい見本を出さない');

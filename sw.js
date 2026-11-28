@@ -1,7 +1,7 @@
 // 綴り — サービスワーカー（オフラインでも使えるように、アプリのファイルを保存しておく）
 // 作品のデータはブラウザの保存領域（IndexedDB）にあり、ここでは扱わない。
 // AI（api.anthropic.com）や辞書（Wikipedia など）への通信は保存せず、そのまま通す。
-const VERSION = 'ab4527c5b0bf';
+const VERSION = '0cea24c8a1c7';
 const CACHE = 'tsuzuri-' + VERSION;
 const FONT_CACHE = 'tsuzuri-fonts';
 const APP_FILES = [
@@ -20,6 +20,7 @@ const APP_FILES = [
   "./js/genko.js",
   "./js/names.js",
   "./js/worldrules.js",
+  "./js/creature.js",
   "./js/proofread.js",
   "./js/consistency.js",
   "./js/mapengine.js",

@@ -491,6 +491,38 @@
       } }), testOut));
   };
 
-  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, MODELS };
+  /** 生物の設定の文章から、図の体の形（ひな形・各部の大きさ・角・翼・色）を選ぶ */
+  async function creatureShape(project, entry, signal) {
+    const C = NS.Creature;
+    const enumOf = (list) => ({ type: 'string', enum: list.map((o) => o[0]) });
+    const num = (d) => ({ type: 'number', description: d });
+    const schema = {
+      type: 'object', additionalProperties: false,
+      required: ['preset', 'neck', 'tail', 'legs', 'bulk', 'head', 'wing', 'horns', 'wings', 'ridge', 'tailTip', 'color', 'belly', 'length'],
+      properties: {
+        preset: { type: 'string', enum: Object.keys(C.PRESETS) },
+        neck: num('首の長さ 0〜1'), tail: num('尾（蛇などは体）の長さ 0〜1'), legs: num('脚の長さ 0〜1'), bulk: num('体の太さ 0〜1'), head: num('頭の大きさ 0〜1'), wing: num('翼の大きさ 0〜1'),
+        horns: enumOf(C.OPTIONS.horns), wings: enumOf(C.OPTIONS.wings), ridge: enumOf(C.OPTIONS.ridge), tailTip: enumOf(C.OPTIONS.tailTip),
+        color: { type: 'string', description: '体の色。#rrggbb の形' }, belly: { type: 'string', description: '腹・模様の色。#rrggbb の形' },
+        length: { type: 'string', description: '全長（巨人などは身長）。設定に書かれていれば「40m」のように。分からなければ空文字' },
+      },
+    };
+    const system = [
+      'あなたは小説の幻想生物を、図鑑の図に起こす係です。設定資料の生物の説明を読み、横から見た図を描くための体の形を選んでください。',
+      '- preset は最も近い体の形のひな形。neck・tail・legs・bulk・head・wing は 0〜1 の数で、0.5 がそのひな形の標準、0 が最も短い・細い・小さい、1 が最も長い・太い・大きい。',
+      '- horns・wings・ridge・tailTip は説明に合うものを選ぶ。説明に書かれていなければ、そのひな形に自然なものを選ぶ。',
+      '- color・belly は説明の色を #rrggbb で。書かれていなければ、その生物らしい落ち着いた色を選ぶ。',
+      '- length は説明に大きさが書かれているときだけ入れ、推測で作らない。',
+    ].join('\n');
+    const presets = Object.keys(C.PRESETS).map((k) => `- ${k}：${C.PRESETS[k].label}`).join('\n');
+    const user = `## 体の形のひな形\n${presets}\n\n## 生物の設定\n${NS.LoreFormat.entryLines(entry, project).join('\n')}`;
+    const params = baseParams(system, user, 4000);
+    params.output_config.effort = 'low';
+    params.output_config.format = { type: 'json_schema', schema };
+    const text = await run(params, { signal });
+    try { return JSON.parse(text); } catch (e) { throw new Error('AIの応答を読み取れませんでした'); }
+  }
+
+  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, creatureShape, MODELS };
   NS.AIPanel = Panel;
 })(window.Tsuzuri = window.Tsuzuri || {});

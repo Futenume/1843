@@ -15,7 +15,7 @@ const FAKE = fs.readFileSync(path.join(__dirname, 'e2e-ai-mock.js'), 'utf8').mat
 const X = '<img src=x onerror="window.__xss=(window.__xss||0)+1">';
 const evil = JSON.parse(JSON.stringify({ app: 'tsuzuri', version: 1, project: {
   id: 'p"><svg onload=alert(1)>', title: X + '作品', chapters: [{ id: 'c1', title: X, body: '本文 ' + X + ' |漢字《' + X + '》', snapshots: 'x', ignored: 5 }, 42, null],
-  entries: [{ id: 'e1', type: 'character', name: X, aliases: [X, 3], color: 'red;background:url(https://evil.example/leak)', fields: { role: X, age: 17 }, relations: [{ targetId: 'e1', calls: X }], custom: [{ k: X, v: X }] }, 'bad'],
+  entries: [{ id: 'e1', type: 'character', name: X, aliases: [X, 3], color: 'red;background:url(https://evil.example/leak)', fields: { role: X, age: 17 }, relations: [{ targetId: 'e1', calls: X }], custom: [{ k: X, v: X }] }, { id: 'e2', type: 'creature', name: X, fields: { kind: X, length: X + '40m', looks: X }, figure: { preset: '<svg onload=alert(1)>', color: '"/><script>window.__xss=5</script>', belly: 'url(javascript:alert(1))', neck: 'x', horns: X, view: 'xray' } }, 'bad'],
   ideas: [{ id: 'i1', body: X, kind: '読み方', word: X, reading: X, tags: [X], color: 'url(javascript:alert(1))' }],
   rules: { ng: [{ word: X, reason: X, suggestion: X, scope: 'evil' }, 'x'], style: 'nope', world: X, narrator: '<b>' },
   timeline: [{ when: X, title: X, desc: X }],
@@ -84,6 +84,13 @@ fs.writeFileSync(evilPath, text);
   await page.waitForTimeout(400);
   await page.locator('.lore-tab', { hasText: '世界観' }).click().catch(() => {});
   await page.waitForTimeout(300);
+  // 生物の図（細工した名前・形・色）
+  await page.locator('.lore-tab', { hasText: '生物' }).click().catch(() => {});
+  await page.waitForTimeout(200);
+  await page.locator('.entry-item').first().click().catch(() => {});
+  await page.waitForTimeout(400);
+  const fig = await page.evaluate(() => { const e = Tsuzuri.App.project.entries.find((x) => x.type === 'creature'); return { fig: e && e.figure, svg: !!document.querySelector('.cf-stage svg') }; });
+  ok(fig.svg && fig.fig && !('color' in fig.fig) && !('belly' in fig.fig) && !('neck' in fig.fig) && !('preset' in fig.fig) && !('horns' in fig.fig), '生物の図：細工した形・色の値は捨て、図は描ける');
   await page.evaluate(() => Tsuzuri.App.navigate('write'));
   await page.waitForTimeout(300);
   await page.evaluate(() => Tsuzuri.Preview.open({}));

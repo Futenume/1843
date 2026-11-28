@@ -1431,6 +1431,7 @@
             { label: '場所として登録', icon: 'map', onClick: () => registerEntry(c.word, 'place') },
             { label: '用語・アイテムとして登録', icon: 'tag', onClick: () => registerEntry(c.word, 'term') },
             { label: '組織として登録', icon: 'flag', onClick: () => registerEntry(c.word, 'org') },
+            { label: '生物として登録', icon: 'paw', onClick: () => registerEntry(c.word, 'creature') },
             null,
             { label: '本文で探す', icon: 'search', onClick: () => { S.find.q = c.word; openFind(); } },
           ]));
@@ -1511,7 +1512,7 @@
       oninput: (e) => { S.ch.memo = e.target.value; App().touch(); },
     });
     const results = h('div', { class: 'ref-list' });
-    const search = h('input', { class: 'input', type: 'search', placeholder: '人物・場所・用語を検索', 'aria-label': '設定資料を検索' });
+    const search = h('input', { class: 'input', type: 'search', placeholder: '人物・場所・用語・生物を検索', 'aria-label': '設定資料を検索' });
     const render = () => {
       clear(results);
       const q = search.value.trim();

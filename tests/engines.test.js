@@ -804,3 +804,88 @@ test('範囲を詳しい地図にする：拡大・縮尺・引き継ぎ・切�
   // 小さすぎる範囲は作らない
   assert.throws(() => E.regionMap(src, Hs, Bs, { x0: 0, y0: 0, x1: 10, y1: 10 }));
 });
+
+test('生物の図：大きさの読み取り（数・漢数字・この世界の単位・たとえ）', () => {
+  require('../js/worldrules.js');
+  require('../js/creature.js');
+  const C = globalThis.Tsuzuri.Creature;
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-6 * Math.max(1, b), `${a} ≈ ${b}`);
+  near(C.parseSize('40m'), 40);
+  near(C.parseSize('約四十メートル'), 40);
+  near(C.parseSize('３０ｍ'), 30);
+  near(C.parseSize('30〜40m'), 35);
+  near(C.parseSize('2km'), 2000);
+  near(C.parseSize('80センチ'), 0.8);
+  near(C.parseSize('五十歩', [{ kind: 'length', name: '歩', amount: 0.75 }]), 37.5);
+  near(C.parseSize('旅客機ほど'), 40);
+  near(C.parseSize('飛行機くらい'), 40);
+  near(C.parseSize('バス2台分'), 24);
+  near(C.parseSize('人の5倍'), 8.5);
+  assert.equal(C.parseSize(''), null);
+  assert.equal(C.parseSize('とても大きい'), null);
+  near(C.parseWeight('80t'), 80000);
+  near(C.parseWeight('三百キロ'), 300);
+  assert.equal(C.fmtLen(37.5), '38m');
+  assert.equal(C.fmtLen(2.25), '2.3m');
+  assert.equal(C.fmtLen(0.45), '45cm');
+  assert.equal(C.fmtWeight(440000), '440t');
+  assert.equal(C.fmtWeight(64), '64kg');
+  // 名前から形を推し量る
+  assert.equal(C.guessPreset('黒竜'), 'dragon');
+  assert.equal(C.guessPreset('飛竜ワイバーン'), 'wyvern');
+  assert.equal(C.guessPreset('ティラノ型の恐竜'), 'raptor');
+  assert.equal(C.guessPreset('海神リヴァイアサン'), 'whale');
+  assert.equal(C.guessPreset('霧狼'), 'wolf');
+  assert.equal(C.guessPreset('赤鬼'), 'giant');
+  assert.equal(C.guessPreset('ふしぎな何か'), null);
+});
+
+test('生物の図：全部の形を描ける・大きさと体重の目安・SVG として正しい・名前は文字として扱う', () => {
+  require('../js/worldrules.js');
+  require('../js/creature.js');
+  const C = globalThis.Tsuzuri.Creature;
+  // どの形・表し方でも描けて、数値に NaN が混ざらない
+  Object.keys(C.PRESETS).forEach((id) => {
+    ['figure', 'skeleton', 'xray'].forEach((view) => {
+      const svg = C.render({ name: id, fields: {}, figure: { preset: id } }, { view });
+      assert.ok(svg.startsWith('<svg') && svg.endsWith('</svg>'), id);
+      assert.ok(!/NaN|undefined|Infinity/.test(svg), `${id} ${view} に不正な数がない`);
+    });
+    const ms = C.measure({ preset: id }, {});
+    assert.ok(Math.abs(ms.length / C.PRESETS[id].size - 1) < 1e-6, `${id}：大きさが未入力なら目安の大きさ`);
+    assert.ok(ms.weight > 0 && Number.isFinite(ms.weight));
+  });
+  // 指定した全長に合わせる（飛行機ほどの竜）
+  const ms = C.measure({ preset: 'dragon' }, { length: '旅客機ほど' });
+  assert.ok(Math.abs(ms.length - 40) < 1e-6);
+  assert.equal(ms.basis, 'length');
+  assert.ok(ms.weight > 100000 && ms.weight < 2e6, '40m の竜は百トン〜千トンほど');
+  assert.ok(ms.wingspan > 30, '翼を広げた幅も出る');
+  assert.ok(/難しい/.test(C.flightNote(ms)), '重すぎて飛べない目安');
+  // 高さだけ・翼の幅だけでも合わせられる
+  assert.ok(Math.abs(C.measure({ preset: 'giant' }, { height: '8m' }).height - 8) < 1e-6);
+  assert.ok(Math.abs(C.measure({ preset: 'wyvern' }, { wingspan: '20m' }).wingspan - 20) < 1e-6);
+  // 実在の動物くらいの体重になる（目安の範囲）
+  const kg = (preset, len) => C.measure({ preset }, { length: len }).weight;
+  assert.ok(kg('wolf', '1.8m') > 30 && kg('wolf', '1.8m') < 120);
+  assert.ok(kg('horse', '2.6m') > 300 && kg('horse', '2.6m') < 900);
+  assert.ok(kg('giant', '1.7m') > 50 && kg('giant', '1.7m') < 110, '人の大きさの巨人は人の体重くらい');
+  assert.ok(kg('whale', '25m') > 60000 && kg('whale', '25m') < 300000);
+  // 旅客機と比べる（自動）
+  const svg = C.render({ name: '<b>竜</b>&"', fields: { length: '40m' }, figure: { preset: 'dragon' } });
+  assert.ok(svg.includes('旅客機'), '40m なら旅客機と比べる');
+  assert.ok(svg.includes('&lt;b&gt;竜&lt;/b&gt;&amp;&quot;') && !svg.includes('<b>'), '名前はエスケープする');
+  // 色は #rrggbb 以外を受け付けない
+  const evil = C.render({ name: 'x', fields: {}, figure: { preset: 'dragon', color: 'red" onload="alert(1)', belly: 'url(javascript:1)' } });
+  assert.ok(!/onload|javascript/.test(evil));
+  // 図を何枚並べても、色の定義（id）がぶつからない
+  const a = C.render({ name: 'a', figure: { preset: 'wolf' } });
+  const b = C.render({ name: 'b', figure: { preset: 'wolf' } });
+  const ids = (s) => [...s.matchAll(/id="([^"]+)"/g)].map((x) => x[1]);
+  assert.equal(ids(a).filter((x) => ids(b).includes(x)).length, 0);
+  // 形の設定は 0〜1 にまとめ、知らない形はひな形に戻す
+  const r = C.resolve({ preset: 'nope', neck: 5, horns: 'zzz' });
+  assert.equal(r.preset, 'dragon');
+  assert.equal(r.neck, 1);
+  assert.equal(r.horns, C.PRESETS.dragon.horns);
+});
