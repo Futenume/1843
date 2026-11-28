@@ -54,6 +54,7 @@
       glow: 'rgba(150,120,240,0.45)', field: '#d2bd72', field2: '#abaa5a', serpent: '#4d7d6e', serpentShade: '#30584b',
     },
     mono: {
+      mono: true, // 墨絵：色を使わない
       ink: '#26211d', paper: '#fdfbf6', hatch: 'rgba(38,33,29,0.6)',
       rock: '#fdfbf6', rockShade: '#d8d2c7', rockDark: '#a9a296', snow: '#ffffff', snowShade: '#e6e3dd',
       hill: '#fbf8f1', hillShade: '#dcd6cb', leaf: '#f6f3ec', leafShade: '#cdc7bc', leafHi: '#ffffff',

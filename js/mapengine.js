@@ -348,25 +348,34 @@
     return H;
   }
 
-  /** 高さと乱数から地面の種類を自動で塗る */
+  // 国・地方の地図の気候（世界地図は緯度で決める）
+  const CLIMATES = {
+    temperate: { label: '温帯（四季のある国）', base: 0.56, grad: 0.25, hk: 0.6, jungle: false, desertT: 0.64, mShift: 0, conifer: 0.45 },
+    cold: { label: '寒い（針葉樹と雪）', base: 0.34, grad: 0.2, hk: 0.5, jungle: false, desertT: 9, mShift: 0.02, conifer: 0.9 },
+    warm: { label: '暖かい（南国の密林）', base: 0.92, grad: 0.1, hk: 0.55, jungle: true, desertT: 0.55, mShift: 0, conifer: 0.1 },
+    dry: { label: '乾いた（荒れ地と砂漠）', base: 0.62, grad: 0.2, hk: 0.55, jungle: false, desertT: 0.5, mShift: -0.12, conifer: 0.5 },
+  };
+  /** 高さと乱数から地面の種類を自動で塗る。climate：'world'（緯度で）か CLIMATES の名前（標準は温帯） */
   function autoBiome(H, gw, gh, seed, climate) {
     const B = new Uint8Array(gw * gh);
     const moist = makeNoise(((seed >>> 0) || 1) + 104729);
     if (climate === 'world') return worldBiome(H, gw, gh, moist, B);
+    const K = CLIMATES[climate] || CLIMATES.temperate;
     for (let y = 0; y < gh; y++) {
-      const lat = Math.abs(y / gh - 0.5) * 2;
+      // 地図の上（北）ほど少し寒い
+      const north = y / gh - 0.5;
       for (let x = 0; x < gw; x++) {
         const i = y * gw + x;
         const h = H[i];
         if (h <= 0) continue;
-        const m = moist(x / gw * 4, y / gh * 4, 4);
-        const temp = 1 - lat * 0.9 - h * 0.6;
+        const m = moist(x / gw * 4, y / gh * 4, 4) + K.mShift;
+        const temp = K.base + north * K.grad - h * K.hk;
         let b = 0;
         if (temp < 0.16 || h > 0.94) b = 4;
         else if (h > 0.62) b = 7;
         else if (m > 0.6 && h < 0.12) b = 3;
-        else if (m > 0.53) b = temp > 0.72 ? 5 : 1;
-        else if (m < 0.36 && temp > 0.55) b = 2;
+        else if (m > 0.53) b = K.jungle && temp > 0.72 ? 5 : 1;
+        else if (m < 0.36 && temp > K.desertT) b = 2;
         else if (m < 0.42) b = 6;
         B[i] = b;
       }
@@ -1060,6 +1069,8 @@
         addPlaced({ x: c.x, y: c.y, r, kind: 'h' });
       }
     }
+    // 針葉樹の割合（気候しだい。北ほど多い）
+    const conif = (CLIMATES[map.style && map.style.climate] || CLIMATES.temperate).conifer;
     const ts = 4.8; // 森は小さな木をぎっしり（木々がつながって森のかたまりに見えるように）
     for (let y = ts; y < Hpx - 2; y += ts * 0.85) {
       for (let x = ts / 2; x < W - 2; x += ts) {
@@ -1069,7 +1080,7 @@
         if (h <= 0.02 || h > 0.42) continue;
         const b = B ? sampleB(B, gw, gh, cell, jx, jy) : 0;
         const lat = Math.abs(jy / Hpx - 0.5) * 2;
-        if (b === 1 && rnd() < 0.86) put(lat > 0.55 || rnd() < 0.55 ? 'tree-conifer' : 'tree-round', jx, jy, 0.76 + rnd() * 0.26);
+        if (b === 1 && rnd() < 0.86) put((map.style && map.style.world ? lat > 0.55 || rnd() < 0.55 : rnd() < conif + (0.5 - jy / Hpx) * 0.5) ? 'tree-conifer' : 'tree-round', jx, jy, 0.76 + rnd() * 0.26);
         else if (b === 5 && rnd() < 0.86) put(rnd() < 0.82 ? 'tree-jungle' : 'tree-palm', jx, jy, 0.78 + rnd() * 0.26);
         else if (b === 4 && rnd() < 0.06) put('tree-snow', jx, jy, 0.9 + rnd() * 0.2);
         else if (b === 2 && rnd() < 0.018) put('dune', jx, jy, 0.8 + rnd() * 0.4);
@@ -1125,6 +1136,19 @@
       if (h < -0.1 && h > -0.55 && deepEnough(x, y, 22) && !out.some((q) => q.a === 'ship' && Math.hypot(q.x - x, q.y - y) < W * 0.3)) {
         put('ship', x, y, 1.1 + rnd() * 0.2);
         ships++;
+      }
+    }
+    // 広い沖には、ときどき海の生き物（古地図の飾り）。船や陸から離れた深い所に1つだけ
+    if (rnd() < 0.75) {
+      const kinds = ['serpent', 'whale', 'kraken', 'serpent'];
+      for (let i = 0; i < 80; i++) {
+        const x = 80 + rnd() * (W - 160);
+        const y = 100 + rnd() * (Hpx - 180);
+        if (y < 90 && x > W * 0.3 && x < W * 0.7) continue;
+        if (!deepEnough(x, y, 48) || sampleH(H, gw, gh, cell, x, y) > -0.25) continue;
+        if (out.some((q) => (q.a === 'ship' && Math.hypot(q.x - x, q.y - y) < W * 0.18) || (q.a === 'wave' && Math.hypot(q.x - x, q.y - y) < 30))) continue;
+        put(kinds[Math.floor(rnd() * kinds.length)], x, y, 1.3 + rnd() * 0.3);
+        break;
       }
     }
     out.sort((a, b) => a.y - b.y);
@@ -1194,8 +1218,10 @@
     const cell = 4;
     const seed = opts.seed || Math.floor(Math.random() * 1e9);
     const H = generate(gw, gh, { preset: opts.preset || 'continent', seed, land: opts.land });
-    const B = opts.biome === false ? new Uint8Array(gw * gh) : autoBiome(H, gw, gh, seed, pr.world ? 'world' : null);
+    const climate = pr.world ? 'world' : (CLIMATES[opts.climate] ? opts.climate : 'temperate');
+    const B = opts.biome === false ? new Uint8Array(gw * gh) : autoBiome(H, gw, gh, seed, climate);
     const style = defaultStyle(opts.palette);
+    if (!pr.world) style.climate = climate;
     if (pr.world) {
       // 世界地図：経緯線・極地の氷・地球規模の縮尺（横幅＝一周およそ4万km）
       style.grid = 'latlon';
@@ -2406,7 +2432,7 @@
   }
 
   NS.MapEngine = {
-    BIOMES, PALETTES, PRESETS, SIZES, COUNTRY_COLORS, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
+    BIOMES, PALETTES, PRESETS, SIZES, COUNTRY_COLORS, CLIMATES, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
     encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, regionMap, clipPolygon, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

@@ -126,6 +126,7 @@
     const preset = h('select', { class: 'input' }, Object.keys(E.PRESETS).map((k) => h('option', { value: k }, E.PRESETS[k].label)));
     const size = h('select', { class: 'input' }, [['s', '小'], ['m', '中'], ['l', '大'], ['w', '世界（横長 2:1）']].map(([v, l]) => h('option', { value: v, selected: v === 'm' }, l)));
     const palette = h('select', { class: 'input' }, Object.keys(E.PALETTES).map((k) => h('option', { value: k, selected: regenerate ? M.map.style.palette === k : k === 'teal' }, E.PALETTES[k].label)));
+    const climate = h('select', { class: 'input' }, Object.keys(E.CLIMATES).map((k) => h('option', { value: k, selected: (regenerate ? (M.map.style.climate || 'temperate') : 'temperate') === k }, E.CLIMATES[k].label)));
     const land = h('input', { type: 'range', min: 10, max: 80, value: 42, class: 'range' });
     const landOut = h('span', { class: 'muted small range-out' }, '42%');
     land.addEventListener('input', () => { landOut.textContent = land.value + '%'; });
@@ -162,7 +163,7 @@
     const preview = h('canvas', { class: 'gen-preview', width: 300, height: 195, 'aria-label': 'プレビュー' });
     const drawPreview = () => {
       const isWorld = !!(E.PRESETS[preset.value] || {}).world;
-      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: !regenerate && autoT.checked, countries: !regenerate && autoC.checked, compass: false });
+      const tmp = E.newMap('p', { preset: preset.value, size: isWorld ? 'w' : 's', seed: +seed.value || 1, land: land.value / 100, palette: palette.value, climate: climate.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: !regenerate && autoT.checked, countries: !regenerate && autoC.checked, compass: false });
       const ph = Math.round(300 * tmp.gh / tmp.gw);
       if (preview.height !== ph) preview.height = ph;
       const n = tmp.gw * tmp.gh;
@@ -230,10 +231,11 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     };
     const redraw = UI.debounce(drawPreview, 150);
-    [preset, palette, land, seed, autoB, autoS, autoR, autoT, autoC].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+    [preset, palette, climate, land, seed, autoB, autoS, autoR, autoT, autoC].forEach((el) => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
     const syncTownLabel = () => {
       const pr = E.PRESETS[preset.value] || {};
       autoTLabel.textContent = pr.world ? '大陸と海に仮の名前を付ける（あとで変えられます）' : '町と道を置く（仮の地名つき。あとで名前を変えられます）';
+      climate.closest('.field').hidden = !!pr.world;
       autoT.closest('label').hidden = !!pr.blank || !!regenerate;
       autoC.closest('label').hidden = !!pr.blank || !!regenerate;
       if (!autoCTouched) autoC.checked = !!pr.world; // 世界地図は国に分けて始める
@@ -246,6 +248,7 @@
           regenerate ? h('p', { class: 'muted small' }, '陸地・地面と、山・木などの自然の素材を作り直します。町や城などの素材、名前を付けた素材、線、領域、文字はそのまま残ります（元に戻すこともできます）。') : UI.field('地図の名前', name),
           h('div', { class: 'grid-2' }, UI.field('地形', preset), regenerate ? UI.field('配色', palette) : UI.field('大きさ', size)),
           regenerate ? null : UI.field('配色', palette),
+          UI.field('気候', climate, '地面の塗り分け（森・雪・砂漠・密林）と、木の種類が変わります'),
           UI.field('陸の割合', h('div', { class: 'row' }, land, landOut)),
           UI.field('シード（同じ数なら同じ地形）', h('div', { class: 'row' }, seed, btn('', { icon: 'dice', ghost: true, title: 'ランダム', onClick: () => { seed.value = Math.floor(Math.random() * 99999); drawPreview(); } }))),
           h('label', { class: 'check' }, autoB, '地面（森・砂漠・雪原など）を自動で塗る'),
@@ -263,7 +266,8 @@
             const sd = +seed.value || 1;
             const prw = !!(E.PRESETS[preset.value] || {}).world;
             M.H = E.generate(m.gw, m.gh, { preset: preset.value, seed: sd, land: land.value / 100 });
-            M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd, prw ? 'world' : null) : new Uint8Array(m.gw * m.gh);
+            if (!prw) m.style.climate = climate.value;
+            M.B = autoB.checked ? E.autoBiome(M.H, m.gw, m.gh, sd, prw ? 'world' : climate.value) : new Uint8Array(m.gw * m.gh);
             m.style.ice = prw;
             if (prw && (!m.style.grid || m.style.grid === 'none')) m.style.grid = 'latlon';
             m.seed = sd;
@@ -283,7 +287,7 @@
             renderInspector();
             return;
           }
-          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: autoT.checked, names: autoT.checked, countries: autoC.checked });
+          const m = E.newMap(name.value.trim() || '地図', { preset: preset.value, size: size.value, seed: +seed.value || 1, land: land.value / 100, palette: palette.value, climate: climate.value, biome: autoB.checked, stamps: autoS.checked, rivers: autoR.checked, towns: autoT.checked, names: autoT.checked, countries: autoC.checked });
           P().maps.push(m);
           NS.App.touch();
           NS.App.navigate('map', { id: m.id });

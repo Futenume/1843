@@ -2053,7 +2053,9 @@
     const pal = palette(c, 'figure');
     const paper = HEX.test((C && C.paper) || '') ? C.paper : '#fbf6ea';
     const ink = HEX.test((C && C.ink) || '') ? C.ink : '#3a2e24';
-    const tone = (col) => (HEX.test(col || '') ? mix(col, paper, 0.14) : col);
+    // 墨絵の配色では灰色の濃淡だけで描く
+    const gray = (col) => { const v = rgb(col); const g = v[0] * 0.3 + v[1] * 0.59 + v[2] * 0.11; return hex([g, g, g]); };
+    const tone = (col) => (HEX.test(col || '') ? mix(C && C.mono ? gray(col) : col, paper, C && C.mono ? 0.3 : 0.14) : col);
     ctx.save();
     ctx.scale(1 / Q, 1 / Q);
     ctx.lineJoin = 'round';
