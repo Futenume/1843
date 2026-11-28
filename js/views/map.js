@@ -1942,6 +1942,7 @@
       setWorld();
     }
     if (st.grid && st.grid !== 'none' && !layerHidden('deco')) drawGrid(ctx, st, pl);
+    if (st.journey && !layerHidden('paths')) drawJourney(ctx, pl);
     if (!layerHidden('labels')) {
       const shown = new Set();
       m.areas.forEach((ar) => {
@@ -2349,6 +2350,130 @@
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(rhumbLayer, 0, 0);
+    ctx.restore();
+  }
+
+  // ───── 物語の足どり：話ごとに、本文に出てくる場所を順につなぐ ─────
+  let journeyCache = { key: '', list: [] };
+  /** 地図の上の場所（設定資料の「場所」とつないだ素材、または同じ名前の素材）を、本文に出てくる順に並べる */
+  function storyJourney() {
+    const p = P();
+    const m = M.map;
+    const key = m.id + ':' + m.stamps.length + ':' + p.entries.length + ':' + p.chapters.map((c) => (c.body || '').length).join(',') + ':' + m.stamps.reduce((a, q) => a + q.x + q.y, 0).toFixed(1);
+    if (journeyCache.key === key) return journeyCache.list;
+    const places = p.entries.filter((e) => e.type === 'place');
+    const spots = new Map();
+    m.stamps.forEach((st) => {
+      let e = st.entryId ? places.find((x) => x.id === st.entryId) : null;
+      if (!e && st.name) e = places.find((x) => x.name === st.name);
+      if (e && !spots.has(e.id)) spots.set(e.id, { e, st });
+    });
+    const visits = [];
+    if (spots.size) {
+      p.chapters.forEach((ch, ci) => {
+        const body = ch.body || '';
+        const found = [];
+        spots.forEach(({ e, st }) => {
+          let pos = -1;
+          [e.name].concat(e.aliases || []).forEach((n) => {
+            if (!n || n.length < 2) return;
+            const i = body.indexOf(n);
+            if (i >= 0 && (pos < 0 || i < pos)) pos = i;
+          });
+          if (pos >= 0) found.push({ pos, e, st });
+        });
+        found.sort((a, b) => a.pos - b.pos).forEach(({ e, st }) => {
+          const last = visits[visits.length - 1];
+          if (last && last.id === e.id) { if (!last.chapters.includes(ci + 1)) last.chapters.push(ci + 1); return; }
+          visits.push({ id: e.id, name: e.name, x: st.x, y: st.y, s: st.s || 1, stampId: st.id, chapters: [ci + 1] });
+        });
+      });
+    }
+    journeyCache = { key, list: visits };
+    return visits;
+  }
+  /** 話の番号を短く（1・2・3 → 1〜3） */
+  function chapterRuns(list) {
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      let j = i;
+      while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+      out.push(j > i + 1 ? `${list[i]}〜${list[j]}` : j === i + 1 ? `${list[i]}・${list[j]}` : String(list[i]));
+      i = j;
+    }
+    return out.join('・');
+  }
+  function drawJourney(ctx, pl) {
+    const v = storyJourney();
+    if (!v.length) return;
+    const dark = pl === E.PALETTES.night;
+    const red = dark ? '#ff9a86' : '#9b2d24';
+    const u = Math.max(1, Math.min(2, M.W / 1100)) * (pathBoost > 1 ? Math.min(1.5, pathBoost) : 1);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // 道すじ：ゆるい弧の赤い破線と、途中の矢印。往きと帰りは弧が反対側にふくらむ
+    for (let i = 1; i < v.length; i++) {
+      const a = v[i - 1]; const b = v[i];
+      const ax = a.x; const ay = a.y - 8 * a.s; const bx = b.x; const by = b.y - 8 * b.s;
+      const dx = bx - ax; const dy = by - ay; const d = Math.hypot(dx, dy);
+      if (d < 4) continue;
+      const nx = -dy / d; const ny = dx / d;
+      const bend = Math.min(60, d * 0.18);
+      const cx = (ax + bx) / 2 + nx * bend; const cy = (ay + by) / 2 + ny * bend;
+      // 端は町の絵にかからないように少し離す
+      const P = (t) => [(1 - t) * (1 - t) * ax + 2 * (1 - t) * t * cx + t * t * bx, (1 - t) * (1 - t) * ay + 2 * (1 - t) * t * cy + t * t * by];
+      const t0 = Math.min(0.3, 14 * a.s / d); const t1 = 1 - Math.min(0.3, 14 * b.s / d);
+      ctx.beginPath();
+      for (let k = 0; k <= 24; k++) { const q = P(t0 + (t1 - t0) * k / 24); if (k) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }
+      ctx.strokeStyle = dark ? 'rgba(10,10,14,0.55)' : 'rgba(251,246,234,0.85)';
+      ctx.lineWidth = 4.2 * u;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.strokeStyle = red;
+      ctx.lineWidth = 1.9 * u;
+      ctx.setLineDash([6 * u, 4 * u]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 矢印（道すじの中ほど）
+      const m0 = P(0.52); const m1 = P(0.56);
+      const ang = Math.atan2(m1[1] - m0[1], m1[0] - m0[0]);
+      const L = 7 * u;
+      ctx.fillStyle = red;
+      ctx.beginPath();
+      ctx.moveTo(m1[0] + Math.cos(ang) * L * 0.5, m1[1] + Math.sin(ang) * L * 0.5);
+      ctx.lineTo(m1[0] - Math.cos(ang - 0.5) * L, m1[1] - Math.sin(ang - 0.5) * L);
+      ctx.lineTo(m1[0] - Math.cos(ang + 0.5) * L, m1[1] - Math.sin(ang + 0.5) * L);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 話の番号の札（同じ場所に何度も来たら横に並べる）
+    // 同じ場所の札は、古い話から左→右の順に並べる
+    const total = new Map();
+    v.forEach((q) => total.set(q.id, (total.get(q.id) || 0) + 1));
+    const count = new Map();
+    v.forEach((q) => {
+      const n = (total.get(q.id) || 1) - 1 - (count.get(q.id) || 0);
+      count.set(q.id, (count.get(q.id) || 0) + 1);
+      const text = chapterRuns(q.chapters);
+      ctx.font = `700 ${10.5 * u}px "Noto Serif JP", "Hiragino Mincho ProN", serif`;
+      const w = Math.max(15 * u, ctx.measureText(text).width + 9 * u);
+      const hh = 15 * u;
+      // 札は絵の左上に（名前は絵の下・横に出るので重ねない）
+      const x = q.x - 10 * q.s - w - n * (w + 3 * u);
+      const y = q.y - 26 * q.s;
+      ctx.fillStyle = dark ? '#2a1c1a' : '#fbf6ea';
+      ctx.strokeStyle = red;
+      ctx.lineWidth = 1.3 * u;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x, y - hh / 2, w, hh, hh / 2); else ctx.rect(x, y - hh / 2, w, hh);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = red;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + w / 2, y + 0.5 * u);
+    });
     ctx.restore();
   }
 
@@ -2817,6 +2942,7 @@
     m.stamps.forEach((s) => { if (/^sym-/.test(s.a) && AS.BY_ID[s.a] && !rows.some((r) => r.a === s.a)) rows.push({ kind: 'stamp', a: s.a, label: AS.BY_ID[s.a].label }); });
     const usedL = new Set(m.lines.map((l) => (l.kind === 'stream' ? 'river' : l.kind)));
     LEGEND_LINES.forEach((k) => { if (usedL.has(k)) rows.push({ kind: 'line', line: k, label: (PATH_KINDS[k] || {}).label || k }); });
+    if (m.style.journey && storyJourney().length > 1) rows.push({ kind: 'journey', label: '物語の足どり' });
     // 国・領域（名前のあるものを、色つきで）
     const seen = new Set();
     m.areas.forEach((ar) => {
@@ -2877,6 +3003,16 @@
           ctx.fillRect(ix - 1 * u, cy - 5 * u, icon + 2 * u, 10 * u);
         }
         drawPath(ctx, { id: 'legend-' + r.line, kind: r.line, points: [[ix + 1 * u, cy], [ix + icon - 1 * u, cy]], w: r.line === 'river' ? 0.8 * u : u, wobble: 0 }, pl);
+        ctx.restore();
+      } else if (r.kind === 'journey') {
+        ctx.save();
+        ctx.strokeStyle = pl === E.PALETTES.night ? '#ff9a86' : '#9b2d24';
+        ctx.lineWidth = 1.8 * u;
+        ctx.setLineDash([5 * u, 3.5 * u]);
+        ctx.beginPath();
+        ctx.moveTo(ix + 1 * u, cy + 3 * u);
+        ctx.quadraticCurveTo(ix + icon / 2, cy - 6 * u, ix + icon - 1 * u, cy + 3 * u);
+        ctx.stroke();
         ctx.restore();
       } else {
         ctx.fillStyle = hexA(r.color, 0.45);
@@ -3776,6 +3912,23 @@
       btn('地名をまとめて設定資料に登録', { small: true, icon: 'plus', onClick: () => registerPlaceNames(todo) })) : null);
   }
 
+  /** 物語の足どりの一覧（話ごとの行き先。押すとその場所へ） */
+  function journeyPane() {
+    const v = storyJourney();
+    if (!v.length) {
+      return h('p', { class: 'small muted' }, '本文に出てくる場所が、まだ地図とつながっていません。城や町の素材を選んで「設定資料とつなぐ」で場所を選ぶか、設定資料の「場所」と同じ名前を付けると、本文に出てくる順に道すじが引かれます。');
+    }
+    const byCh = new Map();
+    v.forEach((q) => q.chapters.forEach((c) => { if (!byCh.has(c)) byCh.set(c, []); byCh.get(c).push(q); }));
+    const p = P();
+    return h('div', { class: 'journey-list' },
+      h('p', { class: 'small muted' }, '本文に出てくる順に、地図の場所をつないでいます（設定資料の「場所」とつないだ素材、または同じ名前の素材）。'),
+      Array.from(byCh.keys()).sort((a, b) => a - b).map((c) => h('div', { class: 'journey-row' },
+        h('span', { class: 'journey-ch' }, `第${c}話`),
+        h('span', { class: 'journey-places' }, byCh.get(c).map((q, i) => [i ? h('span', { class: 'muted' }, ' → ') : null,
+          h('button', { type: 'button', class: 'linkish', title: (p.chapters[c - 1] || {}).title || '', onclick: () => { M.sel = [{ k: 'stamp', id: q.stampId }]; centerOn(q.x, q.y); renderInspector(); draw(); } }, q.name)])))));
+  }
+
   /** 地図の地名のうち、設定資料の「場所」にまだないもの（町や城の名前と、国・川・山脈・森・海などの文字） */
   function placeNamesToRegister() {
     const p = P();
@@ -4086,10 +4239,12 @@
       h('div', { class: 'check-grid' },
         toggle('hillshade', '起伏の陰影', true), toggle('ripples', '海の波紋', true),
         toggle('scale', '縮尺'), toggle('vignette', '周辺を暗く'), toggle('texture', '紙の質感'), toggle('ice', '極地の氷', true), toggle('rhumb', '方位線'),
+        h('label', { class: 'check', title: '各話の本文に出てくる場所を、出てくる順に赤い点線でつなぎ、話の番号を付けます' }, h('input', { type: 'checkbox', checked: !!st.journey, onchange: (e) => { set('journey', e.target.checked); renderInspector(); } }), '物語の足どり'),
         h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.legend, onchange: (e) => { set('legend', e.target.checked); renderInspector(); } }), '凡例'),
         h('label', { class: 'check', title: '町や城の名前が、ほかの名前・文字・町の絵と重ならないよう、下・右・左・上から置き場所を自動で選びます（名前の位置を決めた素材はそのまま）' },
           h('input', { type: 'checkbox', checked: st.declutter !== false, onchange: (e) => set('declutter', e.target.checked) }), '地名を重ねない')),
       st.legend ? sel('legendPos', [['br', '右下'], ['bl', '左下'], ['tr', '右上'], ['tl', '左上']], '凡例の位置') : null,
+      st.journey ? journeyPane() : null,
       h('div', { class: 'row wrap' },
         btn('山・森を置き直す', { icon: 'mountain', small: true, title: '今の地形（高さ・地面）に合わせて、山・丘・森などを自動で置き直します', onClick: replantDialog }),
         btn('地形を作り直す', { icon: 'dice', small: true, onClick: () => newMapDialog(true) }),

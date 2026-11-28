@@ -185,6 +185,12 @@ function assert(cond, msg) {
   await page.locator('.herald-colors .swatch').nth(1).click();
   const sh = await page.evaluate(() => Tsuzuri.App.project.maps[0].stamps.find((s) => s.a === 'shield'));
   assert(sh && sh.v === 8 && /^#[0-9a-f]{6}$/i.test(sh.tint || ''), '紋章の図柄と色を選べる（' + JSON.stringify(sh && { v: sh.v, tint: sh.tint }) + '）');
+  // 物語の足どり：話ごとに本文に出てくる場所を順につなぐ（サンプルは表示しておく）
+  await page.locator('.map-tool[data-tool="select"]').click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const jt = await page.locator('.journey-list').innerText().catch(() => '');
+  assert(jt.includes('第1話') && jt.includes('王都ルーネ → 黒霧の森') && jt.includes('港町セイラ'), '物語の足どり：話ごとの行き先を一覧にし、地図に道すじを描く');
   // 設定資料の生物を、その姿のまま地図に置ける
   assert(await page.evaluate(() => Tsuzuri.App.project.maps[0].stamps.filter((s) => /^creature:/.test(s.a)).length) === 2, 'サンプルの地図に霧狼と黒竜が置いてある');
   await page.locator('.map-tool[data-tool="stamp"]').click();

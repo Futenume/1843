@@ -37,7 +37,8 @@
 
   const CH3 = [
     '　あの日から、三日が過ぎた。',
-    '　王都の墓地で、リオは小さな墓標の前に立っていた。',
+    '　王都ルーネの墓地で、リオは小さな墓標の前に立っていた。',
+    '　港町セイラから戻ったセレナが、黙って隣に並んだ。',
     '「師匠……」',
     '　風が吹いた。背後で、聞き慣れた声がした。',
     '「泣くな、小僧」と、ガルドは笑った。',
@@ -225,6 +226,7 @@
       { id: UI.uid('lb'), x: Math.round(map.gw * cell * 0.13), y: Math.round(map.gh * cell * 0.82), text: '西の海', style: 'sea', size: 22, rotation: 0, vertical: false, curve: 0 },
       { id: UI.uid('lb'), x: Math.round(forestPt.x), y: Math.round(forestPt.y - 34), text: '黒霧の森', style: 'range', size: 14, rotation: 0, vertical: false, curve: -20 },
     ];
+    map.style.journey = true; // 物語の足どり（話ごとの行き先）を見せる
     p.maps = [map];
     p.lastChapterId = c1.id;
     p.goal.daily = 1500;
