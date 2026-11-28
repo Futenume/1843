@@ -589,6 +589,18 @@
         })())));
     }
 
+    // 地図との連携（生物：置いた地図へ）
+    if (e.type === 'creature') {
+      const links = [];
+      p.maps.forEach((m) => (m.stamps || []).forEach((mk) => { if (mk.a === 'creature:' + e.id) links.push({ m, mk }); }));
+      form.appendChild(h('h3', { class: 'form-section' }, '地図'));
+      form.appendChild(links.length
+        ? h('div', { class: 'row wrap' }, links.slice(0, 6).map(({ m, mk }) => btn(`${m.name}で表示`, { icon: 'map', small: true, onClick: () => {
+          NS.App.pendingMapFocus = { mapId: m.id, stampId: mk.id };
+          NS.App.navigate('map', { id: m.id });
+        } })))
+        : h('p', { class: 'muted small' }, '地図画面の「素材」に「生物（設定資料）」が出ます。この姿の図のまま、すみかなどに置けます。'));
+    }
     // 地図との連携（場所）
     if (e.type === 'place') {
       const links = [];

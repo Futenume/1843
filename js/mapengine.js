@@ -1075,7 +1075,35 @@
         else if (b === 2 && rnd() < 0.018) put('dune', jx, jy, 0.8 + rnd() * 0.4);
         else if (b === 3 && rnd() < 0.2) put('reeds', jx, jy, 0.9 + rnd() * 0.2);
         else if (b === 7 && rnd() < 0.1) put('rocks', jx, jy, 0.8 + rnd() * 0.3);
-        else if (b === 0 && rnd() < 0.012) put('tree-round', jx, jy, 0.9);
+        else if (b === 0) {
+          // 草原：ぽつんと立つ木、草むら、茂み（まばらに）
+          const u = rnd();
+          if (u < 0.012) put('tree-round', jx, jy, 0.9);
+          else if (u < 0.03 && h < 0.3) put('grass', jx, jy, 0.75 + rnd() * 0.3);
+          else if (u < 0.036) put('bush', jx, jy, 0.8 + rnd() * 0.3);
+        }
+      }
+    }
+    // 草原の小さな林（木が数本かたまって立つ所）
+    const gs = 64;
+    for (let y = gs * 0.6; y < Hpx - 10; y += gs) {
+      for (let x = gs * 0.5; x < W - 10; x += gs) {
+        if (rnd() > 0.3) continue;
+        const cx = x + (rnd() - 0.5) * gs * 0.8;
+        const cy = y + (rnd() - 0.5) * gs * 0.8;
+        const h = sampleH(H, gw, gh, cell, cx, cy);
+        if (h <= 0.04 || h > 0.3) continue;
+        if (B && sampleB(B, gw, gh, cell, cx, cy) !== 0) continue;
+        if (placed.some((q) => Math.hypot(cx - q.x, cy - q.y) < q.r + 14)) continue;
+        const n = 3 + Math.floor(rnd() * 5);
+        const R = 6 + n * 1.3;
+        for (let i = 0; i < n; i++) {
+          const a = rnd() * Math.PI * 2;
+          const rr = Math.sqrt(rnd()) * R;
+          const tx = cx + Math.cos(a) * rr;
+          const ty = cy + Math.sin(a) * rr * 0.65;
+          if (sampleH(H, gw, gh, cell, tx, ty) > 0.03) put(rnd() < 0.8 ? 'tree-round' : 'bush', tx, ty, 0.8 + rnd() * 0.25);
+        }
       }
     }
     // 海の飾り：沖にまばらな波の印と、船を1〜2隻
@@ -1477,6 +1505,28 @@
       s: q.kind === 'capital' ? 1.5 : q.kind === 'village' ? 1 : 1.2, r: 0, f: false, v: Math.floor(rnd() * 4),
       name: q.kind === 'capital' ? '王都' + name() : q.kind === 'port' ? name() + '港' : name(), entryId: '', note: '',
     }));
+    // 町と村のまわりの畑（平らな陸の上に1〜2面）
+    // 道の線（区間）から近い所には置かない
+    const segD = (x, y, ax, ay, bx, by) => {
+      const dx = bx - ax; const dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+    };
+    const roadAt = (x, y) => lines.some((ln) => ln.points.some((pt, i) => i > 0 && segD(x, y, ln.points[i - 1][0], ln.points[i - 1][1], pt[0], pt[1]) < 14));
+    stamps.slice().forEach((st) => {
+      if (st.a !== 'town' && st.a !== 'village') return;
+      let n = 0;
+      for (let k = 0; k < 6 && n < (st.a === 'town' ? 2 : 1); k++) {
+        const side = rnd() < 0.5 ? -1 : 1;
+        const fx = st.x + side * (20 + rnd() * 10);
+        const fy = st.y + 6 + rnd() * 12;
+        const hh = sampleH(H, gw, gh, cell, fx, fy);
+        if (hh <= 0.03 || hh > 0.3 || roadAt(fx, fy)) continue;
+        if (stamps.some((o) => o !== st && Math.hypot(o.x - fx, o.y - fy) < 22)) continue;
+        stamps.push({ id: sid(), a: 'farm', x: Math.round(fx * 10) / 10, y: Math.round(fy * 10) / 10, s: 0.9 + rnd() * 0.2, r: 0, f: rnd() < 0.5, v: Math.floor(rnd() * 2), name: '', entryId: '', note: '' });
+        n++;
+      }
+    });
     return { stamps, lines };
   }
 

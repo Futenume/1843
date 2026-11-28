@@ -2313,6 +2313,40 @@
 
   function clearCache() { cache.clear(); }
 
+  // ───── 設定資料の生物（地図に置く素材） ─────
+  const CREATURE_CAT = '生物（設定資料）';
+  /** 作品の「生物」を素材として登録し直す（形が変わった生物は描き直す）。登録した素材の id を返す */
+  function syncCreatures(entries) {
+    const Cr = NS.Creature;
+    if (!Cr) return [];
+    const ids = [];
+    (entries || []).forEach((e) => {
+      if (!e || e.type !== 'creature' || !e.id) return;
+      const id = 'creature:' + e.id;
+      ids.push(id);
+      const fig = Cr.figureOf(e);
+      const sig = JSON.stringify(fig);
+      const old = BY_ID[id];
+      if (old && old.sig === sig) { old.label = e.name || '生物'; return; }
+      if (old) Array.from(cache.keys()).forEach((key) => { if (key.startsWith(id + ':')) cache.delete(key); });
+      let asp = 1.6;
+      try { asp = Cr.aspect(fig); } catch (err) { /* 既定の比で */ }
+      const S0 = 34;
+      let w = S0; let hh = S0 / asp;
+      if (hh > S0 * 0.9) { hh = S0 * 0.9; w = hh * asp; }
+      const preset = Cr.PRESETS[fig.preset] || {};
+      const entry = { name: e.name, fields: {}, figure: fig };
+      BY_ID[id] = {
+        id, cat: CREATURE_CAT, label: e.name || '生物', box: [-w / 2, -hh - 1, w / 2, 2], variants: 1, size: Math.max(w, hh) * 0.55, labelPos: 'below',
+        creature: e.id, sig, water: preset.plan === 'fish',
+        draw: (ctx, rnd, C) => Cr.drawCanvas(ctx, entry, C, [-w / 2, -hh - 0.5, w / 2, 0.6]),
+      };
+    });
+    // 消えた生物の素材は外す（置いた素材は目印の形で残る）
+    Object.keys(BY_ID).forEach((id) => { if (/^creature:/.test(id) && !ids.includes(id)) delete BY_ID[id]; });
+    return ids;
+  }
+
   /** 一覧用の小さな見本 */
   function thumb(id, palKey, size, variant, tint) {
     size = size || 44;
@@ -2335,5 +2369,5 @@
   }
 
   NS.MapAssets = {
-    lineScaleFor, ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr, HERALDRY, TINTS };
-})(window.Tsuzuri = window.Tsuzuri || {});
+    lineScaleFor, ASSETS: A, BY_ID, CATEGORIES, SCATTER, COLORS, sprite, thumb, clearCache, mulberry32, hashStr, HERALDRY, TINTS, syncCreatures, CREATURE_CAT };
+})(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

@@ -92,6 +92,8 @@
       hover: null, space: false, labelBoxes: new Map(), clipboard: null, userMoved: false,
     };
     const id = params.id || p.lastMapId;
+    // 設定資料の生物を、地図に置ける素材にする
+    AS.syncCreatures(p.entries);
     const map = p.maps.find((m) => m.id === id) || p.maps[0];
     if (!map) { renderEmpty(); return; }
     openMap(map);
@@ -2166,6 +2168,11 @@
     o.globalCompositeOperation = 'source-over';
     o.clearRect(0, 0, cw, ch);
     o.setTransform(ctx.getTransform());
+    // 線は地図の枠の中だけに（枠の外の余白へはみ出さない）
+    o.save();
+    o.beginPath();
+    o.rect(0, 0, M.W, M.Hpx);
+    o.clip();
     const comp = M.map.stamps.find((q) => q.a === 'compass' || q.a === 'compass-simple');
     const cx = comp ? comp.x : M.W / 2;
     const cy = comp ? comp.y : M.Hpx / 2;
@@ -2208,6 +2215,7 @@
       o.lineTo(mx + Math.cos(a) * R, my + Math.sin(a) * R);
       o.stroke();
     }
+    o.restore();
     if (mask) {
       o.globalCompositeOperation = 'destination-out';
       o.drawImage(mask, 0, 0, M.W, M.Hpx);
@@ -3373,8 +3381,10 @@
       })), brushSize());
     }
     if (t.id === 'stamp') {
-      const cats = AS.CATEGORIES;
+      const creatureIds = AS.syncCreatures(P().entries);
+      const cats = AS.CATEGORIES.concat(creatureIds.length ? [AS.CREATURE_CAT] : []);
       if (!cats.includes(PREF.stamp.cat)) PREF.stamp.cat = cats[0];
+      const allAssets = () => AS.ASSETS.concat(creatureIds.map((x) => AS.BY_ID[x]).filter(Boolean));
       const pick = (id) => {
         PREF.stamp.a = id;
         // 最近使った素材（先頭に）
@@ -3388,10 +3398,11 @@
         const q = (M.assetQ || '').trim();
         if (q) {
           const qs = q.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
-          const hits = AS.ASSETS.filter((a) => (a.label + ' ' + a.cat + ' ' + a.id).indexOf(q) >= 0 || a.label.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).indexOf(qs) >= 0);
+          const hits = allAssets().filter((a) => (a.label + ' ' + a.cat + ' ' + a.id).indexOf(q) >= 0 || a.label.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)).indexOf(qs) >= 0);
           gridBox.appendChild(hits.length ? assetGrid(hits.map((a) => a.id), PREF.stamp.a, pick) : h('p', { class: 'small muted' }, '見つかりません'));
         } else {
-          gridBox.appendChild(assetGrid(AS.ASSETS.filter((a) => a.cat === PREF.stamp.cat).map((a) => a.id), PREF.stamp.a, pick));
+          gridBox.appendChild(assetGrid(allAssets().filter((a) => a.cat === PREF.stamp.cat).map((a) => a.id), PREF.stamp.a, pick));
+          if (PREF.stamp.cat === AS.CREATURE_CAT) gridBox.appendChild(h('p', { class: 'small muted' }, '設定資料の「生物」を、その姿の図のまま地図に置けます。形や色は設定資料で変えると、地図の絵も変わります。'));
         }
       };
       const search = h('input', {
@@ -3508,7 +3519,7 @@
         UI.field('名前の位置', h('select', { class: 'input', onchange: (e) => { beginEdit(); obj.lp = e.target.value; changed(); } },
           [['', '自動'], ['below', '下'], ['right', '右'], ['above', '上'], ['left', '左'], ['none', '表示しない']].map(([v, l]) => h('option', { value: v, selected: (obj.lp || '') === v }, l)))),
         UI.field('種類', h('select', { class: 'input', onchange: (e) => { beginEdit(); obj.a = e.target.value; obj.v = 0; changed(true); } },
-          AS.ASSETS.filter((x) => x.cat === a.cat).map((x) => h('option', { value: x.id, selected: x.id === obj.a }, x.label))))));
+          (a.creature ? Object.values(AS.BY_ID).filter((x) => x.creature) : AS.ASSETS.filter((x) => x.cat === a.cat)).map((x) => h('option', { value: x.id, selected: x.id === obj.a }, x.label))))));
       if (a.tintable) {
         // 紋章・旗：図柄と色
         parts.push(UI.field('図柄', h('div', { class: 'herald-picker', role: 'radiogroup', 'aria-label': '図柄' },
@@ -3534,6 +3545,15 @@
         btn('最前面へ', { icon: 'up', small: true, ghost: true, title: 'ほかの素材より手前に描く', onClick: () => { beginEdit(); setStampZ(obj, 'front'); changed(true); } }),
         btn('最背面へ', { icon: 'down', small: true, ghost: true, title: 'ほかの素材より奥に描く', onClick: () => { beginEdit(); setStampZ(obj, 'back'); changed(true); } }),
         obj.z ? btn('前後を自動に戻す', { small: true, ghost: true, title: '上にあるものほど奥に描く、ふつうの順に戻す', onClick: () => { beginEdit(); setStampZ(obj, 'auto'); changed(true); } }) : null));
+      const creature = a.creature ? p.entries.find((x) => x.id === a.creature) : null;
+      if (creature) {
+        // 生物の素材：その生物の設定を出す
+        parts.push(h('div', { class: 'linked-entry' }, NS.Lore.summaryList(creature, p),
+          btn('設定資料を開く', { small: true, icon: 'paw', onClick: () => NS.App.navigate('lore', { id: creature.id }) })));
+        parts.push(UI.field('メモ', h('textarea', { class: 'input', rows: 2, value: obj.note || '', oninput: (e) => { obj.note = e.target.value; commit(); } })));
+        parts.push(actions);
+        return section('素材', ...parts);
+      }
       const places = p.entries.filter((x) => x.type === 'place');
       parts.push(UI.field('設定資料とつなぐ', h('select', {
         class: 'input', onchange: (e) => { beginEdit(); obj.entryId = e.target.value; changed(true); },

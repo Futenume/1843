@@ -2025,10 +2025,87 @@
     return fig;
   }
 
+  // ───── 地図に置く（キャンバスに地図の絵柄で描く） ─────
+  /** 姿の横幅÷高さ（地図の素材の枠を決める） */
+  function aspect(fig) {
+    const m = build(Object.assign({}, fig, { view: 'figure' }));
+    const B = m.box;
+    return Math.max(0.3, (B.x1 - B.x0) / Math.max(1e-6, B.y1 - Math.min(0, B.y0)));
+  }
+  /**
+   * 地図の素材として描く。ctx は素材の座標（y が下向き、地面が y=0）。
+   * box：[x0, y0, x1, y1]、C：地図の色（ink・paper など）
+   */
+  function drawCanvas(ctx, entry, C, box) {
+    if (typeof Path2D === 'undefined') return;
+    const fig = Object.assign({}, figureOf(entry), { view: 'figure' });
+    const m = build(fig);
+    const c = m.c;
+    const B = m.box;
+    const [x0, y0, x1, y1] = box;
+    const bw = B.x1 - B.x0;
+    const bh = B.y1 - Math.min(0, B.y0);
+    const k = Math.min((x1 - x0) / bw, (y1 - y0) / bh);
+    const Q = 10; // 座標を10倍にして、細かな形を丸めずに描く
+    const ox = ((x0 + x1) / 2 - (B.x0 + B.x1) / 2 * k) * Q;
+    const oy = (y1 + Math.min(0, B.y0) * k) * Q;
+    const T = (p) => [ox + p[0] * k * Q, oy - p[1] * k * Q, p[2]];
+    const pal = palette(c, 'figure');
+    const paper = HEX.test((C && C.paper) || '') ? C.paper : '#fbf6ea';
+    const ink = HEX.test((C && C.ink) || '') ? C.ink : '#3a2e24';
+    const tone = (col) => (HEX.test(col || '') ? mix(col, paper, 0.14) : col);
+    ctx.save();
+    ctx.scale(1 / Q, 1 / Q);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // 地面の影（飛ぶもの・泳ぐもの以外）
+    if (!c.fly && c.plan !== 'fish') {
+      ctx.fillStyle = 'rgba(40,30,20,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(ox + (B.x0 + B.x1) / 2 * k * Q, oy, bw * k * Q * 0.42, Math.max(0.6, bw * k * 0.05) * Q, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const grad = ctx.createLinearGradient(0, oy - B.y1 * k * Q, 0, oy);
+    grad.addColorStop(0, tone(pal.skinLight));
+    grad.addColorStop(0.55, tone(pal.skin));
+    grad.addColorStop(1, tone(pal.skinDark));
+    const fillOf = (key) => (key === 'skin' || key === 'jelly' ? grad : tone(pal[key] || key));
+    const lw = 0.8 * Q;
+    const order = (p) => LAYERS.indexOf(p.layer);
+    m.prims.slice().sort((a, b) => order(a) - order(b)).forEach((p) => {
+      if (p.t === 'circle' || p.t === 'ellipse') {
+        const q = T(p.c);
+        ctx.beginPath();
+        if (p.t === 'circle') ctx.arc(q[0], q[1], Math.max(0.15 * Q, p.r * k * Q), 0, Math.PI * 2);
+        else ctx.ellipse(q[0], q[1], Math.max(0.1 * Q, p.rx * k * Q), Math.max(0.15 * Q, p.ry * k * Q), -p.rot * D2R, 0, Math.PI * 2);
+        ctx.fillStyle = fillOf(p.fill);
+        ctx.fill();
+        return;
+      }
+      const path = new Path2D(pathD(p.pts.map(T), p.closed, p.smooth == null ? 1 : p.smooth));
+      if (p.fill === 'none' || !p.closed) {
+        ctx.strokeStyle = p.stroke === 'ink' || p.stroke === 'line' || !p.stroke ? ink : tone(pal[p.stroke] || p.stroke);
+        ctx.lineWidth = p.width ? Math.max(0.3 * Q, p.width * k * Q) : p.edge ? lw : lw * 0.6 * (p.sw || 1);
+        ctx.globalAlpha = p.width || p.edge ? 1 : 0.85;
+        ctx.stroke(path);
+        ctx.globalAlpha = 1;
+        return;
+      }
+      ctx.fillStyle = fillOf(p.fill);
+      ctx.fill(path);
+      if (!p.noStroke) {
+        ctx.strokeStyle = /far|Far/.test(p.fill) ? mix(ink, tone(pal.far), 0.4) : ink;
+        ctx.lineWidth = p.fill === 'claw' || p.fill === 'tooth' ? lw * 0.45 : lw;
+        ctx.stroke(path);
+      }
+    });
+    ctx.restore();
+  }
+
   /** 小さな見本（一覧・資料パネル用）：寸法や題名なし */
   function thumb(entry, size) {
     return render(entry, { width: size || 160, height: Math.round((size || 160) * 0.62), title: false, dims: false, compare: 'none' });
   }
 
-  NS.Creature = { PRESETS, OPTIONS, VIEWS, COLORS, BELLIES, COMPARE_LIST, resolve, build, render, thumb, measure, parseSize, parseWeight, fmtLen, fmtWeight, flightNote, guessPreset, figureOf, esc };
+  NS.Creature = { PRESETS, OPTIONS, VIEWS, COLORS, BELLIES, COMPARE_LIST, resolve, build, render, thumb, measure, parseSize, parseWeight, fmtLen, fmtWeight, flightNote, guessPreset, figureOf, aspect, drawCanvas, esc };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

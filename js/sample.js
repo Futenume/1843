@@ -198,6 +198,20 @@
     const flagPt = { x: Math.round(map.gw * cell * 0.5 - 158), y: Math.round(map.gh * cell * 0.27 + 22) };
     clearAround({ x: flagPt.x, y: flagPt.y - 20 }, 22);
     map.stamps.push({ id: E.sid(), a: 'banner', x: flagPt.x - 8, y: flagPt.y + 6, s: 1.5, r: 0, f: false, v: 8, tint: '#7d2620', name: '', entryId: '', note: '', lp: 'none' });
+    // 設定資料の生物：森の霧狼と、北の山に棲む黒竜
+    map.stamps.push({ id: E.sid(), a: 'creature:' + wolf.id, x: Math.round(forestPt.x + 30), y: Math.round(forestPt.y + 14), s: 0.75, r: 0, f: true, v: 0, name: '', entryId: '', note: '', lp: 'none' });
+    let peak = null;
+    for (let y = 2; y < Math.floor(map.gh * 0.45); y++) {
+      for (let x = 2; x < map.gw - 2; x++) {
+        const v = H[y * map.gw + x];
+        if (!peak || v > peak.v) peak = { x, y, v };
+      }
+    }
+    if (peak && peak.v > 0.2) {
+      const dp = at(peak);
+      clearAround({ x: dp.x, y: dp.y - 6 }, 16);
+      map.stamps.push({ id: E.sid(), a: 'creature:' + dragon.id, x: Math.round(dp.x), y: Math.round(dp.y + 4), s: 1.5, r: 0, f: false, v: 0, name: '', entryId: '', note: '星喰らいの黒竜の棲み処と言われる', lp: 'none' });
+    }
     map.stamps.sort((a, b) => a.y - b.y);
     const mid = (a, b, j) => [Math.round(((a.x + b.x) / 2 + j) * 10) / 10, Math.round(((a.y + b.y) / 2 - j) * 10) / 10];
     map.lines = (map.lines || []).concat([

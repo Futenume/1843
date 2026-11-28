@@ -179,6 +179,19 @@ function assert(cond, msg) {
   await page.locator('.herald-colors .swatch').nth(1).click();
   const sh = await page.evaluate(() => Tsuzuri.App.project.maps[0].stamps.find((s) => s.a === 'shield'));
   assert(sh && sh.v === 8 && /^#[0-9a-f]{6}$/i.test(sh.tint || ''), '紋章の図柄と色を選べる（' + JSON.stringify(sh && { v: sh.v, tint: sh.tint }) + '）');
+  // 設定資料の生物を、その姿のまま地図に置ける
+  assert(await page.evaluate(() => Tsuzuri.App.project.maps[0].stamps.filter((s) => /^creature:/.test(s.a)).length) === 2, 'サンプルの地図に霧狼と黒竜が置いてある');
+  await page.locator('.map-tool[data-tool="stamp"]').click();
+  await page.locator('.chip', { hasText: '生物（設定資料）' }).click();
+  await page.locator('.asset-btn', { hasText: '霧狼' }).click();
+  await page.mouse.click(cx + 150, cy + 90);
+  await page.locator('.map-tool[data-tool="select"]').click();
+  // 姿の描いてある所を押す（脚のあいだなど透明な所はすり抜ける）
+  for (const dy of [6, 10, 14, 18, 24]) {
+    await page.mouse.click(cx + 150, cy + 90 - dy);
+    if ((await page.locator('.map-inspector').textContent()).includes('設定資料を開く')) break;
+  }
+  assert((await page.locator('.map-inspector').textContent()).includes('設定資料を開く') && (await page.locator('.map-inspector').textContent()).includes('三歩ほど'), '生物の素材を置き、選ぶとその生物の設定が出る');
   await page.locator('.map-tool[data-tool="scatter"]').click();
   await page.mouse.move(cx - 160, cy + 120);
   await page.mouse.down();

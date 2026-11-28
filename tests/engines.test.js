@@ -889,3 +889,26 @@ test('生物の図：全部の形を描ける・大きさと体重の目安・SV
   assert.equal(r.neck, 1);
   assert.equal(r.horns, C.PRESETS.dragon.horns);
 });
+
+test('生物の図：地図に置く素材として登録し、形が変われば描き直し、消えれば外す', () => {
+  require('../js/worldrules.js');
+  require('../js/creature.js');
+  require('../js/mapassets.js');
+  const AS = globalThis.Tsuzuri.MapAssets;
+  const entries = [{ id: 'e1', type: 'creature', name: '黒竜', fields: {}, figure: { preset: 'dragon' } }, { id: 'e2', type: 'place', name: '森' }];
+  const ids = AS.syncCreatures(entries);
+  assert.deepEqual(ids, ['creature:e1']);
+  const a = AS.BY_ID['creature:e1'];
+  assert.equal(a.cat, AS.CREATURE_CAT);
+  assert.equal(a.label, '黒竜');
+  assert.ok(a.box[2] - a.box[0] > 10 && a.box[3] - a.box[1] > 5, '枠の大きさ');
+  const sig = a.sig;
+  entries[0].figure.preset = 'wolf';
+  entries[0].name = '霧狼';
+  AS.syncCreatures(entries);
+  assert.notEqual(AS.BY_ID['creature:e1'].sig, sig, '形が変わったら登録し直す');
+  assert.equal(AS.BY_ID['creature:e1'].label, '霧狼');
+  AS.syncCreatures([]);
+  assert.equal(AS.BY_ID['creature:e1'], undefined, '消えた生物は素材から外す');
+  assert.ok(!AS.CATEGORIES.includes(AS.CREATURE_CAT), 'ふつうの素材の分類は変えない');
+});
