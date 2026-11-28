@@ -1663,31 +1663,110 @@
     line(ctx, ox + 3 * sc, oy + 2.6 * sc, ox + 10 * sc, oy + 2.6 * sc);
   }
 
+  /** 海竜：古地図の、波間から胴をのぞかせる大きな海蛇（とげの背・開いた口・尾びれ） */
   function serpent(ctx, rnd, C) {
-    const hump = (x, w, hh) => {
-      ctx.beginPath();
-      ctx.moveTo(x - w, 0);
-      ctx.bezierCurveTo(x - w, -hh * 1.3, x + w, -hh * 1.3, x + w, 0);
-      ctx.lineTo(x + w * 0.55, 0);
-      ctx.bezierCurveTo(x + w * 0.55, -hh * 0.6, x - w * 0.55, -hh * 0.6, x - w * 0.55, 0);
-      ctx.closePath();
-      fs(ctx, C.serpent, C.ink, 0.8);
+    // 中心線に沿って太さをつけた筒（胴）
+    const tube = (pts, w) => {
+      const L = []; const R = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p0 = pts[Math.max(0, i - 1)]; const p1 = pts[Math.min(pts.length - 1, i + 1)];
+        const dx = p1[0] - p0[0]; const dy = p1[1] - p0[1]; const l = Math.hypot(dx, dy) || 1;
+        const nx = -dy / l; const ny = dx / l;
+        const ww = typeof w === 'function' ? w(i / (pts.length - 1)) : w;
+        L.push([pts[i][0] + nx * ww / 2, pts[i][1] + ny * ww / 2]);
+        R.push([pts[i][0] - nx * ww / 2, pts[i][1] - ny * ww / 2]);
+      }
+      return { L, R };
     };
-    hump(-7, 3.2, 6);
-    hump(1, 3.6, 7);
+    const path = (arr) => { ctx.moveTo(arr[0][0], arr[0][1]); for (let i = 1; i < arr.length; i++) ctx.lineTo(arr[i][0], arr[i][1]); };
+    const pathTo = (arr) => { for (let i = 0; i < arr.length; i++) ctx.lineTo(arr[i][0], arr[i][1]); };
+    // 丸い輪（半だ円）
+    const arch = (xa, xb, hh) => {
+      const pts = [];
+      const xc = (xa + xb) / 2; const rx = (xb - xa) / 2;
+      for (let i = 0; i <= 18; i++) { const t = i / 18; pts.push([xc - Math.cos(Math.PI * t) * rx, 0.8 - Math.sin(Math.PI * t) * hh]); }
+      return pts;
+    };
+    const body = (pts, w, spikes) => {
+      const { L, R } = tube(pts, w);
+      // 背のとげ（外側の線に沿って）
+      if (spikes) {
+        ctx.beginPath();
+        for (let i = 2; i < L.length - 2; i += 2) {
+          const p = R[i]; const q = R[i + 1] || R[i];
+          const dx = q[0] - p[0]; const dy = q[1] - p[1]; const l = Math.hypot(dx, dy) || 1;
+          const nx = dy / l; const ny = -dx / l;
+          ctx.moveTo(p[0] - dx * 0.4, p[1] - dy * 0.4);
+          ctx.lineTo(p[0] + nx * 1.5 - dx * 0.6, p[1] + ny * 1.5 - dy * 0.6);
+          ctx.lineTo(p[0] + dx * 0.5, p[1] + dy * 0.5);
+        }
+        fs(ctx, C.serpentShade, C.ink, 0.5);
+      }
+      // 塗りは閉じた形、線は両わきだけ（水に入る切り口には線を引かない）
+      ctx.beginPath(); path(L); pathTo(R.slice().reverse()); ctx.closePath();
+      fs(ctx, C.serpent, null);
+      ctx.beginPath(); path(L); ctx.moveTo(R[0][0], R[0][1]); path(R);
+      fs(ctx, null, C.ink, 0.75);
+      // 腹側の横すじ（うろこの帯）
+      ctx.strokeStyle = C.serpentShade; ctx.lineWidth = 0.4;
+      for (let i = 2; i < L.length - 1; i += 2) line(ctx, L[i][0], L[i][1], pts[i][0] + (L[i][0] - pts[i][0]) * 0.15, pts[i][1] + (L[i][1] - pts[i][1]) * 0.15);
+    };
+    // 尾：水から立ち上がり、二股の尾びれ
+    const tail = [];
+    for (let i = 0; i <= 10; i++) { const t = i / 10; tail.push([-15.5 + t * -4, 0.8 - t * 7 - Math.sin(t * Math.PI) * 1.5]); }
+    body(tail, (t) => 3 - t * 2.1, false);
+    const tp = tail[tail.length - 1];
     ctx.beginPath();
-    ctx.moveTo(7, 0);
-    ctx.quadraticCurveTo(7, -9, 11, -11);
-    ctx.quadraticCurveTo(14.5, -11.5, 14.5, -9);
-    ctx.quadraticCurveTo(12, -8.4, 10.8, -7.5);
-    ctx.quadraticCurveTo(9.8, -5, 10, 0);
+    ctx.moveTo(tp[0] + 0.4, tp[1] + 0.6);
+    ctx.quadraticCurveTo(tp[0] - 2.5, tp[1] - 1.5, tp[0] - 4.6, tp[1] - 4.2);
+    ctx.quadraticCurveTo(tp[0] - 1.6, tp[1] - 2.6, tp[0] - 0.3, tp[1] - 0.6);
+    ctx.quadraticCurveTo(tp[0] + 0.4, tp[1] - 3.4, tp[0] + 2.6, tp[1] - 5.2);
+    ctx.quadraticCurveTo(tp[0] + 1.6, tp[1] - 2, tp[0] + 0.4, tp[1] + 0.6);
+    fs(ctx, C.serpentShade, C.ink, 0.6);
+    // 胴の輪（2つ）
+    body(arch(-13, -3.5, 7.5), 3.2, true);
+    body(arch(-1.5, 8.5, 9), 3.4, true);
+    // 首と頭
+    const neck = [];
+    for (let i = 0; i <= 14; i++) { const t = i / 14; neck.push([11 + t * 3.2 + Math.sin(t * Math.PI) * 1.8, 0.8 - t * 15.5]); }
+    const hx = neck[neck.length - 1][0]; const hy = neck[neck.length - 1][1];
+    // えりのひれ（頭の後ろ）
+    ctx.beginPath();
+    ctx.moveTo(hx - 0.6, hy + 4.5);
+    ctx.lineTo(hx - 4.4, hy + 3.2); ctx.lineTo(hx - 1.4, hy + 2.6);
+    ctx.lineTo(hx - 4.8, hy + 0.6); ctx.lineTo(hx - 1.2, hy + 0.9);
+    ctx.lineTo(hx - 3.8, hy - 1.8); ctx.lineTo(hx + 0.2, hy - 0.6);
     ctx.closePath();
-    fs(ctx, C.serpent, C.ink, 0.8);
+    fs(ctx, C.serpentShade, C.ink, 0.55);
+    body(neck, (t) => 3.3 - t * 0.7, false);
+    // 頭：上あご・開いた下あご・目・牙
+    ctx.beginPath();
+    ctx.moveTo(hx - 1.6, hy + 1.2);
+    ctx.quadraticCurveTo(hx - 1.2, hy - 1.8, hx + 1.6, hy - 1.7);
+    ctx.quadraticCurveTo(hx + 4.4, hy - 1.4, hx + 6.4, hy - 0.2);
+    ctx.lineTo(hx + 6.2, hy + 0.6);
+    ctx.quadraticCurveTo(hx + 3.5, hy + 0.4, hx + 1.2, hy + 1.1);
+    ctx.closePath();
+    fs(ctx, C.serpent, C.ink, 0.7);
+    ctx.beginPath();
+    ctx.moveTo(hx + 0.6, hy + 1.3);
+    ctx.quadraticCurveTo(hx + 3.2, hy + 1.6, hx + 5.4, hy + 3.2);
+    ctx.lineTo(hx + 5, hy + 3.9);
+    ctx.quadraticCurveTo(hx + 2.4, hy + 3.4, hx - 0.6, hy + 2.6);
+    ctx.closePath();
+    fs(ctx, C.serpent, C.ink, 0.6);
+    ctx.fillStyle = C.foam || '#fff';
+    [[hx + 2.6, hy + 0.8], [hx + 4.4, hy + 0.5]].forEach(([x, y]) => { ctx.beginPath(); ctx.moveTo(x - 0.3, y); ctx.lineTo(x + 0.3, y); ctx.lineTo(x, y + 0.9); ctx.closePath(); ctx.fill(); });
+    ctx.fillStyle = C.gold || '#d9a441';
+    ctx.beginPath(); ctx.arc(hx + 1.4, hy - 0.6, 0.62, 0, TAU); ctx.fill();
     ctx.fillStyle = C.ink;
-    ctx.beginPath(); ctx.arc(12.3, -10, 0.5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx + 1.5, hy - 0.6, 0.28, 0, TAU); ctx.fill();
+    // 水しぶきと水面の線
     ctx.strokeStyle = C.waterLight;
-    ctx.lineWidth = 0.8;
-    for (let k = 0; k < 4; k++) line(ctx, -12 + k * 6.5, 0.6, -9 + k * 6.5, 0.6);
+    ctx.lineWidth = 0.75;
+    [[-17.5, -13.8], [-14.8, -11.2], [-5.5, -2.2], [-3.2, 0.4], [6.8, 10.2], [9.8, 13.6]].forEach(([x0, x1]) => line(ctx, x0, 1, x1, 1));
+    ctx.lineWidth = 0.5;
+    [[-18, 2.4, -15, 2.4], [-9, 2.2, -4, 2.2], [3, 2.4, 8, 2.4], [11, 2, 14, 2]].forEach(([x0, y0, x1, y1]) => line(ctx, x0, y0, x1, y1));
   }
 
   function whirlpool(ctx, rnd, C) {
@@ -2231,7 +2310,7 @@
   def('battlefield', '不思議・遺跡', '古戦場', [-8, -16, 8, 2], battlefield, { variants: 1, size: 12 });
 
   def('ship', '海', '帆船', [-12, -19, 12, 4], (c, r, C) => ship(c, r, C), { variants: 1, size: 16, water: true });
-  def('serpent', '海', '海竜', [-14, -14, 16, 2], serpent, { variants: 1, size: 12, water: true });
+  def('serpent', '海', '海竜', [-25, -25, 22, 3.5], serpent, { variants: 1, size: 14, water: true });
   def('kraken', '海', '大ダコ（クラーケン）', [-13, -18, 12, 3], kraken, { variants: 2, size: 14, water: true });
   def('whale', '海', '鯨', [-16, -15, 13, 3], whale, { variants: 1, size: 12, water: true });
   def('whirlpool', '海', '渦潮', [-12, -8, 12, 8], whirlpool, { variants: 1, size: 8, water: true, anchor: 'center' });
