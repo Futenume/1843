@@ -1275,8 +1275,136 @@
       const near = (st) => placed.some((t) => Math.hypot(t.x - st.x, t.y - st.y) < 18);
       map.stamps = map.stamps.filter((st) => !near(st)).concat(placed).sort((a, b) => a.y - b.y);
     }
+    // 川・山脈・大きな森の仮の名前（国の地図で、町に名前を付けるとき）
+    if (towns && opts.names !== false) map.labels = map.labels.concat(autoFeatureNames(map, seed));
     if (opts.compass !== false) map.stamps.push({ id: sid(), a: 'compass', x: gw * cell - 56, y: 68, s: 1, r: 0, f: false, v: 0 });
     return map;
+  }
+
+  /**
+   * 川・山脈・森に仮の名前を付ける（地図の文字として）。
+   * 長い川は流れに沿って少し横に、山の連なりは連なりの向きに、大きな森は真ん中の小さな空き地に。
+   * ほかの文字・町の名前と重ならない所だけに置き、文字の真下の木はどけて空き地にする。
+   */
+  function autoFeatureNames(map, seed) {
+    const name = makeNamer((seed >>> 0) + 4243);
+    const out = [];
+    const W = map.gw * map.cell;
+    const Hh = map.gh * map.cell;
+    const boxes = (map.labels || []).filter((lb) => lb && lb.text).map((lb) => {
+      const w = String(lb.text).length * (lb.size || 16) * 0.8 + 6;
+      return { x0: lb.x - w, x1: lb.x + w, y0: lb.y - (lb.size || 16), y1: lb.y + (lb.size || 16) };
+    });
+    // 町の名前（絵の下に出る）も避ける
+    (map.stamps || []).filter((st) => st.name).forEach((st) => {
+      const w = st.name.length * 7 + 10;
+      boxes.push({ x0: st.x - w, x1: st.x + w, y0: st.y - 18, y1: st.y + 22 });
+    });
+    const boxOf = (x, y, text, size, rot) => {
+      const hw = text.length * size * 0.62 + 4;
+      const hh = size * 0.75;
+      const a = (rot || 0) * Math.PI / 180;
+      const ex = Math.abs(Math.cos(a)) * hw + Math.abs(Math.sin(a)) * hh;
+      const ey = Math.abs(Math.sin(a)) * hw + Math.abs(Math.cos(a)) * hh;
+      return { x0: x - ex, x1: x + ex, y0: y - ey, y1: y + ey };
+    };
+    const free = (b) => b.x0 > 24 && b.y0 > 60 && b.x1 < W - 24 && b.y1 < Hh - 24 && !boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+    const put = (x, y, text, style, size, rot) => {
+      const b = boxOf(x, y, text, size, rot);
+      if (!free(b)) return null;
+      boxes.push(b);
+      const lb = { id: sid(), x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, text, style, size, rotation: Math.round(rot || 0), vertical: false, curve: 0, gen: 'feature' };
+      out.push(lb);
+      return b;
+    };
+    const readable = (deg) => { let d = deg; while (d > 90) d -= 180; while (d < -90) d += 180; return d; };
+    // 川：長い順に3本まで。流れのまっすぐな所で、川の少し横に流れの向きで
+    const rivers = (map.lines || []).filter((ln) => ln.kind === 'river' && ln.points.length > 6).map((ln) => {
+      let L = 0;
+      for (let i = 1; i < ln.points.length; i++) L += Math.hypot(ln.points[i][0] - ln.points[i - 1][0], ln.points[i][1] - ln.points[i - 1][1]);
+      return { ln, L };
+    }).filter((r) => r.L > 110).sort((a, b) => b.L - a.L).slice(0, 3);
+    rivers.forEach(({ ln }) => {
+      const text = name() + '川';
+      const P = ln.points;
+      const n = P.length;
+      const tries = [0.55, 0.45, 0.65, 0.35, 0.75, 0.3];
+      for (const f of tries) {
+        const i = Math.max(2, Math.min(n - 3, Math.round(n * f)));
+        const a = P[i - 2]; const b = P[i + 2];
+        const dx = b[0] - a[0]; const dy = b[1] - a[1]; const l = Math.hypot(dx, dy) || 1;
+        const rot = readable(Math.atan2(dy, dx) * 180 / Math.PI);
+        if (Math.abs(rot) > 55) continue;
+        const nx = -dy / l; const ny = dx / l;
+        const side = ny > 0 ? 1 : -1; // 文字は川の下側に
+        if (put(P[i][0] + nx * 9 * side, P[i][1] + ny * 9 * side, text, 'river', 11, rot)) break;
+      }
+    });
+    // 山の連なり：近い山をまとめ、7つ以上の連なりに「〇〇山脈」
+    const mts = (map.stamps || []).filter((st) => /^mountain/.test(st.a));
+    const parent = mts.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < mts.length; i++) for (let j = i + 1; j < mts.length; j++) {
+      if (Math.hypot(mts[i].x - mts[j].x, mts[i].y - mts[j].y) < 36) parent[find(i)] = find(j);
+    }
+    const groups = new Map();
+    mts.forEach((st, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(st); });
+    Array.from(groups.values()).filter((g) => g.length >= 7).sort((a, b) => b.length - a.length).slice(0, 4).forEach((g) => {
+      const cx = g.reduce((acc, q) => acc + q.x, 0) / g.length;
+      const cy = g.reduce((acc, q) => acc + q.y, 0) / g.length;
+      // 主軸（連なりの向き）
+      let sxx = 0; let syy = 0; let sxy = 0;
+      g.forEach((q) => { sxx += (q.x - cx) ** 2; syy += (q.y - cy) ** 2; sxy += (q.x - cx) * (q.y - cy); });
+      const rot = readable(0.5 * Math.atan2(2 * sxy, sxx - syy) * 180 / Math.PI);
+      const r2 = Math.max(-40, Math.min(40, rot));
+      const text = name() + '山脈';
+      // 連なりの麓（少し下）に置く
+      const maxY = Math.max(...g.map((q) => q.y));
+      const minY = Math.min(...g.map((q) => q.y - 30 * (q.s || 1)));
+      for (const dy of [maxY - cy + 10, 0, maxY - cy + 22, minY - cy - 10]) {
+        if (put(cx, cy + dy, text, 'range', 14, r2)) break;
+      }
+    });
+    // 大きな森：木が密に集まった所に「〇〇の森」。文字の下の木はどけて小さな空き地に
+    const trees = (map.stamps || []).filter((st) => /^tree-(round|conifer|jungle|snow)/.test(st.a));
+    if (trees.length > 80) {
+      const G = 28;
+      const cells = new Map();
+      trees.forEach((t) => { const k = Math.floor(t.x / G) + ',' + Math.floor(t.y / G); cells.set(k, (cells.get(k) || 0) + 1); });
+      const dense = Array.from(cells.entries()).filter(([, c]) => c >= 18).map(([k, c]) => { const [gx, gy] = k.split(',').map(Number); return { gx, gy, c }; });
+      // となりあう密なマスをまとめる
+      const seen = new Set();
+      const blobs = [];
+      dense.forEach((d) => {
+        const key = d.gx + ',' + d.gy;
+        if (seen.has(key)) return;
+        const stack = [d]; const blob = [];
+        seen.add(key);
+        while (stack.length) {
+          const q = stack.pop(); blob.push(q);
+          dense.forEach((o) => { const k2 = o.gx + ',' + o.gy; if (!seen.has(k2) && Math.abs(o.gx - q.gx) <= 1 && Math.abs(o.gy - q.gy) <= 1) { seen.add(k2); stack.push(o); } });
+        }
+        blobs.push(blob);
+      });
+      blobs.filter((b) => b.length >= 4).sort((a, b) => b.length - a.length).slice(0, 4).forEach((blob) => {
+        const best = blob.slice().sort((a, b) => b.c - a.c)[0];
+        const cx = blob.reduce((acc, q) => acc + (q.gx + 0.5) * G * q.c, 0) / blob.reduce((acc, q) => acc + q.c, 0);
+        const cy = blob.reduce((acc, q) => acc + (q.gy + 0.5) * G * q.c, 0) / blob.reduce((acc, q) => acc + q.c, 0);
+        const text = name() + 'の森';
+        // 山の絵の上には森の名前を置かない
+        const onMountain = (x, y) => { const bb = boxOf(x, y, text, 13, 0); return mts.some((q) => q.x > bb.x0 - 14 && q.x < bb.x1 + 14 && q.y > bb.y0 - 4 && q.y - 30 * (q.s || 1) < bb.y1); };
+        const spots = [[cx, cy], [(best.gx + 0.5) * G, (best.gy + 0.5) * G]].concat(blob.slice().sort((a, b) => b.c - a.c).slice(1, 6).map((q) => [(q.gx + 0.5) * G, (q.gy + 0.5) * G]));
+        for (const [x, y] of spots) {
+          if (onMountain(x, y)) continue;
+          const b = put(x, y, text, 'range', 13, 0);
+          if (b) {
+            map.stamps = map.stamps.filter((st) => !(/^(tree|bush|grass)/.test(st.a) && st.x > b.x0 - 2 && st.x < b.x1 + 2 && st.y > b.y0 && st.y < b.y1 + 12));
+            break;
+          }
+        }
+      });
+    }
+    return out;
   }
 
   // ───── 仮の地名 ─────
@@ -2478,6 +2606,6 @@
 
   NS.MapEngine = {
     BIOMES, PALETTES, PRESETS, SIZES, COUNTRY_COLORS, CLIMATES, mulberry32, makeNoise, hash2, vnoise, generate, autoBiome, renderTerrain, autoStamps,
-    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, regionMap, clipPolygon, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
+    encodeHeights, decodeHeights, encodeBiomes, decodeBiomes, newMap, migrate, autoRivers, autoSettlements, autoWorldLabels, autoCountries, autoFeatureNames, regionMap, clipPolygon, makeNamer, findLand, pickRes, sampleH, defaultStyle, sid,
   };
 })(typeof globalThis !== 'undefined' ? (globalThis.Tsuzuri = globalThis.Tsuzuri || {}) : (window.Tsuzuri = window.Tsuzuri || {}));

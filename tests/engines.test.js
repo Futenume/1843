@@ -975,3 +975,27 @@ test('地図：気候で地面と木が変わる・国名どうしが重なら�
     }
   }
 });
+
+test('地図：町を置くと、川・山脈・大きな森に仮の名前が付き、文字どうしは重ならない', () => {
+  require('../js/mapengine.js');
+  const E = globalThis.Tsuzuri.MapEngine;
+  let rivers = 0; let ranges = 0; let forests = 0;
+  for (const seed of [1, 2, 3, 4]) {
+    const m = E.newMap('t', { preset: 'continent', size: 'm', seed, land: 0.45, towns: true, names: true });
+    const f = m.labels.filter((l) => l.gen === 'feature');
+    rivers += f.filter((l) => /川$/.test(l.text) && l.style === 'river').length;
+    ranges += f.filter((l) => /山脈$/.test(l.text) && l.style === 'range').length;
+    forests += f.filter((l) => /の森$/.test(l.text)).length;
+    f.forEach((l) => assert.ok(Math.abs(l.rotation) <= 55, '文字は読める傾きまで'));
+    const box = (l) => { const hw = l.text.length * l.size * 0.62; return { x0: l.x - hw, x1: l.x + hw, y0: l.y - l.size * 0.7, y1: l.y + l.size * 0.7 }; };
+    for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) {
+      const a = box(f[i]); const b = box(f[j]);
+      if (f[i].rotation || f[j].rotation) continue;
+      assert.ok(!(a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0), '名前どうしが重ならない');
+    }
+  }
+  assert.ok(rivers >= 2 && ranges >= 4 && forests >= 3, `川${rivers}・山脈${ranges}・森${forests}`);
+  // 名前を付けない設定では付けない
+  const m0 = E.newMap('t', { preset: 'continent', size: 'm', seed: 1, land: 0.45, towns: true, names: false });
+  assert.equal(m0.labels.filter((l) => l.gen === 'feature').length, 0);
+});
