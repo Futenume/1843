@@ -1788,17 +1788,17 @@
     out.push(`<line x1="${f1(padL * 0.4)}" x2="${f1(W - padL * 0.4)}" y1="${f1(groundY)}" y2="${f1(groundY)}" stroke="${groundC}" stroke-width="${f1(lw * 1.2)}"/>`);
     // 比べるもの
     const cmpFill = dark ? 'rgba(170,190,205,.28)' : 'rgba(80,80,90,.32)';
+    const cmpSolid = dark ? '#3a4650' : '#bfb6a6'; // 重なっても濃くならない、不透明な色
     items.forEach((it) => {
       const prims = comparePrims(it.id);
       const tf = (p) => [X(it.x + p[0]), Y(p[1]), p[2]];
+      // 重なる形は1つにまとめて塗る（重なりで穴があかないように）。窓などの穴は下地の色で
       let d = '';
-      prims.forEach((p) => {
-        if (p.t === 'circle') return;
-        d += pathD(p.pts.map(tf), true, p.smooth);
-      });
+      prims.forEach((p) => { if (p.t !== 'circle' && !p.hole) d += pathD(p.pts.map(tf), true, p.smooth); });
+      const holes = prims.filter((p) => p.hole).map((p) => `<path d="${pathD(p.pts.map(tf), true, p.smooth)}" fill="${bg}" fill-opacity=".55"/>`).join('');
       const circles = prims.filter((p) => p.t === 'circle').map((p) => `<circle cx="${f1(X(it.x + p.c[0]))}" cy="${f1(Y(p.c[1]))}" r="${f1(Math.max(0.6, p.r * sc))}"/>`).join('');
       const tiny = it.h * sc < 3;
-      out.push(`<g fill="${cmpFill}" fill-rule="evenodd">${tiny ? `<rect x="${f1(X(it.x))}" y="${f1(Y(it.h) - 2)}" width="${f1(Math.max(1.5, it.w * sc))}" height="${f1(Math.max(2, it.h * sc))}"/>` : `<path d="${d}"/>${circles}`}</g>`);
+      out.push(`<g fill="${cmpFill}">${tiny ? `<rect x="${f1(X(it.x))}" y="${f1(Y(it.h) - 2)}" width="${f1(Math.max(1.5, it.w * sc))}" height="${f1(Math.max(2, it.h * sc))}"/>` : `<g opacity="1"><path d="${d}" fill="${cmpSolid}"/>${circles.replace(/<circle /g, `<circle fill="${cmpSolid}" `)}</g>${holes}`}</g>`);
       const C2 = COMPARE[it.id];
       const lab = `${C2.label}（${fmtLen(it.id === 'tower' || it.id === 'human' ? C2.h : C2.w)}）`;
       const lx = X(it.x + it.w / 2);
