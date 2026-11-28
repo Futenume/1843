@@ -225,6 +225,27 @@ function assert(cond, msg) {
   assert(/\.jpe?g$/.test(dl2.suggestedFilename()), 'JPEG を書き出せる（' + dl2.suggestedFilename() + '）');
   await page.screenshot({ path: path.join(OUT, 'map-edited.png') });
 
+  // 自動で作った国の地図：川・山脈・森の名前と、地名をまとめて設定資料に登録
+  const genId = await page.evaluate(() => {
+    const m = Tsuzuri.MapEngine.newMap('自動の地図', { preset: 'continent', size: 'm', seed: 2, land: 0.45, towns: true, names: true, countries: true });
+    Tsuzuri.App.project.maps.push(m);
+    return m.id;
+  });
+  await page.evaluate((id) => Tsuzuri.App.navigate('map', { id }), genId);
+  await page.waitForTimeout(1500);
+  const e0 = await page.evaluate(() => Tsuzuri.App.project.entries.length);
+  await page.getByRole('button', { name: '地名をまとめて設定資料に登録' }).click();
+  await page.locator('.modal').getByRole('button', { name: '登録する' }).click();
+  await page.waitForTimeout(300);
+  const reg = await page.evaluate((n0) => {
+    const p = Tsuzuri.App.project;
+    const added = p.entries.slice(n0);
+    return { n: added.length, river: added.some((e) => e.fields.kind === '川'), range: added.some((e) => e.fields.kind === '山脈'), parented: added.filter((e) => e.fields.kind === '町' && e.fields.parent).length };
+  }, e0);
+  assert(reg.n >= 20 && reg.river && reg.range && reg.parented > 0, `地名をまとめて設定資料に登録（${JSON.stringify(reg)}）`);
+  await page.evaluate(() => Tsuzuri.App.navigate('map', { id: Tsuzuri.App.project.maps[0].id }));
+  await page.waitForTimeout(500);
+
   // Word（.docx）：応募書式で書き出せる
   await page.locator('button[title="書き出し・バックアップ"]').click();
   await page.getByText('Word（.docx）で書き出す（応募書式）').click();

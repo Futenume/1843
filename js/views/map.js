@@ -3770,7 +3770,75 @@
     const list = h('div', { class: 'marker-list' }, named.length ? named.map((s) => h('button', {
       type: 'button', class: 'marker-row', onclick: () => { M.sel = [{ k: 'stamp', id: s.id }]; centerOn(s.x, s.y); renderInspector(); },
     }, AS.thumb(s.a, palKey(), 22), h('span', null, stampName(s) || '（名前なし）'), s.entryId ? icon('link', 14) : h('span'))) : h('p', { class: 'muted small' }, '名前の付いた地点はまだありません。「素材」で城や町を置き、選択して名前を付けます。'));
-    return section('地名の一覧', list);
+    const todo = placeNamesToRegister();
+    return section('地名の一覧', list, todo.length ? h('div', { class: 'stack' },
+      h('p', { class: 'small muted' }, `設定資料にまだない地名が${todo.length}件あります（町・城・国・川・山脈・森など）。`),
+      btn('地名をまとめて設定資料に登録', { small: true, icon: 'plus', onClick: () => registerPlaceNames(todo) })) : null);
+  }
+
+  /** 地図の地名のうち、設定資料の「場所」にまだないもの（町や城の名前と、国・川・山脈・森・海などの文字） */
+  function placeNamesToRegister() {
+    const p = P();
+    const m = M.map;
+    const have = new Set(p.entries.map((e) => e.name));
+    const out = [];
+    const seen = new Set();
+    const KIND = { region: '国', area: '地方', sea: '海', river: '川', city: '都市', place: '地名' };
+    m.stamps.forEach((s) => {
+      if (!s.name || s.entryId || have.has(s.name) || seen.has(s.name)) return;
+      const a = AS.BY_ID[s.a];
+      if (!a || a.creature) return;
+      seen.add(s.name);
+      out.push({ kind: /^王都/.test(s.name) ? '王都' : a.label, name: s.name, x: s.x, y: s.y, stamp: s });
+    });
+    m.labels.forEach((lb) => {
+      const t = (lb.text || '').trim();
+      if (!t || lb.style === 'title' || have.has(t) || seen.has(t) || t.length > 16) return;
+      let kind = KIND[lb.style] || '';
+      if (/山脈$/.test(t)) kind = '山脈'; else if (/の森$|森$/.test(t)) kind = '森'; else if (/川$/.test(t)) kind = '川'; else if (/[海洋湾]$/.test(t)) kind = '海'; else if (/大陸$/.test(t)) kind = '大陸';
+      if (!kind && lb.style === 'range') kind = '地形';
+      if (!kind) return;
+      seen.add(t);
+      out.push({ kind, name: t, x: lb.x, y: lb.y, label: lb });
+    });
+    return out;
+  }
+  function inPoly(pts, x, y) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i]; const [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi || 1e-9) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  async function registerPlaceNames(todo) {
+    const p = P();
+    const m = M.map;
+    const kinds = {};
+    todo.forEach((t) => { kinds[t.kind] = (kinds[t.kind] || 0) + 1; });
+    const sum = Object.keys(kinds).map((k) => `${k}${kinds[k]}`).join('、');
+    if (!(await UI.confirm(`地図の地名${todo.length}件（${sum}）を、設定資料の「場所」に登録します。国の中にある地名は、その国を「所在地」にします。`, { okLabel: '登録する' }))) return;
+    pushUndo();
+    // 国を先に作り、ほかの地名の所在地にする
+    const countryOf = (x, y) => {
+      const ar = m.areas.find((a) => a.name && a.points && a.points.length > 2 && inPoly(a.points, x, y));
+      if (!ar) return '';
+      const e = p.entries.find((q) => q.type === 'place' && q.name === ar.name);
+      return e ? e.id : '';
+    };
+    const sorted = todo.slice().sort((a, b) => (b.kind === '国') - (a.kind === '国'));
+    sorted.forEach((t) => {
+      const e = NS.Lore.newEntry('place', t.name);
+      e.fields.kind = t.kind;
+      if (t.kind !== '国' && t.kind !== '海' && t.kind !== '大陸') e.fields.parent = countryOf(t.x, t.y);
+      if (t.stamp && t.stamp.note) e.fields.desc = t.stamp.note;
+      p.entries.push(e);
+      if (t.stamp) t.stamp.entryId = e.id;
+    });
+    commit();
+    draw();
+    renderInspector();
+    toast(`${todo.length}件の地名を設定資料の「場所」に登録しました`);
   }
 
   // 地形に合わせて、山・丘・森などの自然の素材を置き直す（町や建物、文字はそのまま）
