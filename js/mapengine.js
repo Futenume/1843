@@ -1256,6 +1256,19 @@
       map.labels = map.labels.filter((lb) => lb.style !== 'region').concat(countries.labels);
     }
     if (opts.stamps !== false) map.stamps = autoStamps(map, H, B, seed);
+    if (countries) {
+      // 国名の真下の山・丘・木はどけて、文字を読みやすく
+      const boxes = countries.labels.map((lb) => { const hw = lb.text.length * lb.size * 0.78 + 2; return { x0: lb.x - hw, x1: lb.x + hw, y0: lb.y - lb.size * 0.6, y1: lb.y + lb.size * 0.6 }; });
+      // 素材のおおよその大きさ（横の半分・高さ）
+      const SZ = { mountain: [20, 32], volcano: [17, 38], hill: [17, 14], tree: [6, 15], bush: [5, 8], grass: [5, 7], rocks: [11, 10] };
+      map.stamps = map.stamps.filter((st) => {
+        const kind = (/^(mountain|volcano|hill|tree|bush|grass|rocks)/.exec(st.a) || [])[1];
+        if (!kind) return true;
+        // 山脈を欠けさせないよう、文字の真下に根元がある絵だけをどける（木や丘は少し広めに）
+        const [hw] = SZ[kind].map((v) => v * (st.s || 1) * (kind === 'mountain' || kind === 'volcano' ? 0.2 : 0.6));
+        return !boxes.some((b) => st.x + hw > b.x0 && st.x - hw < b.x1 && st.y > b.y0 - 2 && st.y - 6 * (st.s || 1) < b.y1 + 4);
+      });
+    }
     const placed = (towns ? towns.stamps : []).concat(countries ? countries.stamps : []);
     if (placed.length) {
       // 町や首都の周りの木や山はどける
@@ -2305,6 +2318,9 @@
       return { x0: lb.x - w / 2, x1: lb.x + w / 2, y0: lb.y - hh / 2, y1: lb.y + hh / 2 };
     });
     const hit = (b) => boxes.some((o) => b.x0 < o.x1 + 6 && b.x1 > o.x0 - 6 && b.y0 < o.y1 + 4 && b.y1 > o.y0 - 4);
+    // 山の絵の上はなるべく避ける（文字が読みにくいので）
+    const peaks = (map.stamps || []).filter((st) => /^(mountain|volcano|hill)/.test(st.a || ''));
+    const onPeaks = (b) => peaks.some((st) => st.x > b.x0 - 6 && st.x < b.x1 + 6 && st.y > b.y0 && st.y - 26 * (st.s || 1) < b.y1);
     const posOf = new Array(n).fill(null);
     Array.from({ length: n }, (_, r) => r).filter((r) => size[r] && bestAt[r] >= 0).sort((a, b) => size[b] - size[a]).forEach((r) => {
       let fs0 = Math.round(Math.max(world ? 15 : 13, Math.min(world ? 28 : 30, Math.sqrt(size[r]) * (world ? 0.42 : 0.5))));
@@ -2318,12 +2334,12 @@
         return { x, y, fs, halfW, box: { x0: x - halfW, x1: x + halfW, y0: y - fs * 0.7, y1: y + fs * 0.7 } };
       };
       let pick = null;
-      for (const f of [1, 0.85, 0.72]) {
+      for (const [f, avoidPeaks] of [[1, true], [1, false], [0.85, true], [0.85, false], [0.72, false]]) {
         const fs = Math.max(11, Math.round(fs0 * f));
         for (const c of list) {
           if (c.sc < bestSc[r] - 6) break;
           const q = at(c.k, fs);
-          if (!hit(q.box)) { pick = q; break; }
+          if (!hit(q.box) && !(avoidPeaks && onPeaks(q.box))) { pick = q; break; }
         }
         if (pick) break;
       }

@@ -1918,7 +1918,7 @@
     // 素材は2回に分けて描く：山・木 → 道 → 町・建物など（道が町の絵の上を横切らないように）
     const NATURAL = { '山・丘': 1, '木・植物': 1 };
     const isNatural = (s) => { const a = AS.BY_ID[s.a]; return !!(a && NATURAL[a.cat]); };
-    const drawRoads = () => { sorted.forEach((ln) => { if (ROAD_KINDS.includes(ln.kind)) drawPath(ctx, ln, pl); }); };
+    const drawRoads = () => { sorted.forEach((ln) => { if (ROAD_KINDS.includes(ln.kind)) drawPath(ctx, ln, pl); }); if (!layerHidden('paths')) drawBridges(ctx, m.lines, pl); };
     if (layerHidden('stamps')) drawRoads();
     else for (let pass = 0; pass < 2; pass++) {
       if (pass === 1) drawRoads();
@@ -2060,6 +2060,126 @@
   }
 
   function seedOf(id) { return (AS.hashStr(String(id)) % 1000) / 10; }
+
+  // ───── 橋：道が川を渡る所に、道の向きに沿った橋を架ける（描くときに求める） ─────
+  const drawnPts = new Map();
+  /** 線の描く形（なめらかにして揺らした点列）。形が変わるまで覚えておく */
+  function renderedPts(ln) {
+    let sum = 0;
+    ln.points.forEach((p0) => { sum += p0[0] * 1.3 + p0[1] * 0.7; });
+    const key = ln.points.length + ':' + sum.toFixed(2) + ':' + (ln.wobble != null ? ln.wobble : '') + ':' + ln.kind;
+    const c = drawnPts.get(ln.id);
+    if (c && c.key === key) return c.pts;
+    const pts = wobble(sampleSpline(ln.points, false, 3), ln.wobble != null ? ln.wobble : (PATH_KINDS[ln.kind] || {}).wobble || 0, seedOf(ln.id));
+    drawnPts.set(ln.id, { key, pts });
+    return pts;
+  }
+  function findBridges(lines) {
+    const rivers = lines.filter((ln) => (ln.kind === 'river' || ln.kind === 'stream') && ln.points.length > 1);
+    const roads = lines.filter((ln) => ROAD_KINDS.includes(ln.kind) && ln.points.length > 1);
+    if (!rivers.length || !roads.length) return [];
+    // 川の区間をマスに分けて探す
+    const G = 24;
+    const grid = new Map();
+    rivers.forEach((rv) => {
+      const pts = renderedPts(rv);
+      const n = pts.length;
+      for (let i = 0; i < n - 1; i++) {
+        const a = pts[i]; const b = pts[i + 1];
+        const gx0 = Math.floor(Math.min(a[0], b[0]) / G); const gx1 = Math.floor(Math.max(a[0], b[0]) / G);
+        const gy0 = Math.floor(Math.min(a[1], b[1]) / G); const gy1 = Math.floor(Math.max(a[1], b[1]) / G);
+        for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+          const k = gx + ',' + gy;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push({ rv, i, n, a, b });
+        }
+      }
+    });
+    const out = [];
+    roads.forEach((rd) => {
+      const pts = renderedPts(rd);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]; const b = pts[i + 1];
+        const gx0 = Math.floor(Math.min(a[0], b[0]) / G); const gx1 = Math.floor(Math.max(a[0], b[0]) / G);
+        const gy0 = Math.floor(Math.min(a[1], b[1]) / G); const gy1 = Math.floor(Math.max(a[1], b[1]) / G);
+        const seen = new Set();
+        for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+          (grid.get(gx + ',' + gy) || []).forEach((sg) => {
+            const id = sg.rv.id + ':' + sg.i;
+            if (seen.has(id)) return;
+            seen.add(id);
+            const r = segX(a, b, sg.a, sg.b);
+            if (!r) return;
+            const x = a[0] + (b[0] - a[0]) * r;
+            const y = a[1] + (b[1] - a[1]) * r;
+            if (out.some((q) => q.road === rd && Math.hypot(q.x - x, q.y - y) < 10)) return;
+            const t = sg.i / Math.max(1, sg.n - 2);
+            const rw = sg.rv.kind === 'river' ? 0.7 + 2.5 * t : 0.5 + 0.9 * t;
+            const dx = b[0] - a[0]; const dy = b[1] - a[1]; const l = Math.hypot(dx, dy) || 1;
+            const rdx = sg.b[0] - sg.a[0]; const rdy = sg.b[1] - sg.a[1]; const rl = Math.hypot(rdx, rdy) || 1;
+            // 川と道のなす角が浅いほど、橋は長く
+            const sin = Math.max(0.35, Math.abs((dx * rdy - dy * rdx) / (l * rl)));
+            out.push({ road: rd, x, y, ux: dx / l, uy: dy / l, span: (rw * (sg.rv.w || 1) + 1.4) / sin });
+          });
+        }
+      }
+    });
+    return out;
+  }
+  /** 2つの線分が交われば、1本目の上の位置（0〜1）を返す */
+  function segX(a, b, c, d) {
+    const r1x = b[0] - a[0]; const r1y = b[1] - a[1];
+    const r2x = d[0] - c[0]; const r2y = d[1] - c[1];
+    const den = r1x * r2y - r1y * r2x;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((c[0] - a[0]) * r2y - (c[1] - a[1]) * r2x) / den;
+    const u = ((c[0] - a[0]) * r1y - (c[1] - a[1]) * r1x) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+  }
+  let bridgeCache = { key: '', list: [] };
+  function drawBridges(ctx, lines, pl) {
+    let sum = 0;
+    lines.forEach((ln) => { sum += ln.points.length * 7 + (ln.points[0] ? ln.points[0][0] + ln.points[0][1] : 0) + (ln.w || 1); });
+    const key = lines.length + ':' + sum.toFixed(1);
+    if (bridgeCache.key !== key) bridgeCache = { key, list: findBridges(lines) };
+    if (!bridgeCache.list.length) return;
+    const ink = inkOf(pl);
+    const dark = pl === E.PALETTES.night;
+    const deck = dark ? '#5b5044' : (pl.roadStyle === 'light' ? '#efe4c8' : '#e9dcc0');
+    ctx.save();
+    ctx.lineCap = 'round';
+    bridgeCache.list.forEach((b) => {
+      const rw = (b.road.w || 1) * pathBoost;
+      const half = ({ highway: 2.5, road: 1.9, trail: 1.5, rail: 1.8 }[b.road.kind] || 1.9) * rw;
+      const len = b.span / 2 + 1.6 * rw;
+      const ux = b.ux; const uy = b.uy; const nx = -uy; const ny = ux;
+      const P = (s, t) => [b.x + ux * s + nx * t, b.y + uy * s + ny * t];
+      const corners = [P(-len, -half), P(len, -half), P(len, half), P(-len, half)];
+      // 影
+      ctx.fillStyle = 'rgba(20,14,8,0.25)';
+      ctx.beginPath();
+      corners.forEach(([x, y], i) => (i ? ctx.lineTo(x + 0.5, y + 0.7) : ctx.moveTo(x + 0.5, y + 0.7)));
+      ctx.closePath();
+      ctx.fill();
+      // 床
+      ctx.fillStyle = deck;
+      ctx.beginPath();
+      corners.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fill();
+      // 板目
+      ctx.strokeStyle = hexA(ink, 0.3);
+      ctx.lineWidth = 0.3;
+      for (let s = -len + 1.2; s < len - 0.6; s += 1.3) { const a = P(s, -half); const c = P(s, half); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0], c[1]); ctx.stroke(); }
+      // 欄干（両わきの線）と、端の柱
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 0.75;
+      [[-half, -half], [half, half]].forEach(([t0]) => { const a = P(-len - 0.6, t0); const c = P(len + 0.6, t0); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0], c[1]); ctx.stroke(); });
+      ctx.fillStyle = ink;
+      [[-len - 0.6, -half], [len + 0.6, -half], [-len - 0.6, half], [len + 0.6, half]].forEach(([s0, t0]) => { const q = P(s0, t0); ctx.beginPath(); ctx.arc(q[0], q[1], 0.6, 0, Math.PI * 2); ctx.fill(); });
+    });
+    ctx.restore();
+  }
   function inkOf(pl) { return pl.ink === '#f2ead8' ? '#1a1a1a' : pl.ink; }
 
   let riverLayer = null;
@@ -2257,7 +2377,7 @@
     if (ln.points.length < 2) return;
     const roadLike = ROAD_KINDS.includes(ln.kind) || ln.kind === 'route';
     const w = (ln.w || 1) * (roadLike ? pathBoost : 1);
-    const pts = wobble(sampleSpline(ln.points, false, 3), ln.wobble != null ? ln.wobble : (PATH_KINDS[ln.kind] || {}).wobble || 0, seedOf(ln.id));
+    const pts = ln.id ? renderedPts(ln) : wobble(sampleSpline(ln.points, false, 3), ln.wobble != null ? ln.wobble : (PATH_KINDS[ln.kind] || {}).wobble || 0, seedOf(ln.id));
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
