@@ -753,7 +753,35 @@
     secBase.appendChild(UI.field('この作品の語り手（地の文の視点）', narrSel));
     secBase.appendChild(narrHelp);
     secBase.appendChild(h('p', { class: 'muted small' }, '話ごとに語り手が違う場合は、執筆画面の「設定チェック」タブで、その話だけ変えられます。'));
-    secBase.appendChild(UI.field('作品のあらすじ', textInput(p.synopsis, (v) => { p.synopsis = v; touch(); }, { textarea: true, rows: 3, placeholder: 'AIチェックの参考になります' })));
+    const synIn = textInput(p.synopsis, (v) => { p.synopsis = v; touch(); synCount(); }, { textarea: true, rows: 4, placeholder: 'AIチェックの参考になります。新人賞の応募書類のあらすじにも' });
+    const synLen = h('span', { class: 'small muted' });
+    const synCount = () => { synLen.textContent = `${(p.synopsis || '').replace(/\s/g, '').length}字`; };
+    synCount();
+    const synChars = h('select', { class: 'input syn-chars', 'aria-label': 'あらすじの字数' }, [400, 800, 1200, 2000].map((n) => h('option', { value: n, selected: n === 800 }, `${n}字`)));
+    const synBtn = btn('本文からあらすじを作る（AI）', { small: true, ghost: true, icon: 'sparkles', title: '全話の本文を読んで、結末まで書いた応募用のあらすじを作ります', onClick: async () => {
+      if (!NS.AI || !NS.AI.getKey()) { toast('AIを使うには、設定でAPIキーを入れてください', 'error'); return; }
+      if (!p.chapters.some((c) => (c.body || '').trim())) { toast('本文がまだありません', 'error'); return; }
+      if ((p.synopsis || '').trim() && !(await UI.confirm('今のあらすじを、AIが作ったあらすじで置き換えます（今の文章は下に残します）。', { okLabel: '作る' }))) return;
+      const before = p.synopsis || '';
+      synBtn.disabled = true;
+      const label = synBtn.textContent;
+      synBtn.textContent = 'AIが読んでいます…';
+      try {
+        const text = await NS.AI.synopsis(p, +synChars.value, null, (snap) => { synIn.value = snap; });
+        p.synopsis = text + (before.trim() ? `\n\n――（前のあらすじ）――\n${before}` : '');
+        synIn.value = p.synopsis;
+        touch();
+        synCount();
+        toast('あらすじを作りました。本文と食い違いがないか確かめてください');
+      } catch (err) {
+        synIn.value = before;
+        toast(err.message || String(err), 'error');
+      } finally {
+        synBtn.disabled = false;
+        synBtn.textContent = label;
+      }
+    } });
+    secBase.appendChild(UI.field('作品のあらすじ', h('div', { class: 'stack-sm' }, synIn, h('div', { class: 'row wrap syn-row' }, synLen, synChars, synBtn))));
 
     // 通貨
     const cur = p.rules.currency;

@@ -275,6 +275,8 @@ select.input { padding-right: 28px; }
 .type-badge.t-place { background: rgba(106, 153, 78, 0.16); color: #4c7a36; }
 .type-badge.t-term { background: rgba(217, 164, 65, 0.18); color: #946812; }
 .type-badge.t-org { background: rgba(140, 59, 94, 0.14); color: #8c3b5e; }
+.syn-row { align-items: center; gap: 8px; }
+.syn-row .syn-chars { width: auto; min-width: 6em; }
 .journey-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .journey-row { display: grid; grid-template-columns: 3.6em 1fr; gap: 6px; font-size: 12.5px; align-items: baseline; }
 .journey-ch { color: #9b2d24; font-weight: 700; }

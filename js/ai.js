@@ -327,6 +327,33 @@
     return run(params, { signal, onText });
   }
 
+  /**
+   * 応募用のあらすじ：全話の本文と設定資料から、結末まで書いたあらすじを作る（chars 字前後）。
+   * 長い作品は、話ごとの本文の前後を残して途中を省き、送る量を抑える
+   */
+  async function synopsis(project, chars, signal, onText) {
+    const LIMIT = 150000;
+    const total = project.chapters.reduce((a, c) => a + (c.body || '').length, 0);
+    const per = total > LIMIT ? Math.max(1200, Math.floor(LIMIT / Math.max(1, project.chapters.length))) : Infinity;
+    const body = project.chapters.map((c, i) => {
+      let t = c.body || '';
+      if (t.length > per) t = t.slice(0, Math.floor(per * 0.6)) + '\n（……中略……）\n' + t.slice(-Math.floor(per * 0.4));
+      return `### 第${i + 1}話「${c.title || ''}」\n${t}`;
+    }).join('\n\n');
+    const system = [
+      'あなたは小説の新人賞に原稿を送る作者を手伝う、経験豊富な編集者です。原稿全体を読み、応募書類に付ける「あらすじ」を書いてください。',
+      '- 結末まで隠さずに書く（新人賞のあらすじは、選考する人が物語の全体を知るためのもの。宣伝文やあおり文句ではない）。',
+      '- 主人公の目的・物語の始まり・大きな転機・山場・結末を、起きた順に分かりやすく。主な登場人物は初めて出るときに名前を書く。',
+      '- 本文や設定資料にないことは書かない。地の文の文体は「である」調。',
+      `- 長さは${chars}字前後（${Math.round(chars * 0.9)}〜${chars}字）。見出しや箇条書きは使わず、段落の文章だけで。`,
+      '- 返すのはあらすじの本文だけ（前置きや説明は書かない）。',
+    ].join('\n');
+    const user = settingsBlock(project) + `\n\n## 作品「${project.title}」の原稿${per < Infinity ? '（長いので、話ごとに途中を省いています）' : ''}\n<manuscript>\n${body}\n</manuscript>`;
+    const params = baseParams(system, user, 8000);
+    const out = await run(params, { signal, onText });
+    return out.trim();
+  }
+
   // ───── 執筆画面の AI タブ ─────
   const Panel = {};
   let running = null;
@@ -524,6 +551,6 @@
     try { return JSON.parse(text); } catch (e) { throw new Error('AIの応答を読み取れませんでした'); }
   }
 
-  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, creatureShape, MODELS };
+  NS.AI = { getKey, setKey, proofread, checkConsistency, ask, askWord, locate, creatureShape, synopsis, MODELS };
   NS.AIPanel = Panel;
 })(window.Tsuzuri = window.Tsuzuri || {});
