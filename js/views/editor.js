@@ -1518,11 +1518,20 @@
       const q = search.value.trim();
       const list = p.entries.filter((e) => !q || e.name.indexOf(q) >= 0 || (e.reading || '').indexOf(q) >= 0 || e.aliases.some((a) => a.indexOf(q) >= 0));
       if (!list.length) results.appendChild(h('p', { class: 'muted small' }, p.entries.length ? '見つかりません' : '設定資料はまだありません'));
-      list.slice(0, 50).forEach((e) => {
+      // この話に出てくる項目を上に（多く出てくる順）。出てこない項目はその下に
+      let here = {};
+      try { here = (NS.Consistency.countMentionsByEntry([S.ch.body || ''], p.entries)[0]) || {}; } catch (err) { here = {}; }
+      const order = list.map((e, i) => ({ e, i, n: here[e.id] || 0 })).sort((a, b) => (b.n > 0) - (a.n > 0) || b.n - a.n || a.i - b.i);
+      let divided = false;
+      const anyHere = order.some((o) => o.n > 0);
+      if (anyHere && !q) results.appendChild(h('div', { class: 'ref-divider small muted' }, 'この話に出てくる'));
+      order.slice(0, 50).forEach(({ e, n }) => {
+        if (anyHere && !q && !n && !divided) { divided = true; results.appendChild(h('div', { class: 'ref-divider small muted' }, 'この話には出てこない')); }
         results.appendChild(h('details', { class: 'ref-item' },
           h('summary', null,
             h('span', { class: 'type-badge t-' + e.type }, NS.Lore.TYPE_LABEL[e.type]),
-            h('strong', null, e.name), e.reading ? h('span', { class: 'muted small' }, ' ' + e.reading) : null),
+            h('strong', null, e.name), e.reading ? h('span', { class: 'muted small' }, ' ' + e.reading) : null,
+            n ? h('span', { class: 'ref-count', title: 'この話に出てくる回数（名前・別名）' }, n + '回') : null),
           h('div', { class: 'ref-body' },
             NS.Lore.summaryList(e, p),
             h('div', { class: 'row' },

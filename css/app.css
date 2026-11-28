@@ -275,6 +275,8 @@ select.input { padding-right: 28px; }
 .type-badge.t-place { background: rgba(106, 153, 78, 0.16); color: #4c7a36; }
 .type-badge.t-term { background: rgba(217, 164, 65, 0.18); color: #946812; }
 .type-badge.t-org { background: rgba(140, 59, 94, 0.14); color: #8c3b5e; }
+.ref-divider { margin: 8px 2px 2px; font-weight: 600; letter-spacing: 0.05em; }
+.ref-count { margin-left: auto; font-size: 11px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
 .type-badge.t-creature { background: rgba(70, 110, 60, 0.15); color: #4d6e3c; }
 /* 生物の図 */
 .creature-fig { display: flex; flex-direction: column; gap: 10px; }
